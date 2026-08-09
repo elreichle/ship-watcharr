@@ -105,9 +105,10 @@ public class ScrapeWorker : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        // Re-checked every poll rather than once at startup. On a fresh install the contact
-        // defaults to the admin account's address, and at boot there is no admin account yet —
-        // a one-shot check would latch scraping off and never notice registration happening.
+        // Re-checked every poll rather than once at startup. A fresh install boots with no contact
+        // at all — one only appears once someone saves an email at Settings → Account or a contact
+        // at Settings → Scraping — so a one-shot check would latch scraping off and never notice
+        // that happening.
         var userAgents = scope.ServiceProvider.GetRequiredService<Ao3UserAgentProvider>();
         var (ok, userAgent, error) = await userAgents.TryGetUserAgentAsync(ct);
 

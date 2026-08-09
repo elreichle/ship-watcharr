@@ -5,7 +5,7 @@ import type { ScrapingIdentity } from '../api/types';
 const SOURCE_LABELS: Record<ScrapingIdentity['contactSource'], string> = {
   AdminSetting: 'set here, on this page',
   Configuration: 'from this deployment’s configuration',
-  AdminAccount: 'defaulted to the admin account’s address',
+  AdminAccount: 'from the first admin’s account email',
   None: 'not set',
 };
 

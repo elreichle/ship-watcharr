@@ -71,9 +71,9 @@ ShipWatcharr/0.1 (+contact: you@example.com; instance/a3f9c2)
 
 - **Product token** — constant and public. This is what lets AO3 recognise the tool's traffic
   as a known, well-behaved client. Not editable.
-- **Operator contact** — how AO3 reaches *whoever runs this deployment*. Defaults to the address
-  the admin account registered with (registration is email-based, so that address is both their
-  username and a real mailbox). Change it under **Settings → Scraping**, or set
+- **Operator contact** — how AO3 reaches *whoever runs this deployment*. Falls back to the first
+  admin's email, which is optional and saved under **Settings → Account** — registration itself
+  only asks for a username. Set it explicitly under **Settings → Scraping**, or via
   `Ao3HttpClient:OperatorContact` in configuration. Deliberately per-deployment: the project's
   author must never be the contact for someone else's instance.
 - **Instance id** — 3 random bytes generated on first run into the data directory. Lets AO3
@@ -82,8 +82,10 @@ ShipWatcharr/0.1 (+contact: you@example.com; instance/a3f9c2)
 
 **With no usable contact, scraping is disabled** — the app still boots and serves its UI (that's
 where you go to fix it), but the worker refuses to make requests and logs why. This is checked
-every poll rather than once at startup, so a fresh install starts scraping as soon as the first
-admin registers.
+every poll rather than once at startup, so a fresh install starts scraping as soon as a contact
+exists, without a restart. On a new instance that means saving one: either an email under
+**Settings → Account**, or a contact under **Settings → Scraping**. Registering an admin is not
+enough on its own, because sign-up never asks for an address.
 
 ## Data model
 
@@ -265,9 +267,11 @@ constraint translates on both providers, and that every timestamp lands as
 
 The politeness layer has unit tests (`backend/Ao3Tracker.Tests`) covering the budget and
 breaker, the jitter bounds — including that a `Max < Min` misconfiguration clamps to `Min`
-rather than to zero delay — contact validation, and operator-contact precedence. The scraping
-identity was also exercised end-to-end against a running instance: a fresh install logs
-`Scraping is disabled`, registering the first admin flips it to
+rather than to zero delay — contact validation, and operator-contact precedence. The optional
+account email has its own tests, over a real `UserManager` and database, covering that blank
+clears the field rather than failing validation and that saving an address does not sign the
+caller out. The scraping identity was also exercised end-to-end against a running instance: a
+fresh install logs `Scraping is disabled`, saving an admin's email flips it to
 `Scraping enabled. Identifying to AO3 as: …` on the next poll, overriding and clearing the
 contact both work without a restart, and unreachable contacts (`nobody`) and header-injection
 attempts (`a@b.com) Mozilla/5.0 (`) are rejected with a 400.

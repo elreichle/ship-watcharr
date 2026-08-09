@@ -68,8 +68,9 @@ public class Ao3HttpClientOptions
     /// via user secrets locally, or AO3_OPERATOR_CONTACT in .env under Docker.
     ///
     /// Empty is legitimate rather than invalid: <see cref="IOperatorContactResolver"/> falls back
-    /// to the admin account's sign-in address, which is what makes a fresh install work without
-    /// any configuration at all. Only when *every* source is empty does scraping stay disabled.
+    /// to the first admin's email, so a deployment can supply a contact through the UI instead of
+    /// through configuration. That email is optional, though, so it may be absent too — only when
+    /// *every* source is empty does scraping stay disabled.
     /// </summary>
     public string OperatorContact { get; set; } = "";
 }

@@ -46,13 +46,15 @@ public class OperatorContactResolverTests : IDisposable
 
     private async Task AddUserAsync(string id, string email, bool isAdmin)
     {
+        // Username and email are separate values now that sign-up only asks for the former, so
+        // the fixture keeps them distinct rather than reusing the address as the name.
         _db.Users.Add(new ApplicationUser
         {
             Id = id,
             Email = email,
-            UserName = email,
+            UserName = id,
             NormalizedEmail = email.ToUpperInvariant(),
-            NormalizedUserName = email.ToUpperInvariant(),
+            NormalizedUserName = id.ToUpperInvariant(),
             IsAdmin = isAdmin,
         });
         await _db.SaveChangesAsync();
@@ -61,8 +63,8 @@ public class OperatorContactResolverTests : IDisposable
     [Fact]
     public async Task Defaults_to_the_admin_account_address()
     {
-        // The "works out of the box" path: registration is email-based, so the address someone
-        // signs up with is both their username and a real mailbox.
+        // The path a deployment takes when it configures nothing: an admin saved the optional
+        // email at Settings → Account, and that becomes what AO3 sees.
         await AddUserAsync("u1", "emma@example.com", isAdmin: true);
 
         var result = await Resolver().ResolveAsync();

@@ -17,7 +17,7 @@ public enum OperatorContactSource
     /// <summary>From user secrets, environment, or appsettings — the deployment's own config.</summary>
     Configuration = 2,
 
-    /// <summary>Defaulted to the admin account's sign-in address.</summary>
+    /// <summary>Fell back to the first admin's optional account email.</summary>
     AdminAccount = 3,
 }
 
