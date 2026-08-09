@@ -20,7 +20,15 @@ export interface NavSection {
  * instance-wide administration under System.
  */
 export const NAV_SECTIONS: NavSection[] = [
-  { label: 'Dashboard', icon: 'layout-dashboard', to: '/' },
+  {
+    label: 'Dashboard',
+    icon: 'layout-dashboard',
+    children: [
+      { label: 'Works', to: '/works' },
+      { label: 'Ships', to: '/ships' },
+      { label: 'Schedules', to: '/schedules' },
+    ],
+  },
   {
     label: 'Settings',
     icon: 'settings',

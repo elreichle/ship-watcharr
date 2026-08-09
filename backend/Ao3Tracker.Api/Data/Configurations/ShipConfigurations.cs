@@ -14,9 +14,14 @@ public class ShipConfiguration : IEntityTypeConfiguration<Ship>
         entity.Property(s => s.CanonicalTagNameNormalized).HasMaxLength(200).IsRequired();
         entity.Property(s => s.TagUrlSegment).HasMaxLength(400).IsRequired();
 
+        entity.Property(s => s.VerificationError).HasMaxLength(500);
+
         // One row per tracked tag, however many users watch it.
         entity.HasIndex(s => s.CanonicalTagNameNormalized).IsUnique();
         entity.HasIndex(s => s.Ao3TagId);
+
+        // The verification worker's only query: ships still awaiting an answer, due now.
+        entity.HasIndex(s => new { s.VerificationState, s.NextVerificationAttemptAt });
 
         entity.HasOne(s => s.Tag)
             .WithMany()
@@ -32,6 +37,7 @@ public class WatchedShipConfiguration : IEntityTypeConfiguration<WatchedShip>
         entity.HasKey(w => w.Id);
 
         entity.Property(w => w.DisplayNameOverride).HasMaxLength(200);
+        entity.Property(w => w.RequestedTagName).HasMaxLength(200);
 
         entity.HasOne(w => w.User)
             .WithMany(u => u.WatchedShips)

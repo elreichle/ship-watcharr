@@ -411,6 +411,74 @@
     font-size: var(--font-ui-smaller);
   }
 
+  .ships-table,
+  .works-table {
+    display: block;
+    overflow-x: auto;
+  }
+
+  /* Numbers line up on their last digit, which is the only way a column of them is comparable
+     at a glance. Tabular figures stop the digits themselves jittering between rows. */
+  .works-table .numeric {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .ships-table td,
+  .works-table thead th,
+  .works-table td:not(.work-cell) {
+    white-space: nowrap;
+  }
+
+  /* The one column allowed to wrap. Capped rather than free so a long title can't push the
+     numeric columns off the right of a wide screen. */
+  .work-cell {
+    min-width: 22rem;
+    max-width: 34rem;
+    white-space: normal;
+  }
+
+  .work-byline,
+  .work-chips {
+    display: block;
+    margin-top: var(--size-2-2);
+  }
+
+  .work-byline {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+  }
+
+  .work-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--size-2-2);
+  }
+
+  .work-complete {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+  }
+
+  .ship-tag {
+    font-family: var(--font-monospace);
+    font-size: var(--font-ui-smaller);
+    white-space: normal;
+  }
+
+  /* Secondary lines under a cell's main value: why a tag was renamed, why a check is stuck. */
+  .ship-renamed,
+  .ship-status-detail {
+    display: block;
+    max-width: 28rem;
+    margin-top: var(--size-2-2);
+    color: var(--text-muted);
+    font-family: var(--font-interface);
+    font-size: var(--font-ui-smaller);
+    white-space: normal;
+  }
+
   /* Key/value layout rather than a data grid: labels stay narrow, values wrap freely. */
   .identity-table th {
     width: 1%;
@@ -421,6 +489,55 @@
 
   .identity-table td {
     white-space: normal;
+  }
+
+  /* --------------------------------------------------------------- filters, chips and paging */
+
+  .works-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--size-4-3);
+    margin-bottom: var(--size-4-4);
+  }
+
+  .works-controls label {
+    width: auto;
+    min-width: 9rem;
+  }
+
+  /* Wide enough for a full relationship tag, which is the whole content of the field. */
+  .ship-tag-field {
+    min-width: 22rem;
+  }
+
+  .chip {
+    padding: 0 var(--size-2-3);
+    border-radius: var(--radius-s);
+    background-color: var(--background-modifier-hover);
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    line-height: var(--line-height-tight);
+    white-space: nowrap;
+  }
+
+  .chip-ship {
+    color: var(--text-accent);
+  }
+
+  /* Warnings are the one chip a reader may be scanning *for*, so they get the colour. */
+  .chip-warning {
+    color: var(--text-warning);
+  }
+
+  .pager {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--size-4-3);
+    align-items: center;
+  }
+
+  .pager .hint {
+    margin: 0;
   }
 
   /* --------------------------------------------------------------------------------- notices */

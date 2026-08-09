@@ -5,7 +5,9 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { AdminRoute } from './components/AdminRoute';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
-import { DashboardPage } from './pages/DashboardPage';
+import { WorksPage } from './pages/WorksPage';
+import { ShipsPage } from './pages/ShipsPage';
+import { SchedulesPage } from './pages/SchedulesPage';
 import { AccountSettingsPage } from './pages/AccountSettingsPage';
 import { AppearanceSettingsPage } from './pages/AppearanceSettingsPage';
 import { AdminScrapingPage } from './pages/AdminScrapingPage';
@@ -26,7 +28,12 @@ export default function App() {
             </ProtectedRoute>
           }
         >
-          <Route path="/" element={<DashboardPage />} />
+          {/* The dashboard is a group of sibling views, so "/" is a redirect rather than a page
+              of its own. Works leads because it is the thing the app is for. */}
+          <Route path="/" element={<Navigate to="/works" replace />} />
+          <Route path="/works" element={<WorksPage />} />
+          <Route path="/ships" element={<ShipsPage />} />
+          <Route path="/schedules" element={<SchedulesPage />} />
 
           <Route path="/settings" element={<Navigate to="/settings/account" replace />} />
           <Route path="/settings/account" element={<AccountSettingsPage />} />

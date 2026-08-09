@@ -1,0 +1,64 @@
+using System.ComponentModel.DataAnnotations;
+
+namespace Ao3Tracker.Api.Dtos;
+
+/// <summary>
+/// One ship the current user watches, joined to the shared scrape state behind it.
+/// </summary>
+/// <param name="ShipId">The shared <c>Ship</c>, not the per-user subscription — it is what the
+/// unwatch and works-filter endpoints take, and the subscription row id is of no use to a client.</param>
+/// <param name="WorkCount">Works currently in this ship's index. Excludes ones a completed sweep
+/// found had left the tag, and ones AO3 has deleted.</param>
+/// <param name="WatcherCount">How many users on this instance watch the tag. Shown so it is
+/// obvious that unwatching does not throw the scraped data away when someone else still wants it.</param>
+/// <param name="ScraperAvailable">Whether an implementation is registered for the job's scraper
+/// key. False on this build for every ship — see <c>Ao3ScraperKeys.ShipIndex</c>.</param>
+/// <param name="VerificationState">"Pending", "Verified" or "NotFoundOnAo3".</param>
+/// <param name="VerificationError">Why the last check settled nothing. Present only while Pending,
+/// and only after at least one attempt.</param>
+/// <param name="RequestedTagName">What this user typed, when AO3 turned out to call the tag
+/// something else. Null in the ordinary case — the UI shows it only to explain the difference.</param>
+public record WatchedShipDto(
+    int ShipId,
+    string TagName,
+    bool NotificationsEnabled,
+    DateTime WatchedSince,
+    int WorkCount,
+    int WatcherCount,
+    string BackfillState,
+    DateTime? LastScrapedAt,
+    DateTime? NextScrapeAt,
+    bool IsScheduled,
+    bool ScraperAvailable,
+    string VerificationState,
+    string? VerificationError,
+    string? RequestedTagName);
+
+/// <summary>
+/// The ships list, wrapped so it can carry one instance-wide fact alongside them.
+/// </summary>
+/// <param name="VerificationEnabled">
+/// False when this instance has no operator contact, which is what makes it unable to talk to AO3
+/// at all. Without it a page full of ships stuck on "Checking…" has no visible explanation, and the
+/// setting that fixes it is admin-only — so the flag is reported to everyone even though the
+/// underlying configuration is not.
+/// </param>
+public record WatchedShipsDto(IReadOnlyList<WatchedShipDto> Ships, bool VerificationEnabled);
+
+/// <summary>
+/// A tag to start watching, exactly as AO3 renders it — <c>Clarke Griffin/Lexa</c>.
+/// </summary>
+/// <remarks>
+/// Deliberately does not require a <c>/</c>. It reads like a safe check for "is this really a
+/// couple tag", but AO3 uses <c>&amp;</c> for platonic pairings and lists poly ships with several
+/// slashes, so the rule would reject valid relationship tags while still admitting any typo that
+/// happens to contain a slash. The UI says what shape is expected; the API does not enforce it.
+/// </remarks>
+/// <remarks>
+/// The message is on the attribute, not only in the controller: <c>[ApiController]</c> short-
+/// circuits on model validation, so a blank tag never reaches the action and the controller's own
+/// check — which still guards a direct call — never gets to phrase the error. Both say the same
+/// thing so the caller sees one wording either way.
+/// </remarks>
+public record AddWatchedShipRequest(
+    [Required(ErrorMessage = "Enter the relationship tag you want to track.")] string TagName);

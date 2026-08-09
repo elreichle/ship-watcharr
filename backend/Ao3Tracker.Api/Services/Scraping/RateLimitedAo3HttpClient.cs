@@ -129,7 +129,15 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
             if (!isRetryable || attempt >= _options.MaxRetries)
             {
                 var content = await response.Content.ReadAsStringAsync(ct);
-                return new ScrapeHttpResponse(content, response.StatusCode, FromCache: false);
+
+                // RequestMessage is the *last* request the handler made, so after an automatic
+                // redirect its Uri is the destination rather than what we asked for. That is
+                // exactly the difference a synonym check needs.
+                return new ScrapeHttpResponse(
+                    content,
+                    response.StatusCode,
+                    FromCache: false,
+                    FinalUrl: response.RequestMessage?.RequestUri?.ToString());
             }
 
             // Retry-After is AO3 telling us exactly what it wants; honor it verbatim and do not

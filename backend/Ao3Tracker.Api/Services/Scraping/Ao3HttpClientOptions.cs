@@ -10,6 +10,12 @@ public class Ao3HttpClientOptions
     public const string SectionName = "Ao3HttpClient";
 
     /// <summary>
+    /// Root of the archive being scraped. Configurable so tests can point at a local stub, not so
+    /// deployments can retarget it — every other assumption in this codebase is AO3-shaped.
+    /// </summary>
+    public string BaseUrl { get; set; } = "https://archiveofourown.org";
+
+    /// <summary>
     /// Lower bound on the spacing enforced between any two outgoing requests, regardless of origin.
     /// The actual delay is drawn uniformly from [Min, Max] — see <see cref="MaxDelayBetweenRequests"/>.
     /// </summary>

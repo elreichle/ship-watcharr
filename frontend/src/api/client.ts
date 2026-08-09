@@ -3,9 +3,14 @@ import type {
   Ao3CredentialStatus,
   CurrentUser,
   DatabaseStatus,
+  PagedResult,
   ScrapeJob,
   ScrapeRun,
   ScrapingIdentity,
+  WatchedShip,
+  WatchedShipsResponse,
+  WorkListItem,
+  WorkQuery,
 } from './types';
 
 export class ApiError extends Error {
@@ -76,6 +81,26 @@ export const api = {
     }),
 
   removeAo3Credential: () => request<void>('/account/ao3-credential', { method: 'DELETE' }),
+
+  getWatchedShips: () => request<WatchedShipsResponse>('/ships'),
+
+  watchShip: (tagName: string) =>
+    request<WatchedShip>('/ships', { method: 'POST', body: JSON.stringify({ tagName }) }),
+
+  unwatchShip: (shipId: number) => request<void>(`/ships/${shipId}`, { method: 'DELETE' }),
+
+  getWorks: ({ page, pageSize, shipId, sort, ascending }: WorkQuery = {}) => {
+    // Built key by key rather than from the object: a null shipId means "every watched ship", and
+    // URLSearchParams would happily send it as the literal string "null".
+    const query = new URLSearchParams();
+    if (page !== undefined) query.set('page', String(page));
+    if (pageSize !== undefined) query.set('pageSize', String(pageSize));
+    if (shipId != null) query.set('shipId', String(shipId));
+    if (sort !== undefined) query.set('sort', sort);
+    if (ascending !== undefined) query.set('ascending', String(ascending));
+
+    return request<PagedResult<WorkListItem>>(`/works?${query}`);
+  },
 
   getScrapeJobs: () => request<ScrapeJob[]>('/scrape-jobs'),
 

@@ -134,8 +134,13 @@ builder.Services
 // and the real ship-index scraper arrives with the AO3 parser.
 builder.Services.AddScoped<ScraperRegistry>();
 
-// ---- Background scheduling worker ----
+// ---- Ship verification (confirms a followed tag exists on AO3, and folds synonyms into
+// their canonical tag). Shares the rate-limited client, so it cannot outpace scraping. ----
+builder.Services.AddScoped<IShipVerifier, Ao3ShipVerifier>();
+
+// ---- Background workers ----
 builder.Services.AddHostedService<ScrapeWorker>();
+builder.Services.AddHostedService<ShipVerificationWorker>();
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();

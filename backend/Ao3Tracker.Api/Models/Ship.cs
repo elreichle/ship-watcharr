@@ -35,6 +35,29 @@ public class Ship
     public int? TagId { get; set; }
     public Tag? Tag { get; set; }
 
+    // --- Verification against AO3 ---
+
+    /// <summary>
+    /// Whether AO3 has confirmed this tag exists. Follows are accepted on trust and checked
+    /// afterwards; see <see cref="ShipVerificationState"/>.
+    /// </summary>
+    public ShipVerificationState VerificationState { get; set; } = ShipVerificationState.Pending;
+
+    /// <summary>When the last check ran, whatever its outcome. Null until one has.</summary>
+    public DateTime? VerificationCheckedAt { get; set; }
+
+    /// <summary>Why the last check did not settle the question. Cleared once one does.</summary>
+    public string? VerificationError { get; set; }
+
+    /// <summary>
+    /// Consecutive inconclusive checks. Drives the retry backoff, and is reset by any outcome that
+    /// actually answers the question.
+    /// </summary>
+    public int VerificationAttempts { get; set; }
+
+    /// <summary>Null means "due now". Set to a backed-off time after an inconclusive check.</summary>
+    public DateTime? NextVerificationAttemptAt { get; set; }
+
     // --- Incremental sync ---
 
     /// <summary>

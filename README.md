@@ -43,6 +43,7 @@ something site-neutral is worth doing at the point a second scraper actually lan
 | Seam | Interface | Where |
 |---|---|---|
 | Scraper implementation | `IAo3Scraper` | `backend/Ao3Tracker.Api/Services/Scraping/IAo3Scraper.cs` |
+| Tag existence / synonyms | `IShipVerifier` | `backend/Ao3Tracker.Api/Services/Scraping/ShipVerifier.cs` |
 | Scraper HTTP access | `IRateLimitedHttpClient` | `backend/Ao3Tracker.Api/Services/Scraping/IRateLimitedHttpClient.cs` |
 | AO3 credential storage | `IAo3CredentialStore` | `backend/Ao3Tracker.Api/Services/Credentials/IAo3CredentialStore.cs` |
 | DB provider selection | `Database:Provider` branch | `backend/Ao3Tracker.Api/Program.cs` |
@@ -139,10 +140,52 @@ Scheduling:
 
 ## Interface: Sonarr-style navigation, Obsidian-compatible themes
 
-Navigation is a collapsible left sidebar, following Sonarr/Radarr's split — per-user preferences
-under **Settings** (Account, Appearance), instance-wide administration under **System** (Scraping,
-Database). The hamburger collapses it to a 48px icon rail where groups open as flyouts; below
-700px it becomes an overlay drawer. The choice is remembered per browser.
+Navigation is a collapsible left sidebar, following Sonarr/Radarr's split — the library under
+**Dashboard** (Works, Ships, Schedules), per-user preferences under **Settings** (Account,
+Appearance), instance-wide administration under **System** (Scraping, Database). The hamburger
+collapses it to a 48px icon rail where groups open as flyouts; below 700px it becomes an overlay
+drawer. The choice is remembered per browser.
+
+The three Dashboard views are one story told in three places:
+
+| View | What it is | Endpoint |
+|---|---|---|
+| **Works** | Paginated, sortable list of everything scraped for the ships you follow | `GET /api/works` |
+| **Ships** | Follow and unfollow relationship tags | `GET`/`POST`/`DELETE /api/ships` |
+| **Schedules** | Read-only view of the scrape schedule behind each ship | `GET /api/scrape-jobs` |
+
+Following a tag creates the shared `Ship` if this instance has never seen it, subscribes you, and
+enables one `ScrapeJob` for it. Unfollowing removes *only* your subscription — the ship, its works
+and its run history stay for whoever else is watching, and the schedule switches off only when the
+last watcher leaves. On this build nothing is registered under the job's scraper key, so the Ships
+view says so rather than leaving you with a permanently empty library and no explanation.
+
+### Tags are verified after the fact, not before
+
+A tag is accepted on trust and checked against AO3 a moment later, by `ShipVerificationWorker`.
+Checking first would mean blocking the request on a fetch queued behind the shared 5–8s rate gate,
+which has no latency anyone can promise, and would make following a tag impossible whenever AO3 is
+unreachable. So `POST /api/ships` returns immediately with `verificationState: "Pending"`, and the
+Ships view polls until it settles into one of:
+
+- **Verified** — AO3 served the tag's works index. The numeric tag id is harvested from the page's
+  feed link where possible, since an id survives AO3 renaming the tag and a name does not.
+- **NotFoundOnAo3** — AO3 returned 404, so it is almost certainly a typo. Terminal, and the ship's
+  schedule is switched off; following the same misspelling again will not turn it back on.
+- Still **Pending** — the check settled nothing (AO3 down, no operator contact configured, a
+  redirect somewhere unexpected). Retried with a doubling backoff capped at six hours, and
+  deliberately **never** given up on: an archive being unreachable, for however long, is not
+  evidence that a tag is missing.
+
+**Synonyms are folded into their canonical tag.** AO3 answers a synonym by redirecting to the
+canonical tag's index, so a check that lands somewhere other than where it was aimed has found one.
+The synonym is then renamed to the canonical tag, or — if that tag is already tracked — merged into
+it: watchers move across, `ShipWork` rows move without duplicating, and the redundant schedule is
+deleted. Without this, `Bellarke` and `Bellamy Blake/Clarke Griffin` would be two ships walking
+identical works, which is the duplicate fetching the shared-`Ship` design exists to prevent.
+
+Whichever way it resolves, `WatchedShip.RequestedTagName` records what that user originally typed,
+so the UI can say why the tag on screen is not the one they entered.
 
 ### Bring your own theme
 
@@ -299,8 +342,11 @@ To add a real AO3 scraper:
    request cap, the wall-clock cap, and the circuit breaker.
 3. Register it: `builder.Services.AddScoped<IAo3Scraper, YourScraper>();` in `Program.cs`.
    `ScraperRegistry` picks it up automatically — no scheduling/persistence code changes needed.
-4. A `ScrapeJob` is created per ship with `ScraperKey` matching your scraper's `Key`. The
-   available keys are exposed at `GET /api/scrape-jobs/scrapers`.
+4. A `ScrapeJob` is created per ship the moment someone follows the tag, with its `ScraperKey`
+   set to `Ao3ScraperKeys.ShipIndex` (`"ao3-ship-index"`). Return that same string from your
+   scraper's `Key` and every job already sitting in the database starts running — no migration,
+   no re-following. Until then the worker logs one "unknown scraper key" warning per due tick and
+   reschedules. Registered keys are exposed at `GET /api/scrape-jobs/scrapers`.
 
 ## Note on this scaffold's testing
 
@@ -323,6 +369,15 @@ fresh install logs `Scraping is disabled`, saving an admin's email flips it to
 `Scraping enabled. Identifying to AO3 as: …` on the next poll, overriding and clearing the
 contact both work without a restart, and unreachable contacts (`nobody`) and header-injection
 attempts (`a@b.com) Mozilla/5.0 (`) are rejected with a 400.
+
+The library endpoints and tag verification are covered against a real SQLite database rather than
+a mocked context — watched-ship scoping, paging returning each work exactly once under a sort full
+of ties, and the synonym rename/merge paths all depend on what the database actually does. Tag
+verification was additionally exercised end-to-end against a **local stub** standing in for AO3
+(`redirect → renamed`, `404 → NotFoundOnAo3` with its schedule disabled, tag id harvested from the
+feed link, User-Agent carrying the operator contact). No test has ever sent a request to the real
+archive, and none should: the stub is what makes the redirect path testable without spending
+somebody else's bandwidth on it.
 
 The admin database-settings endpoint was verified too, including that it rejects an unreachable
 PostgreSQL connection string with a 400 *before* persisting or restarting anything.

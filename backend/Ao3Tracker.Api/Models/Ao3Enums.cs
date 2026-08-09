@@ -131,6 +131,30 @@ public enum ScrapeRunMode : byte
     Detail = 3,
 }
 
+/// <summary>
+/// Whether AO3 has confirmed a tag exists. A tag is accepted on trust when someone follows it and
+/// checked afterwards, because checking costs a real AO3 request behind a 5–8s gate — making the
+/// user wait on that would be a worse trade than telling them shortly after.
+/// </summary>
+public enum ShipVerificationState : byte
+{
+    /// <summary>
+    /// Not checked yet, or a check failed in a way that says nothing about the tag (AO3 down, no
+    /// operator contact configured, connection refused). Retried with backoff, indefinitely: an
+    /// archive being unreachable for a day is not evidence about a tag.
+    /// </summary>
+    Pending = 0,
+
+    /// <summary>AO3 served the tag's works index.</summary>
+    Verified = 1,
+
+    /// <summary>
+    /// AO3 returned 404. Almost always a typo. Terminal — the ship's schedule is switched off,
+    /// since there is nothing there to scrape.
+    /// </summary>
+    NotFoundOnAo3 = 2,
+}
+
 public enum ShipBackfillState : byte
 {
     NotStarted = 0,

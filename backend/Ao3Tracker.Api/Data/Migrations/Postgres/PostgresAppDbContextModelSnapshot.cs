@@ -415,6 +415,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.Property<DateTime?>("LastKnownTotalWorksAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("NextVerificationAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int?>("TagId")
                         .HasColumnType("integer");
 
@@ -422,6 +425,19 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                         .IsRequired()
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)");
+
+                    b.Property<int>("VerificationAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("VerificationCheckedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VerificationError")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<byte>("VerificationState")
+                        .HasColumnType("smallint");
 
                     b.HasKey("Id");
 
@@ -431,6 +447,8 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                         .IsUnique();
 
                     b.HasIndex("TagId");
+
+                    b.HasIndex("VerificationState", "NextVerificationAttemptAt");
 
                     b.ToTable("Ships");
                 });
@@ -563,6 +581,10 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
 
                     b.Property<bool>("NotificationsEnabled")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("RequestedTagName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<int>("ShipId")
                         .HasColumnType("integer");

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { ScrapeJob, ScrapeRun } from '../api/types';
 
@@ -52,7 +53,7 @@ function JobRuns({ jobId }: { jobId: number }) {
   );
 }
 
-export function DashboardPage() {
+export function SchedulesPage() {
   const [jobs, setJobs] = useState<ScrapeJob[]>([]);
   const [expandedJobId, setExpandedJobId] = useState<number | null>(null);
 
@@ -64,11 +65,14 @@ export function DashboardPage() {
     <div className="page">
       <h1>Scrape schedules</h1>
 
-      {/*
-        Read-only on purpose. A job belongs to a ship, not to a user, so its lifecycle follows
-        subscription — it is created when the first user watches a ship and disabled when the
-        last one stops. The watch/unwatch UI that drives that arrives with the scrape pipeline.
-      */}
+      <p className="hint">
+        One schedule per ship, shared by everyone watching it. Add and remove ships on the{' '}
+        <Link to="/ships">Ships</Link> tab — a schedule appears when the first user watches a ship
+        and switches off when the last one stops.
+      </p>
+
+      {/* Read-only on purpose: a job belongs to a ship, not to a user, so its lifecycle follows
+          subscription rather than anything editable here. */}
       <table className="jobs-table">
         <thead>
           <tr>
