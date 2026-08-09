@@ -20,6 +20,8 @@ vendor/
 dist/
 build/
 out/
+bin/
+obj/
 
 # Logs
 *.log
