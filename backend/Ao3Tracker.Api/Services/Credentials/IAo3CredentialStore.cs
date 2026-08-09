@@ -1,6 +1,6 @@
 namespace Ao3Tracker.Api.Services.Credentials;
 
-public record Ao3Session(string SessionCookie, DateTimeOffset EstablishedAt, DateTimeOffset? ExpiresAt);
+public record Ao3Session(string SessionCookie, DateTime EstablishedAt, DateTime? ExpiresAt);
 
 /// <summary>
 /// Reads/writes a user's AO3 credential and session state. Implementations are responsible

@@ -19,5 +19,6 @@ public class ScrapedItem
     /// <summary>Raw JSON payload for whatever fields the scraper extracted.</summary>
     public string PayloadJson { get; set; } = "{}";
 
-    public DateTimeOffset ScrapedAt { get; set; } = DateTimeOffset.UtcNow;
+    // DateTime (UTC), not DateTimeOffset: ScrapedAt is ordered by — see README.
+    public DateTime ScrapedAt { get; set; } = DateTime.UtcNow;
 }

@@ -17,6 +17,7 @@ export function NavBar() {
       <Link to="/">Dashboard</Link>
       <Link to="/data">Scraped data</Link>
       <Link to="/settings">Account settings</Link>
+      {user.isAdmin && <Link to="/admin/database">Database</Link>}
       <span className="spacer" />
       <span>{user.email}</span>
       <button onClick={onLogout}>Log out</button>

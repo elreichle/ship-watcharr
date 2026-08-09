@@ -1,0 +1,36 @@
+# Optional override: pre-configures PostgreSQL from first boot instead of going through
+# the admin UI. Usage:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up --build
+#
+# Only useful before the app-data volume has ever been initialized — once settings.json
+# exists (either from a prior run or from using the admin UI), it takes precedence over
+# these environment variables. See README.
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ao3tracker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-ao3tracker}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ao3tracker}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      Database__Provider: Postgres
+      Database__PostgresConnectionString: >-
+        Host=db;Port=5432;Database=${POSTGRES_DB:-ao3tracker};
+        Username=${POSTGRES_USER:-ao3tracker};Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+
+volumes:
+  db-data:

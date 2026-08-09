@@ -45,7 +45,7 @@ public class Ao3CredentialStore : IAo3CredentialStore
         {
             entity.Ao3Username = ao3Username;
             entity.EncryptedPassword = encryptedPassword;
-            entity.UpdatedAt = DateTimeOffset.UtcNow;
+            entity.UpdatedAt = DateTime.UtcNow;
             // Credentials changed: any existing session is no longer trustworthy.
             entity.EncryptedSessionCookie = null;
             entity.SessionEstablishedAt = null;
@@ -79,7 +79,7 @@ public class Ao3CredentialStore : IAo3CredentialStore
 
         return new Ao3Session(
             _protector.Unprotect(entity.EncryptedSessionCookie),
-            entity.SessionEstablishedAt ?? DateTimeOffset.UtcNow,
+            entity.SessionEstablishedAt ?? DateTime.UtcNow,
             entity.SessionExpiresAt);
     }
 
@@ -92,7 +92,7 @@ public class Ao3CredentialStore : IAo3CredentialStore
         entity.EncryptedSessionCookie = _protector.Protect(session.SessionCookie);
         entity.SessionEstablishedAt = session.EstablishedAt;
         entity.SessionExpiresAt = session.ExpiresAt;
-        entity.UpdatedAt = DateTimeOffset.UtcNow;
+        entity.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(ct);
     }

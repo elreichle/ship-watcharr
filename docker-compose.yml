@@ -1,40 +1,19 @@
 services:
-  db:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-ao3tracker}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-      POSTGRES_DB: ${POSTGRES_DB:-ao3tracker}
-    volumes:
-      - db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ao3tracker}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   app:
     build:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
     environment:
-      ConnectionStrings__Default: >-
-        Host=db;Port=5432;Database=${POSTGRES_DB:-ao3tracker};
-        Username=${POSTGRES_USER:-ao3tracker};Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       Ao3HttpClient__UserAgent: ${AO3_USER_AGENT:?Set AO3_USER_AGENT in .env to a descriptive UA with contact info}
       Ao3HttpClient__MinDelayBetweenRequests: ${AO3_MIN_DELAY:-00:00:05}
     ports:
       - "${APP_PORT:-8080}:8080"
     volumes:
-      # Data Protection keys must survive container restarts/recreates — losing them
-      # makes every stored AO3 credential unrecoverable.
-      - dataprotection-keys:/app/keys
+      # Holds the SQLite database, the Data Protection key ring, and the admin-editable
+      # settings.json overlay. This one volume is all that needs to survive a
+      # container recreate for the whole instance (data + secrets) to be durable.
+      - app-data:/app/data
 
 volumes:
-  db-data:
-  dataprotection-keys:
+  app-data:

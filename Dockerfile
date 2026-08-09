@@ -22,15 +22,18 @@ RUN dotnet publish ./backend/Ao3Tracker.Api/Ao3Tracker.Api.csproj -c Release -o 
 # ---- Stage 3: runtime ----
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
+# /app/data holds the SQLite db file (default provider), the Data Protection key ring,
+# and the admin-editable settings.json overlay — mount one volume there and the whole
+# instance is durable across container recreation.
 RUN adduser --disabled-password --home /app --gecos '' appuser \
-    && mkdir -p /app/keys \
+    && mkdir -p /app/data \
     && chown -R appuser:appuser /app
 COPY --from=backend-build --chown=appuser:appuser /app/publish .
 USER appuser
 
 ENV ASPNETCORE_URLS=http://+:8080 \
     ASPNETCORE_ENVIRONMENT=Production \
-    DataProtection__KeyPath=/app/keys
+    Storage__DataDirectory=/app/data
 EXPOSE 8080
 
 ENTRYPOINT ["dotnet", "Ao3Tracker.Api.dll"]

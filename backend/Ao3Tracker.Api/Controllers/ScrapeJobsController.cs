@@ -70,7 +70,7 @@ public class ScrapeJobsController : ControllerBase
             ScraperKey = request.ScraperKey,
             Interval = TimeSpan.FromMinutes(request.IntervalMinutes),
             IsEnabled = true,
-            NextRunAt = DateTimeOffset.UtcNow,
+            NextRunAt = DateTime.UtcNow,
         };
 
         _db.ScrapeJobs.Add(job);
@@ -86,7 +86,7 @@ public class ScrapeJobsController : ControllerBase
         if (job is null) return NotFound();
 
         job.IsEnabled = enabled;
-        if (enabled && job.NextRunAt is null) job.NextRunAt = DateTimeOffset.UtcNow;
+        if (enabled && job.NextRunAt is null) job.NextRunAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
         return NoContent();
     }

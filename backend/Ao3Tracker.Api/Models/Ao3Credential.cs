@@ -21,9 +21,11 @@ public class Ao3Credential
     /// <summary>Data-Protection-encrypted AO3 session cookie, set after a successful login.</summary>
     public string? EncryptedSessionCookie { get; set; }
 
-    public DateTimeOffset? SessionEstablishedAt { get; set; }
-    public DateTimeOffset? SessionExpiresAt { get; set; }
+    // DateTime (UTC), not DateTimeOffset: the SQLite provider can only translate equality
+    // on DateTimeOffset columns, not ordering/range comparisons — see README.
+    public DateTime? SessionEstablishedAt { get; set; }
+    public DateTime? SessionExpiresAt { get; set; }
 
-    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
-    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

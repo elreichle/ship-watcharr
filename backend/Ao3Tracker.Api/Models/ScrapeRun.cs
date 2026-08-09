@@ -18,8 +18,10 @@ public class ScrapeRun
 
     public ScrapeRunStatus Status { get; set; } = ScrapeRunStatus.Pending;
 
-    public DateTimeOffset StartedAt { get; set; } = DateTimeOffset.UtcNow;
-    public DateTimeOffset? CompletedAt { get; set; }
+    // DateTime (UTC), not DateTimeOffset: StartedAt is ordered by, and the SQLite
+    // provider can't translate ordering/comparisons on DateTimeOffset — see README.
+    public DateTime StartedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? CompletedAt { get; set; }
 
     public string? ErrorMessage { get; set; }
 

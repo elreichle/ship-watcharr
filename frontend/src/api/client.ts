@@ -1,6 +1,7 @@
 import type {
   Ao3CredentialStatus,
   CurrentUser,
+  DatabaseStatus,
   ScrapeJob,
   ScrapeRun,
   ScrapedItem,
@@ -77,4 +78,12 @@ export const api = {
 
   getScrapedItems: (scrapeJobId?: number) =>
     request<ScrapedItem[]>(`/scraped-items${scrapeJobId ? `?scrapeJobId=${scrapeJobId}` : ''}`),
+
+  getDatabaseStatus: () => request<DatabaseStatus>('/admin/database'),
+
+  updateDatabaseSettings: (provider: 'Sqlite' | 'Postgres', postgresConnectionString?: string) =>
+    request<{ message: string }>('/admin/database', {
+      method: 'PUT',
+      body: JSON.stringify({ provider, postgresConnectionString }),
+    }),
 };

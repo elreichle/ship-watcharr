@@ -20,10 +20,12 @@ public class ScrapeJob
 
     public bool IsEnabled { get; set; } = true;
 
-    public DateTimeOffset? LastRunAt { get; set; }
-    public DateTimeOffset? NextRunAt { get; set; }
+    // DateTime (UTC), not DateTimeOffset: NextRunAt is range-compared by the scheduler,
+    // and the SQLite provider can't translate >/</<=/>= on DateTimeOffset — see README.
+    public DateTime? LastRunAt { get; set; }
+    public DateTime? NextRunAt { get; set; }
 
-    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public ICollection<ScrapeRun> Runs { get; set; } = new List<ScrapeRun>();
 }

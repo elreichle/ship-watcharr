@@ -4,9 +4,16 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Ao3Tracker.Api.Data;
 
-public class AppDbContext : IdentityDbContext<ApplicationUser>
+/// <summary>
+/// Shared entity model. Abstract because EF Core migrations can't be shared across
+/// providers from one context type — <see cref="SqliteAppDbContext"/> and
+/// <see cref="PostgresAppDbContext"/> are the concrete, migratable contexts, each with
+/// its own migration history. Everything else in the app depends on this base type and
+/// is unaware of which provider is actually active.
+/// </summary>
+public abstract class AppDbContext : IdentityDbContext<ApplicationUser>
 {
-    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
+    protected AppDbContext(DbContextOptions options) : base(options)
     {
     }
 
@@ -14,6 +21,15 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ScrapeJob> ScrapeJobs => Set<ScrapeJob>();
     public DbSet<ScrapeRun> ScrapeRuns => Set<ScrapeRun>();
     public DbSet<ScrapedItem> ScrapedItems => Set<ScrapedItem>();
+
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        base.ConfigureConventions(configurationBuilder);
+
+        // See UtcDateTimeConverter: guarantees every DateTime read back from either
+        // provider comes back Kind=Utc, so it serializes to JSON with a "Z".
+        configurationBuilder.Properties<DateTime>().HaveConversion<UtcDateTimeConverter>();
+    }
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

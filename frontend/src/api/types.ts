@@ -41,3 +41,10 @@ export interface ScrapedItem {
   payloadJson: string;
   scrapedAt: string;
 }
+
+export interface DatabaseStatus {
+  provider: 'Sqlite' | 'Postgres';
+  sqliteDbPath: string;
+  postgresConfigured: boolean;
+  postgresConnectionSummary: string | null;
+}

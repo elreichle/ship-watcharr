@@ -32,3 +32,6 @@ yarn-error.log*
 # Misc
 *.tmp
 .cache/
+
+# Local runtime data: SQLite db, Data Protection keys, admin-persisted settings.json
+backend/Ao3Tracker.Api/data/

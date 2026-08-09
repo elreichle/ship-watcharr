@@ -47,10 +47,11 @@ public class ScrapeWorker : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        var now = DateTimeOffset.UtcNow;
+        var now = DateTime.UtcNow;
         var dueJobs = await db.ScrapeJobs
             .Include(j => j.User)
-            .Where(j => j.IsEnabled && (j.NextRunAt == null || j.NextRunAt <= now))
+            .Where(j => j.IsEnabled)
+            .Where(j => !j.NextRunAt.HasValue || j.NextRunAt.Value <= now)
             .ToListAsync(ct);
 
         foreach (var job in dueJobs)
@@ -70,7 +71,7 @@ public class ScrapeWorker : BackgroundService
         if (scraper is null)
         {
             _logger.LogWarning("ScrapeJob {JobId} references unknown scraper key {ScraperKey}", job.Id, job.ScraperKey);
-            job.NextRunAt = DateTimeOffset.UtcNow + job.Interval;
+            job.NextRunAt = DateTime.UtcNow + job.Interval;
             await db.SaveChangesAsync(ct);
             return;
         }
@@ -106,9 +107,9 @@ public class ScrapeWorker : BackgroundService
         }
         finally
         {
-            run.CompletedAt = DateTimeOffset.UtcNow;
+            run.CompletedAt = DateTime.UtcNow;
             job.LastRunAt = run.CompletedAt;
-            job.NextRunAt = DateTimeOffset.UtcNow + job.Interval;
+            job.NextRunAt = DateTime.UtcNow + job.Interval;
             await db.SaveChangesAsync(ct);
         }
     }

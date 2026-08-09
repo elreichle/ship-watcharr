@@ -2,16 +2,45 @@ using Ao3Tracker.Api.Data;
 using Ao3Tracker.Api.Models;
 using Ao3Tracker.Api.Services.Credentials;
 using Ao3Tracker.Api.Services.Scraping;
+using Ao3Tracker.Api.Services.Settings;
+using Ao3Tracker.Api.Services.Storage;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ---- Database (Npgsql by default; swap the provider package + this call to move to SQL Server) ----
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("Default")
-        ?? throw new InvalidOperationException("Missing ConnectionStrings:Default configuration.")));
+// ---- Resolve where this instance keeps its local state (SQLite db, Data Protection
+// keys, admin-editable settings.json) before anything else needs it ----
+var storagePaths = StoragePaths.Resolve(builder.Configuration, builder.Environment);
+builder.Services.AddSingleton(storagePaths);
+
+// Admin-configured overrides (currently just DB provider selection) layer on top of
+// appsettings.json/appsettings.{Environment}.json here. This intentionally makes the
+// persisted file win over environment variables/command-line args too: once someone
+// saves a choice through the admin UI, that's the source of truth until they change it
+// again (or an operator deletes settings.json). See README for the full precedence story.
+builder.Configuration.AddJsonFile(storagePaths.SettingsFilePath, optional: true, reloadOnChange: false);
+
+// ---- Database (SQLite by default — zero-config, one file, works out of the box for a
+// self-hosted install. PostgreSQL is opt-in, configured either via the admin UI or the
+// Database:Provider/Database:PostgresConnectionString settings, e.g. through the
+// docker-compose.postgres.yml override.) ----
+var databaseProvider = builder.Configuration["Database:Provider"] ?? "Sqlite";
+if (string.Equals(databaseProvider, "Postgres", StringComparison.OrdinalIgnoreCase))
+{
+    var connectionString = builder.Configuration["Database:PostgresConnectionString"]
+        ?? throw new InvalidOperationException("Database:Provider is Postgres but Database:PostgresConnectionString is not set.");
+
+    builder.Services.AddDbContext<AppDbContext, PostgresAppDbContext>(options => options.UseNpgsql(connectionString));
+}
+else
+{
+    builder.Services.AddDbContext<AppDbContext, SqliteAppDbContext>(options =>
+        options.UseSqlite($"Data Source={storagePaths.SqliteDbPath}"));
+}
+
+builder.Services.AddScoped<IPersistedSettingsStore, PersistedSettingsStore>();
 
 // ---- Dashboard login (cookie-based ASP.NET Core Identity) ----
 // AddIdentityCore alone does not register an authentication scheme; AddIdentityCookies()
@@ -56,14 +85,12 @@ builder.Services.ConfigureApplicationCookie(options =>
 });
 
 // ---- Data Protection (encrypts AO3 credentials + session cookies at rest) ----
-// Persist keys to a mounted volume in production so they survive container restarts;
-// see docker-compose.yml / README for the DataProtection:KeyPath setting.
-var keyPath = builder.Configuration["DataProtection:KeyPath"];
-var dataProtectionBuilder = builder.Services.AddDataProtection().SetApplicationName("Ao3Tracker");
-if (!string.IsNullOrWhiteSpace(keyPath))
-{
-    dataProtectionBuilder.PersistKeysToFileSystem(new DirectoryInfo(keyPath));
-}
+// Keys live under the same data directory as everything else, so one mounted
+// volume/folder is enough to survive restarts. Losing this key ring makes every stored
+// AO3 credential unrecoverable.
+builder.Services.AddDataProtection()
+    .SetApplicationName("Ao3Tracker")
+    .PersistKeysToFileSystem(new DirectoryInfo(storagePaths.KeysDirectory));
 
 // ---- AO3 credential storage ----
 builder.Services.AddScoped<IAo3CredentialStore, Ao3CredentialStore>();
@@ -88,13 +115,11 @@ builder.Services.AddHostedService<ScrapeWorker>();
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
-builder.Services.AddHealthChecks()
-    .AddNpgSql(builder.Configuration.GetConnectionString("Default")
-        ?? throw new InvalidOperationException("Missing ConnectionStrings:Default configuration."));
+builder.Services.AddHealthChecks().AddDbContextCheck<AppDbContext>();
 
 var app = builder.Build();
 
-if (!Microsoft.EntityFrameworkCore.EF.IsDesignTime)
+if (!EF.IsDesignTime)
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
