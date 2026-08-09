@@ -53,4 +53,37 @@ public static class Ao3Labels
 
     public static IReadOnlyList<string> Describe(Ao3Warning warnings) =>
         [.. WarningLabels.Where(w => warnings.HasFlag(w.Flag)).Select(w => w.Label)];
+
+    // ---- the vocabulary, enumerated -----------------------------------------------------------
+    //
+    // Served to the filter editor so it can offer these choices without keeping its own copy of
+    // AO3's wording. Values are the enum names, which is what the filter API takes and returns.
+
+    /// <summary>
+    /// Ratings in AO3's order, least explicit first, so a "between" control reads correctly.
+    /// <see cref="Ao3Rating.Unknown"/> is left out: it means the scraper never read a rating, so
+    /// offering it as a band bound would ask the user to filter on our own shortfall.
+    /// </summary>
+    public static IReadOnlyList<(string Value, string Label)> Ratings { get; } =
+    [
+        .. new[]
+        {
+            Ao3Rating.NotRated,
+            Ao3Rating.GeneralAudiences,
+            Ao3Rating.TeenAndUpAudiences,
+            Ao3Rating.Mature,
+            Ao3Rating.Explicit,
+        }.Select(r => (r.ToString(), Describe(r))),
+    ];
+
+    /// <summary>
+    /// Every category including <see cref="Ao3Category.Unknown"/> — unlike a rating, an
+    /// unrecognised category is a real thing a work carries, and excluding it is a filter someone
+    /// might reasonably want while AO3's vocabulary is drifting.
+    /// </summary>
+    public static IReadOnlyList<(string Value, string Label)> Categories { get; } =
+        [.. CategoryLabels.Select(c => (c.Flag.ToString(), c.Label))];
+
+    public static IReadOnlyList<(string Value, string Label)> Warnings { get; } =
+        [.. WarningLabels.Select(w => (w.Flag.ToString(), w.Label))];
 }

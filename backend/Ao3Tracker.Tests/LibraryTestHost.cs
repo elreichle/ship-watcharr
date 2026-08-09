@@ -157,6 +157,12 @@ internal sealed class LibraryTestHost : IDisposable
     public WorksController Works(ApplicationUser user) => Build(new WorksController(
         _request.ServiceProvider.GetRequiredService<AppDbContext>()), user);
 
+    public SavedFiltersController SavedFilters(ApplicationUser user) => Build(new SavedFiltersController(
+        _request.ServiceProvider.GetRequiredService<AppDbContext>()), user);
+
+    public LookupsController Lookups(ApplicationUser user) => Build(new LookupsController(
+        _request.ServiceProvider.GetRequiredService<AppDbContext>()), user);
+
     /// <summary>
     /// Attaches the principal an auth cookie would carry. NameIdentifier is the claim Identity
     /// keeps the user id under, and the one both controllers read.

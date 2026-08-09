@@ -97,8 +97,139 @@ export interface WorkQuery {
   page?: number;
   pageSize?: number;
   shipId?: number | null;
+  /** Omit to let a saved filter's own sort apply; sending one always wins over it. */
   sort?: WorkSort;
   ascending?: boolean;
+  /** A saved set of criteria to apply. */
+  savedFilterId?: number | null;
+  /**
+   * Whether an unqualified request picks up the user's default set. Send false for "show me
+   * everything I follow", which is otherwise inexpressible once a default exists.
+   */
+  useDefaultFilter?: boolean;
+}
+
+export type Ao3TagType = 'Fandom' | 'Relationship' | 'Character' | 'Freeform' | 'Warning';
+
+export interface SavedFilterTag {
+  tagId: number;
+  name: string;
+  type: Ao3TagType;
+}
+
+export interface SavedFilterAuthor {
+  pseudId: number;
+  displayName: string;
+  username: string;
+}
+
+/**
+ * A named, reusable set of library criteria — AO3's filter sidebar, saved.
+ *
+ * Enum-valued criteria are the API's own names ("TeenAndUpAudiences", "FF"), never the numbers
+ * behind them and never display text. `FilterVocabulary` turns a name into something to show, so
+ * AO3's wording has exactly one home and it is the server's.
+ *
+ * Null means "unconstrained" throughout, including `isComplete`, where it is genuinely a third
+ * state rather than a default.
+ */
+export interface SavedFilter {
+  id: number;
+  name: string;
+  /** Applied when Works is opened without naming a set. At most one per account. */
+  isDefault: boolean;
+  shipId: number | null;
+  /** Present even when you no longer follow that ship — the set stays valid and matches nothing. */
+  shipTagName: string | null;
+  isComplete: boolean | null;
+  minWordCount: number | null;
+  maxWordCount: number | null;
+  minChapterCount: number | null;
+  maxChapterCount: number | null;
+  minKudos: number | null;
+  maxKudos: number | null;
+  minHits: number | null;
+  maxHits: number | null;
+  minComments: number | null;
+  maxComments: number | null;
+  minBookmarks: number | null;
+  maxBookmarks: number | null;
+  minRating: string | null;
+  maxRating: string | null;
+  includeCategories: string[];
+  excludeCategories: string[];
+  includeWarnings: string[];
+  excludeWarnings: string[];
+  languageCode: string | null;
+  updatedAfter: string | null;
+  updatedBefore: string | null;
+  sort: WorkSort;
+  ascending: boolean;
+  includeTags: SavedFilterTag[];
+  excludeTags: SavedFilterTag[];
+  includeAuthors: SavedFilterAuthor[];
+  excludeAuthors: SavedFilterAuthor[];
+  /** How many works in your library this set currently matches. */
+  matchingWorkCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * A set to create or replace. Sent whole rather than patched: null means "unconstrained", so an
+ * omitted field and a cleared one are the same thing and a merge could not tell them apart.
+ */
+export interface SaveFilterInput {
+  name: string;
+  isDefault: boolean;
+  shipId: number | null;
+  isComplete: boolean | null;
+  minWordCount: number | null;
+  maxWordCount: number | null;
+  minChapterCount: number | null;
+  maxChapterCount: number | null;
+  minKudos: number | null;
+  maxKudos: number | null;
+  minHits: number | null;
+  maxHits: number | null;
+  minComments: number | null;
+  maxComments: number | null;
+  minBookmarks: number | null;
+  maxBookmarks: number | null;
+  minRating: string | null;
+  maxRating: string | null;
+  includeCategories: string[];
+  excludeCategories: string[];
+  includeWarnings: string[];
+  excludeWarnings: string[];
+  languageCode: string | null;
+  updatedAfter: string | null;
+  updatedBefore: string | null;
+  sort: WorkSort;
+  ascending: boolean;
+  includeTagIds: number[];
+  excludeTagIds: number[];
+  includeAuthorIds: number[];
+  excludeAuthorIds: number[];
+}
+
+/** One choice a filter can be built from: what the API takes, and what a human reads. */
+export interface VocabularyOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * The controlled vocabulary behind the filter editor, fetched rather than hard-coded — this
+ * wording is AO3's, and the parser that reads it off a blurb lives on the server too.
+ */
+export interface FilterVocabulary {
+  ratings: VocabularyOption[];
+  categories: VocabularyOption[];
+  warnings: VocabularyOption[];
+  sorts: VocabularyOption[];
+  /** Only languages present in your own library. Empty until something has been scraped. */
+  languages: VocabularyOption[];
 }
 
 /** A scrape schedule. Belongs to a ship, and is visible to a user via the ships they watch. */

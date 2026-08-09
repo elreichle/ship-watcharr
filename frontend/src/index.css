@@ -491,6 +491,175 @@
     white-space: normal;
   }
 
+  /* ------------------------------------------------------------------------- saved filters */
+
+  .filters-table {
+    display: block;
+    overflow-x: auto;
+  }
+
+  .filter-name {
+    white-space: nowrap;
+  }
+
+  /* The order a saved view opens with, under its name — part of what the view is. */
+  .filter-sort {
+    display: block;
+    margin-top: var(--size-2-2);
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+  }
+
+  /* The one column allowed to wrap: it lists every criterion, and truncating it is exactly where
+     a forgotten one would hide. */
+  .filter-summary {
+    min-width: 20rem;
+    max-width: 40rem;
+    white-space: normal;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+  }
+
+  .filter-default,
+  .filter-check {
+    display: flex;
+    gap: var(--size-2-2);
+    align-items: center;
+    width: auto;
+    white-space: nowrap;
+  }
+
+  .filter-actions {
+    display: flex;
+    gap: var(--size-4-2);
+    white-space: nowrap;
+  }
+
+  .filter-editor {
+    display: flex;
+    flex-direction: column;
+    gap: var(--size-4-3);
+    margin-bottom: var(--size-4-6);
+  }
+
+  .filter-editor h2 {
+    margin: 0;
+  }
+
+  /* Each criterion group is a real fieldset, so the legend names the group for a screen reader
+     rather than only looking like a heading. */
+  .filter-section {
+    padding: var(--size-4-3);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m);
+  }
+
+  .filter-section > legend {
+    padding: 0 var(--size-2-3);
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .filter-section-body {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--size-4-3);
+    align-items: flex-start;
+  }
+
+  .filter-field {
+    width: auto;
+    min-width: 12rem;
+  }
+
+  .filter-field-wide {
+    min-width: 20rem;
+  }
+
+  /* Full-width so a note about the group it sits in doesn't get read as a caption on whichever
+     control happens to precede it. */
+  .filter-note {
+    flex-basis: 100%;
+    margin: 0;
+  }
+
+  .filter-range {
+    display: flex;
+    gap: var(--size-2-3);
+    align-items: center;
+  }
+
+  .filter-range-label {
+    min-width: 5rem;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+  }
+
+  .filter-range input {
+    width: 9rem;
+  }
+
+  .filter-flags,
+  .filter-tokens {
+    display: flex;
+    flex-direction: column;
+    gap: var(--size-2-3);
+    min-width: 16rem;
+    padding: 0;
+    border: 0;
+  }
+
+  .filter-flags > legend,
+  .filter-tokens > legend {
+    margin-bottom: var(--size-2-2);
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+  }
+
+  .filter-token-search {
+    display: flex;
+    gap: var(--size-2-3);
+  }
+
+  .filter-token-search select {
+    width: auto;
+  }
+
+  /* Removes a chosen tag or author. Sized to stay a comfortable target inside a small chip. */
+  .chip-remove {
+    padding: 0 var(--size-2-1);
+    margin-left: var(--size-2-2);
+    border: 0;
+    background: none;
+    box-shadow: none;
+    color: inherit;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .chip-remove:hover {
+    color: var(--text-error);
+  }
+
+  .filter-suggestions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--size-2-2);
+    max-height: 12rem;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .filter-suggestion-detail {
+    margin-left: var(--size-2-3);
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+  }
+
   /* --------------------------------------------------------------- filters, chips and paging */
 
   .works-controls {
