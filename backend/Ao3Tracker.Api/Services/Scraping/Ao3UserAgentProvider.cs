@@ -88,8 +88,8 @@ public sealed class Ao3UserAgentProvider
                 "and scraping is disabled.\n\n" +
                 "AO3 is volunteer-run infrastructure. Give them a way to reach you — an email or a " +
                 "project URL — so they can ask you to slow down instead of blocking you.\n\n" +
-                "This normally defaults to the address you registered the admin account with. Set it " +
-                "explicitly under Settings, or via Ao3HttpClient:OperatorContact in configuration.";
+                "This defaults to the admin account's email, but that is optional at registration. " +
+                "Set it explicitly under Settings, or via Ao3HttpClient:OperatorContact in configuration.";
             return false;
         }
 

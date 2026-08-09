@@ -26,8 +26,7 @@ public class AuthController : ControllerBase
 
         var user = new ApplicationUser
         {
-            UserName = request.Email,
-            Email = request.Email,
+            UserName = request.Username,
             IsAdmin = isFirstUser, // first registered account becomes admin
         };
 
@@ -40,21 +39,23 @@ public class AuthController : ControllerBase
         }
 
         await _signInManager.SignInAsync(user, isPersistent: true);
-        return Ok(new CurrentUserDto(user.Id, user.Email!, user.IsAdmin));
+        return Ok(new CurrentUserDto(user.Id, user.UserName!, user.Email, user.IsAdmin));
     }
 
     [HttpPost("login")]
     public async Task<ActionResult<CurrentUserDto>> Login(LoginRequest request)
     {
-        var user = await _userManager.FindByEmailAsync(request.Email);
+        // Accounts created before usernames existed were registered with the email as the username,
+        // so this still finds them with what they have always typed here.
+        var user = await _userManager.FindByNameAsync(request.Username);
         if (user is null)
-            return Unauthorized(new { message = "Invalid email or password." });
+            return Unauthorized(new { message = "Invalid username or password." });
 
         var result = await _signInManager.PasswordSignInAsync(user, request.Password, isPersistent: true, lockoutOnFailure: true);
         if (!result.Succeeded)
-            return Unauthorized(new { message = "Invalid email or password." });
+            return Unauthorized(new { message = "Invalid username or password." });
 
-        return Ok(new CurrentUserDto(user.Id, user.Email!, user.IsAdmin));
+        return Ok(new CurrentUserDto(user.Id, user.UserName!, user.Email, user.IsAdmin));
     }
 
     [HttpPost("logout")]
@@ -72,6 +73,6 @@ public class AuthController : ControllerBase
         var user = await _userManager.GetUserAsync(User);
         if (user is null) return Unauthorized();
 
-        return Ok(new CurrentUserDto(user.Id, user.Email!, user.IsAdmin));
+        return Ok(new CurrentUserDto(user.Id, user.UserName!, user.Email, user.IsAdmin));
     }
 }

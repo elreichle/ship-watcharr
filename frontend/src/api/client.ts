@@ -1,4 +1,5 @@
 import type {
+  AccountEmail,
   Ao3CredentialStatus,
   CurrentUser,
   DatabaseStatus,
@@ -39,15 +40,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  register: (email: string, password: string) =>
-    request<CurrentUser>('/auth/register', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  register: (username: string, password: string) =>
+    request<CurrentUser>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    }),
 
-  login: (email: string, password: string) =>
-    request<CurrentUser>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  login: (username: string, password: string) =>
+    request<CurrentUser>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
 
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
 
   me: () => request<CurrentUser>('/auth/me'),
+
+  getAccountEmail: () => request<AccountEmail>('/account/email'),
+
+  updateAccountEmail: (email: string | null) =>
+    request<AccountEmail>('/account/email', {
+      method: 'PUT',
+      body: JSON.stringify({ email: email?.trim() || null }),
+    }),
 
   getAo3Credential: () => request<Ao3CredentialStatus>('/account/ao3-credential'),
 

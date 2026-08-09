@@ -1,7 +1,16 @@
 export interface CurrentUser {
   id: string;
-  email: string;
+  username: string;
+  /** Optional at registration — null when the account was created without one. */
+  email: string | null;
   isAdmin: boolean;
+}
+
+/** Optional per-account contact address, set at Settings → Account rather than at registration. */
+export interface AccountEmail {
+  email: string | null;
+  /** True when this address is what AO3 currently sees as the operator contact. */
+  isUsedAsOperatorContact: boolean;
 }
 
 export interface Ao3CredentialStatus {

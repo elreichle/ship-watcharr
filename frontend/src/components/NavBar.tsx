@@ -19,7 +19,7 @@ export function NavBar() {
       {user.isAdmin && <Link to="/admin/scraping">Scraping</Link>}
       {user.isAdmin && <Link to="/admin/database">Database</Link>}
       <span className="spacer" />
-      <span>{user.email}</span>
+      <span>{user.username}</span>
       <button onClick={onLogout}>Log out</button>
     </nav>
   );

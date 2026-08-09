@@ -5,8 +5,8 @@ import type { CurrentUser } from '../api/types';
 interface AuthContextValue {
   user: CurrentUser | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
+  register: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -24,12 +24,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
-  const login = async (email: string, password: string) => {
-    setUser(await api.login(email, password));
+  const login = async (username: string, password: string) => {
+    setUser(await api.login(username, password));
   };
 
-  const register = async (email: string, password: string) => {
-    setUser(await api.register(email, password));
+  const register = async (username: string, password: string) => {
+    setUser(await api.register(username, password));
   };
 
   const logout = async () => {

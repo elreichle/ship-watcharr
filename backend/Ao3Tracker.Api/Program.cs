@@ -54,7 +54,9 @@ builder.Services
     .AddIdentityCore<ApplicationUser>(options =>
     {
         options.Password.RequiredLength = 8;
-        options.User.RequireUniqueEmail = true;
+        // Sign-in is by username; email is optional. Identity's user validator treats
+        // RequireUniqueEmail as "email is mandatory too", so it has to stay off here.
+        options.User.RequireUniqueEmail = false;
     })
     .AddRoles<IdentityRole>()
     .AddEntityFrameworkStores<AppDbContext>()

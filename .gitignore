@@ -33,6 +33,11 @@ yarn-error.log*
 *.tmp
 .cache/
 
+# Working notes and anything stateful or private to one machine: status handoffs, local
+# credentials, throwaway scripts. Never committed — if something in here needs to outlive
+# this checkout or be read by anyone else, it belongs somewhere tracked instead.
+.scratch/
+
 # Local runtime data: SQLite db, Data Protection keys, admin-persisted settings.json
 # Named "appdata" (not "data") specifically to avoid colliding with Data/ (the C# source
 # folder) on case-insensitive filesystems (Windows/macOS) — git would otherwise silently

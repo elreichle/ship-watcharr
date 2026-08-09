@@ -6,7 +6,7 @@ import { ApiError } from '../api/client';
 export function RegisterPage() {
   const { register } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -16,7 +16,7 @@ export function RegisterPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await register(email, password);
+      await register(username, password);
       navigate('/');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Registration failed.');
@@ -30,13 +30,22 @@ export function RegisterPage() {
       <h1>Register</h1>
       <form onSubmit={onSubmit}>
         <label>
-          Email
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          Username
+          <input
+            type="text"
+            autoComplete="username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            minLength={3}
+            maxLength={64}
+            required
+          />
         </label>
         <label>
           Password (min 8 characters)
           <input
             type="password"
+            autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             minLength={8}
