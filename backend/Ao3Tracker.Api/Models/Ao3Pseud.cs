@@ -20,6 +20,15 @@ public class Ao3Pseud
     /// <summary>The byline text AO3 actually rendered.</summary>
     public string DisplayName { get; set; } = null!;
 
+    /// <summary>
+    /// <see cref="DisplayName"/> uppercased with the invariant culture, and the column author
+    /// searches go through. Same provider-portability requirement as
+    /// <see cref="Tag.NameNormalized"/> — see the remarks there. Whatever writes pseud rows must
+    /// keep this in step with <see cref="DisplayName"/>; nothing populates them today, since the
+    /// AO3 parser is still to come.
+    /// </summary>
+    public string DisplayNameNormalized { get; set; } = null!;
+
     public DateTime FirstSeenAt { get; set; }
 
     public ICollection<WorkAuthor> Works { get; set; } = new List<WorkAuthor>();

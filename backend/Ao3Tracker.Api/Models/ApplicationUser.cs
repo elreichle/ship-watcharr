@@ -17,4 +17,7 @@ public class ApplicationUser : IdentityUser
     public ICollection<UserWorkState> WorkStates { get; set; } = new List<UserWorkState>();
 
     public ICollection<Download> Downloads { get; set; } = new List<Download>();
+
+    /// <summary>Named sets of library filter criteria, one of which may be the user's default.</summary>
+    public ICollection<SavedWorkFilter> SavedWorkFilters { get; set; } = new List<SavedWorkFilter>();
 }

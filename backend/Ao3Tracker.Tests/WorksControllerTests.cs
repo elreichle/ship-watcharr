@@ -308,8 +308,16 @@ public class WorksControllerTests : IDisposable
         await using (var db = _host.NewContext())
         {
             db.Ao3Pseuds.AddRange(
-                new Ao3Pseud { Id = 1, Username = "second", PseudName = "second", DisplayName = "second" },
-                new Ao3Pseud { Id = 2, Username = "first", PseudName = "first", DisplayName = "first" });
+                new Ao3Pseud
+                {
+                    Id = 1, Username = "second", PseudName = "second",
+                    DisplayName = "second", DisplayNameNormalized = "SECOND",
+                },
+                new Ao3Pseud
+                {
+                    Id = 2, Username = "first", PseudName = "first",
+                    DisplayName = "first", DisplayNameNormalized = "FIRST",
+                });
             db.WorkAuthors.AddRange(
                 new WorkAuthor { WorkId = 1, PseudId = 1, Position = 1 },
                 new WorkAuthor { WorkId = 1, PseudId = 2, Position = 0 });

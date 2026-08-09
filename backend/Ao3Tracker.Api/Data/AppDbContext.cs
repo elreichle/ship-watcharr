@@ -27,6 +27,9 @@ public abstract class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<WatchedShip> WatchedShips => Set<WatchedShip>();
     public DbSet<UserWorkState> UserWorkStates => Set<UserWorkState>();
     public DbSet<Download> Downloads => Set<Download>();
+    public DbSet<SavedWorkFilter> SavedWorkFilters => Set<SavedWorkFilter>();
+    public DbSet<SavedWorkFilterTag> SavedWorkFilterTags => Set<SavedWorkFilterTag>();
+    public DbSet<SavedWorkFilterAuthor> SavedWorkFilterAuthors => Set<SavedWorkFilterAuthor>();
 
     // Global — scraped data
     public DbSet<Work> Works => Set<Work>();
