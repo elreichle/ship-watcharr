@@ -1,4 +1,3 @@
-using System.Linq.Expressions;
 using System.Security.Claims;
 using Ao3Tracker.Api.Data;
 using Ao3Tracker.Api.Dtos;
@@ -40,17 +39,24 @@ public class WorksController : ControllerBase
         ?? throw new InvalidOperationException("Authenticated request missing user id claim.");
 
     /// <param name="shipId">Restrict to one watched ship. 404s if the user does not watch it,
-    /// which is also what stops it being used to read another user's library.</param>
+    /// which is also what stops it being used to read another user's library. Wins over the ship
+    /// a saved filter names, since it is the page's own dropdown.</param>
     /// <param name="sort">updated | kudos | hits | bookmarks | comments | words. Anything else is
     /// rejected rather than silently ignored — a typo'd sort that quietly returns a different
-    /// order is worse than an error.</param>
+    /// order is worse than an error. Omitted, a saved filter's own sort applies, then "updated".</param>
+    /// <param name="savedFilterId">A saved set of criteria to apply. 404s if it isn't the caller's.</param>
+    /// <param name="useDefaultFilter">Whether an unqualified request picks up the user's default
+    /// set. True is the point of having a default; the works page sends false when the reader has
+    /// explicitly asked for their whole library, which is otherwise inexpressible.</param>
     [HttpGet]
     public async Task<ActionResult<PagedResult<WorkListItemDto>>> GetWorks(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = DefaultPageSize,
         [FromQuery] int? shipId = null,
-        [FromQuery] string sort = "updated",
-        [FromQuery] bool ascending = false,
+        [FromQuery] string? sort = null,
+        [FromQuery] bool? ascending = null,
+        [FromQuery] int? savedFilterId = null,
+        [FromQuery] bool useDefaultFilter = true,
         CancellationToken ct = default)
     {
         var userId = CurrentUserId;
@@ -64,22 +70,29 @@ public class WorksController : ControllerBase
             return NotFound();
         }
 
+        var filter = await ResolveFilterAsync(userId, savedFilterId, useDefaultFilter, ct);
+        if (savedFilterId is not null && filter is null) return NotFound();
+
+        // The page's own ship dropdown outranks the filter's, and the filter's is intersected with
+        // the reader's subscriptions rather than trusted — see SavedWorkFilter.ShipId.
+        var query = WorkQueries.Library(_db, userId, shipId ?? filter?.ShipId);
+        if (filter is not null) query = WorkQueries.ApplyFilter(query, filter);
+
+        // An explicit sort wins over the set's, so the works page's dropdown keeps working while a
+        // saved view is applied. With neither, "updated" is the library's own default.
+        var effectiveSort = sort ?? filter?.Sort ?? "updated";
+        var effectiveAscending = ascending ?? filter?.Ascending ?? false;
+
+        var ordered = WorkQueries.Order(query, effectiveSort, effectiveAscending);
+        if (ordered is null)
+        {
+            ModelState.AddModelError(nameof(sort), $"'{effectiveSort}' is not a sort this endpoint offers.");
+            return ValidationProblem(ModelState);
+        }
+
         var watchedShipIds = _db.WatchedShips
             .Where(w => w.UserId == userId)
             .Select(w => w.ShipId);
-
-        // Membership is ShipWork, never the work's own relationship tags: AO3 tag synonyms mean a
-        // work returned by the canonical tag can render a synonym in its own blurb, so filtering
-        // on tags would silently drop it. See the remarks on ShipWork.
-        var query = _db.Works.Where(w => !w.IsDeleted && w.Ships.Any(sw =>
-            shipId == null ? watchedShipIds.Contains(sw.ShipId) : sw.ShipId == shipId));
-
-        var ordered = Order(query, sort, ascending);
-        if (ordered is null)
-        {
-            ModelState.AddModelError(nameof(sort), $"'{sort}' is not a sort this endpoint offers.");
-            return ValidationProblem(ModelState);
-        }
 
         var totalCount = await query.CountAsync(ct);
 
@@ -147,33 +160,27 @@ public class WorksController : ControllerBase
     }
 
     /// <summary>
-    /// Applies the requested sort, always tie-broken by id. Null for a sort that isn't offered.
-    ///
-    /// The tie-break is what makes paging correct, not merely tidy: thousands of works share a
-    /// kudos count, and without a total order the database may return those rows differently on
-    /// each query — so a work could appear on two consecutive pages while another appears on none.
-    ///
-    /// Title is deliberately not offered. It has no normalized column, and ordering on it directly
-    /// would put "apple" before or after "Banana" depending on whether the instance runs SQLite or
-    /// PostgreSQL. See the remarks on <see cref="Tag.NameNormalized"/>.
+    /// The saved set this request should apply, if any: the one it named, otherwise the caller's
+    /// default. Null when nothing applies — including when a named set does not exist, which the
+    /// caller turns into a 404 rather than quietly serving an unfiltered library.
     /// </summary>
-    private static IOrderedQueryable<Work>? Order(IQueryable<Work> query, string sort, bool ascending)
+    /// <remarks>
+    /// The criteria collections are loaded because <c>ApplyFilter</c> reads them directly; without
+    /// the Includes a set would apply as though it had no tag or author criteria, which fails open.
+    /// </remarks>
+    private async Task<SavedWorkFilter?> ResolveFilterAsync(
+        string userId,
+        int? savedFilterId,
+        bool useDefaultFilter,
+        CancellationToken ct)
     {
-        IOrderedQueryable<Work> By<TKey>(Expression<Func<Work, TKey>> key) =>
-            ascending ? query.OrderBy(key) : query.OrderByDescending(key);
+        if (savedFilterId is null && !useDefaultFilter) return null;
 
-        IOrderedQueryable<Work>? ordered = sort switch
-        {
-            "updated" => By(w => w.UpdatedAt),
-            "kudos" => By(w => w.Kudos),
-            "hits" => By(w => w.Hits),
-            "bookmarks" => By(w => w.Bookmarks),
-            "comments" => By(w => w.CommentCount),
-            "words" => By(w => w.WordCount),
-            _ => null,
-        };
-
-        if (ordered is null) return null;
-        return ascending ? ordered.ThenBy(w => w.Id) : ordered.ThenByDescending(w => w.Id);
+        return await _db.SavedWorkFilters
+            .Where(f => f.UserId == userId)
+            .Where(f => savedFilterId == null ? f.IsDefault : f.Id == savedFilterId)
+            .Include(f => f.Tags)
+            .Include(f => f.Authors)
+            .FirstOrDefaultAsync(ct);
     }
 }

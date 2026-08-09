@@ -6,6 +6,7 @@ import { AdminRoute } from './components/AdminRoute';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { WorksPage } from './pages/WorksPage';
+import { FiltersPage } from './pages/FiltersPage';
 import { ShipsPage } from './pages/ShipsPage';
 import { SchedulesPage } from './pages/SchedulesPage';
 import { AccountSettingsPage } from './pages/AccountSettingsPage';
@@ -32,6 +33,7 @@ export default function App() {
               of its own. Works leads because it is the thing the app is for. */}
           <Route path="/" element={<Navigate to="/works" replace />} />
           <Route path="/works" element={<WorksPage />} />
+          <Route path="/filters" element={<FiltersPage />} />
           <Route path="/ships" element={<ShipsPage />} />
           <Route path="/schedules" element={<SchedulesPage />} />
 

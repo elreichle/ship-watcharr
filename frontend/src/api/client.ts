@@ -1,9 +1,15 @@
 import type {
   AccountEmail,
   Ao3CredentialStatus,
+  Ao3TagType,
   CurrentUser,
   DatabaseStatus,
+  FilterVocabulary,
   PagedResult,
+  SavedFilter,
+  SavedFilterAuthor,
+  SavedFilterTag,
+  SaveFilterInput,
   ScrapeJob,
   ScrapeRun,
   ScrapingIdentity,
@@ -122,18 +128,61 @@ export const api = {
 
   unwatchShip: (shipId: number) => request<void>(`/ships/${shipId}`, { method: 'DELETE' }),
 
-  getWorks: ({ page, pageSize, shipId, sort, ascending }: WorkQuery = {}) => {
+  getWorks: ({
+    page,
+    pageSize,
+    shipId,
+    sort,
+    ascending,
+    savedFilterId,
+    useDefaultFilter,
+  }: WorkQuery = {}) => {
     // Built key by key rather than from the object: a null shipId means "every watched ship", and
-    // URLSearchParams would happily send it as the literal string "null".
+    // URLSearchParams would happily send it as the literal string "null". An omitted sort matters
+    // for the same reason — it is what lets an applied filter's own sort stand.
     const query = new URLSearchParams();
     if (page !== undefined) query.set('page', String(page));
     if (pageSize !== undefined) query.set('pageSize', String(pageSize));
     if (shipId != null) query.set('shipId', String(shipId));
     if (sort !== undefined) query.set('sort', sort);
     if (ascending !== undefined) query.set('ascending', String(ascending));
+    if (savedFilterId != null) query.set('savedFilterId', String(savedFilterId));
+    if (useDefaultFilter !== undefined) query.set('useDefaultFilter', String(useDefaultFilter));
 
     return request<PagedResult<WorkListItem>>(`/works?${query}`, undefined, hasArray('items'));
   },
+
+  getSavedFilters: () => request<SavedFilter[]>('/saved-filters', undefined, Array.isArray),
+
+  createSavedFilter: (filter: SaveFilterInput) =>
+    request<SavedFilter>('/saved-filters', { method: 'POST', body: JSON.stringify(filter) }),
+
+  updateSavedFilter: (id: number, filter: SaveFilterInput) =>
+    request<SavedFilter>(`/saved-filters/${id}`, { method: 'PUT', body: JSON.stringify(filter) }),
+
+  /**
+   * Toggles which set Works opens with. Separate from a full save so the list can flip it without
+   * re-posting criteria it may not have reloaded since they were last edited elsewhere.
+   */
+  setSavedFilterDefault: (id: number, isDefault: boolean) =>
+    request<SavedFilter>(`/saved-filters/${id}/default`, {
+      method: 'PUT',
+      body: JSON.stringify({ isDefault }),
+    }),
+
+  deleteSavedFilter: (id: number) => request<void>(`/saved-filters/${id}`, { method: 'DELETE' }),
+
+  getFilterVocabulary: () => request<FilterVocabulary>('/lookups/vocabulary'),
+
+  searchTags: (q: string, type?: Ao3TagType) => {
+    const query = new URLSearchParams({ q });
+    if (type) query.set('type', type);
+
+    return request<SavedFilterTag[]>(`/lookups/tags?${query}`, undefined, Array.isArray);
+  },
+
+  searchAuthors: (q: string) =>
+    request<SavedFilterAuthor[]>(`/lookups/authors?${new URLSearchParams({ q })}`, undefined, Array.isArray),
 
   getScrapeJobs: () => request<ScrapeJob[]>('/scrape-jobs', undefined, Array.isArray),
 
