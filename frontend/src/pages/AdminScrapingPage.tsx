@@ -71,10 +71,10 @@ export function AdminScrapingPage() {
       {identity.scrapingEnabled ? (
         <pre className="user-agent">{identity.userAgent}</pre>
       ) : (
-        <p className="error" style={{ whiteSpace: 'pre-wrap' }}>{identity.problem}</p>
+        <p className="error pre-wrap">{identity.problem}</p>
       )}
 
-      <table className="jobs-table">
+      <table className="identity-table">
         <tbody>
           <tr>
             <th>Software</th>
@@ -128,14 +128,16 @@ export function AdminScrapingPage() {
         {error && <p className="error">{error}</p>}
         {saved && <p className="success">Saved.</p>}
 
-        <button type="submit" disabled={submitting}>
-          {submitting ? 'Saving…' : 'Save'}
-        </button>
-        {identity.isOverridden && (
-          <button type="button" disabled={submitting} onClick={() => void save(null)}>
-            Reset to default
+        <div className="button-row">
+          <button type="submit" disabled={submitting}>
+            {submitting ? 'Saving…' : 'Save'}
           </button>
-        )}
+          {identity.isOverridden && (
+            <button type="button" disabled={submitting} onClick={() => void save(null)}>
+              Reset to default
+            </button>
+          )}
+        </div>
       </form>
     </div>
   );

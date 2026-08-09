@@ -47,7 +47,7 @@ public interface IOperatorContactResolver
 /// Rule 3 is what makes this work out of the box, so whoever installs this becomes the contact for
 /// their own instance automatically and the project's author never is. Registration only requires a
 /// username, though, so an admin who skipped the optional email leaves this unresolved — scraping
-/// then stays disabled until a contact is saved at Settings → Scraping (rule 1).
+/// then stays disabled until a contact is saved at System → Scraping (rule 1).
 ///
 /// Rule 1 beating rule 2 matches how database settings already behave: a deliberate choice made
 /// in the UI is the source of truth until it is changed there again (see Program.cs).

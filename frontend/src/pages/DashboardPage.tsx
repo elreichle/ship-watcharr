@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import type { ScrapeJob, ScrapeRun } from '../api/types';
 
@@ -83,8 +83,10 @@ export function DashboardPage() {
         </thead>
         <tbody>
           {jobs.map((job) => (
-            <>
-              <tr key={job.id}>
+            // Keyed on the Fragment, not the <tr>: the fragment is the array element, so a key on
+            // the row inside it doesn't satisfy React.
+            <Fragment key={job.id}>
+              <tr>
                 <td>
                   <button
                     className="link"
@@ -107,7 +109,7 @@ export function DashboardPage() {
                   </td>
                 </tr>
               )}
-            </>
+            </Fragment>
           ))}
           {jobs.length === 0 && (
             <tr>

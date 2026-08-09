@@ -1,108 +1,482 @@
-:root {
-  font-family: system-ui, sans-serif;
-  color-scheme: light dark;
-}
+/*
+ * Base styles and shared components.
+ *
+ * Everything here lives in @layer app and reads colours, type, spacing and radii exclusively from
+ * the tokens in theme/obsidian-defaults.css. There are deliberately no colour literals below: a
+ * hardcoded hex is a pixel a user's theme cannot reach, which is the whole thing we're avoiding.
+ */
 
-body {
-  margin: 0;
-}
+@layer app {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
 
-.navbar {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.75rem 1.5rem;
-  border-bottom: 1px solid #8884;
-}
+  html,
+  body {
+    height: 100%;
+  }
 
-.navbar .spacer {
-  flex: 1;
-}
+  body {
+    margin: 0;
+    background-color: var(--background-primary);
+    color: var(--text-normal);
+    font-family: var(--font-interface);
+    font-size: var(--font-ui-medium);
+    line-height: var(--line-height-normal);
+    -webkit-font-smoothing: antialiased;
+  }
 
-.page,
-.auth-page {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 1.5rem;
-}
+  #root {
+    height: 100%;
+  }
 
-.auth-page {
-  max-width: 360px;
-}
+  ::selection {
+    background-color: var(--text-selection);
+  }
 
-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
+  * {
+    scrollbar-color: var(--scrollbar-thumb-bg) var(--scrollbar-bg);
+  }
 
-.inline-form {
-  flex-direction: row;
-  align-items: flex-end;
-  flex-wrap: wrap;
-}
+  :focus-visible {
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: 2px;
+  }
 
-label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.9rem;
-}
+  /* ------------------------------------------------------------------------------ typography */
 
-input,
-select {
-  padding: 0.4rem;
-  font-size: 1rem;
-}
+  h1,
+  h2,
+  h3 {
+    margin: 0 0 var(--size-4-3);
+    font-weight: var(--font-semibold);
+    line-height: var(--line-height-tight);
+    color: var(--text-normal);
+  }
 
-button {
-  padding: 0.4rem 0.9rem;
-  cursor: pointer;
-}
+  h1 {
+    font-size: var(--font-ui-large);
+  }
 
-button.link {
-  background: none;
-  border: none;
-  padding: 0;
-  color: #4a9eff;
-  text-decoration: underline;
-  cursor: pointer;
-}
+  h2 {
+    font-size: var(--font-ui-medium);
+  }
 
-table {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 1rem 0;
-}
+  p {
+    margin: 0 0 var(--size-4-3);
+  }
 
-th,
-td {
-  text-align: left;
-  padding: 0.4rem 0.6rem;
-  border-bottom: 1px solid #8884;
-  font-size: 0.9rem;
-}
+  a {
+    color: var(--text-accent);
+    text-decoration: none;
+  }
 
-.error {
-  color: #e5484d;
-}
+  a:hover {
+    color: var(--text-accent-hover);
+    text-decoration: underline;
+  }
 
-.success {
-  color: #30a46c;
-}
+  code {
+    padding: 0 var(--size-2-2);
+    border-radius: var(--radius-s);
+    background-color: var(--background-modifier-hover);
+    font-family: var(--font-monospace);
+    font-size: var(--font-smaller);
+  }
 
-.hint {
-  font-size: 0.8rem;
-  opacity: 0.75;
-}
+  /* ---------------------------------------------------------------------------------- layout */
 
-/* The literal User-Agent header. Wraps rather than scrolls so the whole value is always
-   visible — the point of showing it is that nothing about it is hidden. */
-.user-agent {
-  padding: 0.75rem;
-  border-radius: 4px;
-  background: rgba(127, 127, 127, 0.12);
-  font-size: 0.85rem;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  .page,
+  .auth-page {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: var(--size-4-6);
+  }
+
+  .auth-page {
+    max-width: 380px;
+    padding-top: var(--size-4-16);
+  }
+
+  .auth-page form {
+    padding: var(--size-4-5);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m);
+    background-color: var(--background-secondary);
+  }
+
+  .auth-page button[type='submit'] {
+    width: 100%;
+    justify-content: center;
+  }
+
+  section {
+    margin-bottom: var(--size-4-8);
+    padding-bottom: var(--size-4-6);
+    border-bottom: 1px solid var(--background-modifier-border);
+  }
+
+  section:last-child {
+    margin-bottom: 0;
+    border-bottom: none;
+  }
+
+  /* ----------------------------------------------------------------------------------- icons */
+
+  /* Sized from variables rather than an inline style so a theme that redefines --icon-s or the
+     stroke widths actually reaches these. */
+  .sw-icon {
+    flex: none;
+    width: var(--icon-s);
+    height: var(--icon-s);
+    stroke-width: var(--icon-s-stroke-width);
+  }
+
+  .sw-icon[data-size='xs'] {
+    width: var(--icon-xs);
+    height: var(--icon-xs);
+    stroke-width: var(--icon-xs-stroke-width);
+  }
+
+  .sw-icon[data-size='m'] {
+    width: var(--icon-m);
+    height: var(--icon-m);
+    stroke-width: var(--icon-m-stroke-width);
+  }
+
+  .sw-icon[data-size='l'] {
+    width: var(--icon-l);
+    height: var(--icon-l);
+    stroke-width: var(--icon-l-stroke-width);
+  }
+
+  .sw-icon[data-size='xl'] {
+    width: var(--icon-xl);
+    height: var(--icon-xl);
+    stroke-width: var(--icon-xl-stroke-width);
+  }
+
+  .clickable-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--size-4-1);
+    border: none;
+    border-radius: var(--clickable-icon-radius);
+    background-color: transparent;
+    color: var(--icon-color);
+    cursor: pointer;
+  }
+
+  .clickable-icon:hover {
+    background-color: var(--background-modifier-hover);
+    color: var(--icon-color-hover);
+  }
+
+  /* ----------------------------------------------------------------------------------- forms */
+
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--size-4-3);
+    align-items: flex-start;
+  }
+
+  .inline-form {
+    flex-direction: row;
+    align-items: flex-end;
+    flex-wrap: wrap;
+  }
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: var(--size-2-2);
+    width: 100%;
+    max-width: 32rem;
+    font-size: var(--font-ui-small);
+    color: var(--text-muted);
+  }
+
+  /* A radio or checkbox belongs beside its text, not stacked above it. */
+  label:has(> input[type='radio']),
+  label:has(> input[type='checkbox']) {
+    flex-direction: row;
+    align-items: center;
+    width: auto;
+    color: var(--text-normal);
+  }
+
+  input,
+  select,
+  textarea {
+    width: 100%;
+    padding: var(--size-4-2);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--input-radius);
+    background-color: var(--background-modifier-form-field);
+    color: var(--text-normal);
+    font-family: inherit;
+    font-size: var(--font-ui-small);
+    font-weight: var(--input-font-weight);
+  }
+
+  input:hover,
+  select:hover,
+  textarea:hover {
+    border-color: var(--background-modifier-border-hover);
+  }
+
+  input:focus,
+  select:focus,
+  textarea:focus {
+    border-color: var(--background-modifier-border-focus);
+  }
+
+  input[type='radio'],
+  input[type='checkbox'] {
+    width: auto;
+    accent-color: var(--interactive-accent);
+  }
+
+  textarea {
+    resize: vertical;
+    line-height: var(--line-height-normal);
+  }
+
+  /* A theme file is long lines of CSS; the 32rem cap that suits ordinary fields makes it
+     unreadable, so this field and its label opt out. */
+  label:has(> .theme-css-input) {
+    max-width: none;
+  }
+
+  .theme-css-input {
+    max-width: none;
+    font-family: var(--font-monospace);
+    font-size: var(--font-ui-smaller);
+    white-space: pre;
+    overflow-wrap: normal;
+    overflow-x: auto;
+  }
+
+  /* --------------------------------------------------------------------------------- buttons */
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--size-4-2);
+    padding: var(--size-4-2) var(--size-4-4);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--button-radius);
+    background-color: var(--interactive-normal);
+    color: var(--text-normal);
+    font-family: inherit;
+    font-size: var(--font-ui-small);
+    font-weight: var(--font-medium);
+    cursor: pointer;
+  }
+
+  button:hover:not(:disabled) {
+    background-color: var(--interactive-hover);
+  }
+
+  button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  button[type='submit'] {
+    border-color: transparent;
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+  }
+
+  button[type='submit']:hover:not(:disabled) {
+    background-color: var(--interactive-accent-hover);
+  }
+
+  button.link {
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--text-accent);
+    font-weight: var(--font-normal);
+    text-decoration: underline;
+  }
+
+  button.link:hover:not(:disabled) {
+    background: none;
+    color: var(--text-accent-hover);
+  }
+
+  .button-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--size-4-2);
+    align-items: center;
+  }
+
+  /* A file input can't be styled, so the real one is hidden behind a label that looks like a
+     button. The label stays keyboard-reachable through the input it wraps. */
+  .file-button {
+    display: inline-flex;
+    width: auto;
+    padding: var(--size-4-2) var(--size-4-4);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--button-radius);
+    background-color: var(--interactive-normal);
+    color: var(--text-normal);
+    font-size: var(--font-ui-small);
+    font-weight: var(--font-medium);
+    cursor: pointer;
+  }
+
+  .file-button:hover {
+    background-color: var(--interactive-hover);
+  }
+
+  .file-button input[type='file'] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    border: 0;
+    opacity: 0;
+  }
+
+  .segmented {
+    display: inline-flex;
+    margin-bottom: var(--size-4-3);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--button-radius);
+    overflow: hidden;
+  }
+
+  .segmented-option {
+    border: none;
+    border-radius: 0;
+    background-color: transparent;
+    color: var(--text-muted);
+  }
+
+  .segmented-option.is-active {
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+  }
+
+  .segmented-option.is-active:hover:not(:disabled) {
+    background-color: var(--interactive-accent-hover);
+  }
+
+  /* ---------------------------------------------------------------------------------- tables */
+
+  table {
+    width: 100%;
+    margin: var(--size-4-4) 0;
+    border-collapse: collapse;
+    font-size: var(--table-font-size);
+  }
+
+  thead th {
+    background-color: var(--table-header-background);
+    color: var(--table-header-color);
+    font-weight: var(--table-header-weight);
+    white-space: nowrap;
+  }
+
+  th,
+  td {
+    padding: var(--size-4-2) var(--size-4-3);
+    border-bottom: var(--table-border-width) solid var(--table-border-color);
+    text-align: left;
+  }
+
+  tbody tr:hover {
+    background-color: var(--table-row-background-hover);
+  }
+
+  /* Both tables carry more columns than fit a narrow window; scrolling the table beats letting
+     it push the whole page sideways. */
+  .jobs-table,
+  .runs-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .runs-table {
+    margin: 0;
+    font-size: var(--font-ui-smaller);
+  }
+
+  /* Key/value layout rather than a data grid: labels stay narrow, values wrap freely. */
+  .identity-table th {
+    width: 1%;
+    background-color: transparent;
+    color: var(--text-muted);
+    vertical-align: top;
+  }
+
+  .identity-table td {
+    white-space: normal;
+  }
+
+  /* --------------------------------------------------------------------------------- notices */
+
+  .hint {
+    max-width: 60ch;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+  }
+
+  ul.hint {
+    padding-left: var(--size-4-5);
+  }
+
+  ul.hint li {
+    margin-bottom: var(--size-4-2);
+  }
+
+  .error {
+    color: var(--text-error);
+    font-size: var(--font-ui-small);
+  }
+
+  .success {
+    color: var(--text-success);
+    font-size: var(--font-ui-small);
+  }
+
+  /* Server-formatted text that carries its own line breaks. A class rather than an inline style
+     so a theme can still reach it. */
+  .pre-wrap {
+    white-space: pre-wrap;
+  }
+
+  .callout {
+    max-width: 60ch;
+    padding: var(--size-4-3);
+    border-radius: var(--radius-m);
+    background-color: var(--background-modifier-hover);
+    font-size: var(--font-ui-small);
+  }
+
+  .callout-warning {
+    border-left: 3px solid var(--text-warning);
+  }
+
+  /* The literal User-Agent header. Wraps rather than scrolls so the whole value is always
+     visible — the point of showing it is that nothing about it is hidden. */
+  .user-agent {
+    margin: 0 0 var(--size-4-3);
+    padding: var(--size-4-3);
+    border-radius: var(--radius-s);
+    background-color: var(--background-modifier-hover);
+    font-family: var(--font-monospace);
+    font-size: var(--font-ui-smaller);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
 }

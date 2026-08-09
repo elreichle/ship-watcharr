@@ -73,7 +73,7 @@ ShipWatcharr/0.1 (+contact: you@example.com; instance/a3f9c2)
   as a known, well-behaved client. Not editable.
 - **Operator contact** — how AO3 reaches *whoever runs this deployment*. Falls back to the first
   admin's email, which is optional and saved under **Settings → Account** — registration itself
-  only asks for a username. Set it explicitly under **Settings → Scraping**, or via
+  only asks for a username. Set it explicitly under **System → Scraping**, or via
   `Ao3HttpClient:OperatorContact` in configuration. Deliberately per-deployment: the project's
   author must never be the contact for someone else's instance.
 - **Instance id** — 3 random bytes generated on first run into the data directory. Lets AO3
@@ -84,7 +84,7 @@ ShipWatcharr/0.1 (+contact: you@example.com; instance/a3f9c2)
 where you go to fix it), but the worker refuses to make requests and logs why. This is checked
 every poll rather than once at startup, so a fresh install starts scraping as soon as a contact
 exists, without a restart. On a new instance that means saving one: either an email under
-**Settings → Account**, or a contact under **Settings → Scraping**. Registering an admin is not
+**Settings → Account**, or a contact under **System → Scraping**. Registering an admin is not
 enough on its own, because sign-up never asks for an address.
 
 ## Data model
@@ -126,6 +126,44 @@ Scheduling:
   per-user job would mean N users watching one ship producing N identical scrapes.
 - `ScrapeRuns` — one row per execution attempt, with pages/requests/works counters, stop reason,
   and a heartbeat so a crashed run is distinguishable from a slow one.
+
+## Interface: Sonarr-style navigation, Obsidian-compatible themes
+
+Navigation is a collapsible left sidebar, following Sonarr/Radarr's split — per-user preferences
+under **Settings** (Account, Appearance), instance-wide administration under **System** (Scraping,
+Database). The hamburger collapses it to a 48px icon rail where groups open as flyouts; below
+700px it becomes an overlay drawer. The choice is remembered per browser.
+
+### Bring your own theme
+
+Every pixel of the UI is painted from **Obsidian's CSS variables** — `--background-primary`,
+`--text-normal`, `--interactive-accent`, `--nav-item-color` and the rest of the ~400-name
+vocabulary documented at [docs.obsidian.md](https://docs.obsidian.md/Reference/CSS+variables/CSS+variables).
+Paste an Obsidian community theme's `theme.css` into **Settings → Appearance** and it restyles the
+app. Three things make that work:
+
+- **Obsidian's defaults ship with the app** (`frontend/src/theme/obsidian-defaults.css`). Themes
+  only override the subset they care about — one that sets nothing but `--accent-h/s/l` is
+  perfectly normal — so without a full default layer underneath, a partial theme would leave half
+  the interface unpainted.
+- **Cascade layers, not specificity.** Our defaults live in `@layer obsidian-defaults` and our
+  component rules in `@layer app`; the user's CSS is injected *unlayered*, and unlayered rules
+  outrank every layered one regardless of specificity. That's what lets an arbitrary theme win
+  without us knowing which selectors it uses.
+- **`theme-dark` / `theme-light` on `<body>`**, the same switch Obsidian themes are written
+  against, mirrored onto `<html>` for themes that reach for `:root.theme-dark`.
+
+What does *not* carry over is a theme's structural rules — its styling for Obsidian's editor,
+panes and ribbon has nothing to match here. A theme reads as its palette and typography rather
+than as Obsidian.
+
+Themes are stored in `localStorage`, never sent to the server. That keeps the login page themed
+and avoids a flash of unstyled content (an inline script in `index.html` applies the theme before
+React mounts), at the cost of the theme not following you to another browser. If a theme leaves
+the interface unusable, load any page with **`?safemode`** to skip it and clear it from Appearance.
+
+Note that pasted CSS can request remote images and fonts, so a theme from an untrusted source can
+signal its author when you open the page — the Appearance page says so too.
 
 ## Database: SQLite by default, PostgreSQL if you want it
 
@@ -230,7 +268,7 @@ docker compose -f docker-compose.yml -f docker-compose.postgres.yml up --build
 
 | Variable | Purpose |
 |---|---|
-| `AO3_OPERATOR_CONTACT` | Email or project URL AO3 can reach you at. Without it scraping stays disabled. Overridable later under Settings → Scraping. |
+| `AO3_OPERATOR_CONTACT` | Email or project URL AO3 can reach you at. Without it scraping stays disabled. Overridable later under System → Scraping. |
 | `AO3_MIN_DELAY` | Lower bound on spacing between scrape requests (`HH:MM:SS`), default `00:00:05`. |
 | `AO3_MAX_DELAY` | Upper bound; each delay is drawn at random from the range. Default `00:00:08`. |
 | `APP_PORT` | Host port the app is published on, default `8080`. |

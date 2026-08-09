@@ -61,7 +61,9 @@ public class OperatorContactValidationTests
         Ao3UserAgentProvider.ValidateContact(null, out var error);
 
         // An error nobody can act on is the reason this whole path exists; keep it actionable.
+        // The page moved from Settings to System when the sidebar gained a Settings/System split,
+        // so this asserts the current location rather than just the word "Settings".
         Assert.Contains("admin account", error);
-        Assert.Contains("Settings", error);
+        Assert.Contains("System → Scraping", error);
     }
 }

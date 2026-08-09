@@ -1,0 +1,277 @@
+/*
+ * The app shell: sidebar, rail, drawer.
+ *
+ * Layout sizes use an --sw-* prefix so they can never collide with a variable an Obsidian theme
+ * might set. Everything else reads Obsidian's --nav-*, --background-*, --text-* and --size-*
+ * tokens, which is what lets a pasted theme restyle the navigation and not just the page body.
+ */
+
+@layer app {
+  .app-shell {
+    --sw-sidebar-width: 220px;
+    --sw-sidebar-rail-width: 48px;
+
+    display: grid;
+    grid-template-columns: var(--sw-sidebar-width) 1fr;
+    height: 100%;
+  }
+
+  .app-shell[data-railed] {
+    grid-template-columns: var(--sw-sidebar-rail-width) 1fr;
+  }
+
+  /* ---------------------------------------------------------------------------------- column */
+
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--size-4-2);
+    min-height: 0;
+    padding: var(--size-4-2);
+    border-right: 1px solid var(--background-modifier-border);
+    background-color: var(--background-secondary);
+    overflow-y: auto;
+  }
+
+  /* Railed, the flyouts have to escape the column, and the content is short enough that losing
+     the scroll container costs nothing. */
+  .app-shell[data-railed] .sidebar {
+    overflow: visible;
+  }
+
+  .sidebar-header {
+    display: flex;
+    align-items: center;
+    gap: var(--size-4-2);
+    padding-bottom: var(--size-4-2);
+    border-bottom: 1px solid var(--background-modifier-border);
+  }
+
+  .sidebar-title {
+    font-size: var(--font-ui-small);
+    font-weight: var(--font-semibold);
+    color: var(--text-normal);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .nav-sections {
+    flex: 1;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .nav-section {
+    position: relative;
+    margin-bottom: var(--size-2-1);
+  }
+
+  .sidebar-footer {
+    display: flex;
+    flex-direction: column;
+    gap: var(--size-2-1);
+    padding-top: var(--size-4-2);
+    border-top: 1px solid var(--background-modifier-border);
+  }
+
+  .sidebar-user {
+    display: flex;
+    align-items: center;
+    gap: var(--size-4-2);
+    padding: var(--nav-item-padding);
+    color: var(--text-muted);
+    font-size: var(--nav-item-size);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  /* ------------------------------------------------------------------------------- nav items */
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: var(--size-4-2);
+    width: 100%;
+    padding: var(--nav-item-padding);
+    border: none;
+    border-radius: var(--radius-s);
+    background-color: transparent;
+    color: var(--nav-item-color);
+    font-family: inherit;
+    font-size: var(--nav-item-size);
+    font-weight: var(--nav-item-weight);
+    white-space: var(--nav-item-white-space);
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .nav-item:hover {
+    background-color: var(--nav-item-background-hover);
+    color: var(--nav-item-color-hover);
+    font-weight: var(--nav-item-weight-hover);
+    text-decoration: none;
+  }
+
+  .nav-item.is-active {
+    background-color: var(--nav-item-background-active);
+    color: var(--nav-item-color-active);
+    font-weight: var(--nav-item-weight-active);
+    /* Inset rather than a pseudo-element so it can't be knocked out of place by a theme that
+       repositions nav items. */
+    box-shadow: inset 2px 0 0 var(--interactive-accent);
+  }
+
+  .nav-item .sw-icon {
+    color: var(--icon-color);
+  }
+
+  .nav-item.is-active .sw-icon {
+    color: var(--icon-color-active);
+  }
+
+  .nav-collapse-icon {
+    margin-left: auto;
+    color: var(--nav-collapse-icon-color);
+    transition: transform 0.15s ease;
+  }
+
+  .nav-group-header[aria-expanded='true'] .nav-collapse-icon {
+    transform: rotate(90deg);
+  }
+
+  .nav-children {
+    list-style: none;
+    margin: var(--size-2-1) 0 var(--size-4-2) var(--nav-item-children-margin-start);
+    padding-left: var(--size-4-2);
+    border-left: var(--nav-indentation-guide-width) solid var(--nav-indentation-guide-color);
+  }
+
+  /* ---------------------------------------------------------------------------- rail variant */
+
+  .app-shell[data-railed] .nav-item-title,
+  .app-shell[data-railed] .sidebar-title,
+  .app-shell[data-railed] .nav-collapse-icon {
+    display: none;
+  }
+
+  .app-shell[data-railed] .nav-item,
+  .app-shell[data-railed] .sidebar-user,
+  .app-shell[data-railed] .sidebar-header {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  /* Children can't sit inline in a 48px column, so the group becomes a flyout. It is rendered
+     only while open (see NavItem), which is what keeps its links out of the tab order until
+     focusing the group button opens it. */
+  /* The flyout is the one place in a railed sidebar that has room for labels, so it has to opt
+     back out of the two rules above — otherwise it renders as an empty box. */
+  .app-shell[data-railed] .nav-children .nav-item-title {
+    display: inline;
+  }
+
+  .app-shell[data-railed] .nav-children .nav-item {
+    justify-content: flex-start;
+    padding: var(--nav-item-padding);
+  }
+
+  .app-shell[data-railed] .nav-children {
+    position: absolute;
+    top: 0;
+    left: calc(100% + var(--size-2-2));
+    z-index: 30;
+    min-width: 11rem;
+    margin: 0;
+    padding: var(--size-4-1);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m);
+    background-color: var(--background-secondary);
+    box-shadow: var(--shadow-l);
+  }
+
+  /* --------------------------------------------------------------------------- content pane */
+
+  .app-body {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .app-main {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  /* Only exists below the drawer breakpoint; on wider screens the sidebar carries the toggle. */
+  .app-topbar {
+    display: none;
+    align-items: center;
+    gap: var(--size-4-2);
+    padding: var(--size-4-2) var(--size-4-3);
+    border-bottom: 1px solid var(--background-modifier-border);
+    background-color: var(--background-secondary);
+  }
+
+  .app-topbar-title {
+    font-size: var(--font-ui-small);
+    font-weight: var(--font-semibold);
+  }
+
+  .app-scrim {
+    display: none;
+  }
+
+  /* ------------------------------------------------------------------------- drawer variant */
+
+  @media (max-width: 700px) {
+    .app-shell,
+    .app-shell[data-railed] {
+      grid-template-columns: 1fr;
+    }
+
+    .sidebar {
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      z-index: 40;
+      width: var(--sw-sidebar-width);
+      transform: translateX(-100%);
+      transition: transform 0.18s ease;
+      box-shadow: var(--shadow-l);
+    }
+
+    .app-shell[data-drawer-open] .sidebar {
+      transform: none;
+    }
+
+    .app-shell[data-drawer-open] .app-scrim {
+      display: block;
+      position: fixed;
+      inset: 0;
+      z-index: 35;
+      background-color: rgba(0, 0, 0, 0.45);
+    }
+
+    .app-topbar {
+      display: flex;
+    }
+
+    .page,
+    .auth-page {
+      padding: var(--size-4-4);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sidebar,
+    .nav-collapse-icon {
+      transition: none;
+    }
+  }
+}

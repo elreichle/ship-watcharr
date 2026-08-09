@@ -7,6 +7,44 @@
     <title>AO3 Tracker</title>
   </head>
   <body>
+    <!--
+      Applies the saved theme before React mounts, so a dark theme doesn't flash white on every
+      load. Has to be inline and here (first child of <body>, where document.body exists) because
+      anything imported from the bundle arrives too late to beat first paint.
+
+      The keys and the style id are duplicated from src/theme/theme.ts, which cannot be imported
+      from an inline script. Change one, change both.
+    -->
+    <script>
+      (function () {
+        var mode = 'system';
+        var css = null;
+        try {
+          mode = localStorage.getItem('shipwatcharr.theme.mode') || 'system';
+          css = localStorage.getItem('shipwatcharr.theme.css');
+        } catch (e) {
+          // Storage blocked. Fall through with the defaults — following the OS is the right
+          // guess, and React will settle it either way.
+        }
+
+        var dark =
+          mode === 'dark' ||
+          (mode !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        var themeClass = dark ? 'theme-dark' : 'theme-light';
+        document.documentElement.classList.add(themeClass);
+        document.body.classList.add(themeClass);
+
+        // ?safemode suppresses the user's CSS for this load only — the recovery route when a
+        // pasted theme hides the UI. The mode class above still applies, so safe mode is a
+        // usable default-themed app rather than an unstyled one.
+        if (css && !/[?&]safemode(=|&|$)/.test(window.location.search)) {
+          var style = document.createElement('style');
+          style.id = 'user-theme';
+          style.textContent = css;
+          document.head.appendChild(style);
+        }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

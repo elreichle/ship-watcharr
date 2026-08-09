@@ -107,7 +107,7 @@ public class ScrapeWorker : BackgroundService
 
         // Re-checked every poll rather than once at startup. A fresh install boots with no contact
         // at all — one only appears once someone saves an email at Settings → Account or a contact
-        // at Settings → Scraping — so a one-shot check would latch scraping off and never notice
+        // at System → Scraping — so a one-shot check would latch scraping off and never notice
         // that happening.
         var userAgents = scope.ServiceProvider.GetRequiredService<Ao3UserAgentProvider>();
         var (ok, userAgent, error) = await userAgents.TryGetUserAgentAsync(ct);
