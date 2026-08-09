@@ -9,9 +9,65 @@ today — but the seams are deliberately per-site rather than AO3-shaped, so a s
 `IAo3Scraper` sibling and a credential store, not a rewrite. See
 [Key seams for future work](#key-seams-for-future-work).
 
-**Status: scaffold.** The scraping pipeline is fully wired end-to-end, but the only scraper
-implemented so far is a placeholder that fetches `example.com`'s title — real AO3 scraping
-logic hasn't been written yet. See [Extending the scaffold](#extending-the-scaffold).
+**Status: scaffold.** The scraping pipeline is wired end-to-end — scheduling, budgets, rate
+limiting, persistence — but **no scraper is registered**, so nothing is ingested yet. Writing the
+AO3 parser is what comes next. Tag verification against AO3 is the one part that does make real
+requests today. See [Extending the scaffold](#extending-the-scaffold).
+
+## What this is for
+
+Following a ship on AO3 means going back to the same tag index and re-reading it for anything new
+— and doing that again for every other ship you follow. This does the checking for you: you name
+the relationship tags you care about, and it keeps a local, filterable library of the works under
+them.
+
+Two things shape the design more than anything else:
+
+- **Scraped data is shared; your data is yours.** Work metadata is stored once per AO3 work id
+  and shared by everyone on the instance, so ten people watching the same ship cause one set of
+  fetches, not ten. Reading status, ratings, notes and saved filters hang off your user id and
+  are never touched by a re-scrape.
+- **The archive is somebody else's volunteer-run infrastructure.** Every request goes through one
+  global rate gate, and every request says who is making it. That is a constraint the rest of the
+  app is built around rather than a setting to be tuned away — see
+  [Respectful scraping](#respectful-scraping--read-this-before-adding-real-scrapers).
+
+It is meant to be self-hosted, by you, on your own hardware. That is why the AO3 operator contact
+is per-deployment and absent from this repo: whoever runs a copy is the one AO3 should be able to
+reach about it.
+
+## Goals and non-goals
+
+**What it does today.** Follow and unfollow relationship tags, with each one verified against AO3
+after the fact and synonyms folded into their canonical tag. Browse a paginated, sortable library
+of everything scraped for the ships you follow. Save named filter sets — AO3's filter sidebar,
+kept and reusable — and mark one as the default. See the scrape schedule behind each ship.
+
+**Planned.** In no particular order:
+
+- **Per-work detail fetches** — the data a blurb doesn't carry, such as publication date and the
+  complete tag list, fetched from the work's own page and tracked by `Work.DetailFetchedAt` /
+  `Work.PublishedAt`.
+- **A Statistics tab** — one view with two lenses over the same works: the corpus as it stands
+  (a ship's size over time, rating mix, kudos and hits distributions, most prolific authors) with
+  your own reading laid over it (how much of a ship you've read, your ratings against the
+  archive's reception). The only planned item with no schema behind it yet.
+- **Notifications** when a watched ship gains new or updated works — `WatchedShip.NotificationsEnabled`
+  is the switch already modelled for it.
+- **Downloads** — works saved as files under the data directory, modelled by `Download` (your
+  request) over `WorkDownloadFile` (the shared file on disk, keyed by work, format and work
+  version, so a re-download after an update doesn't overwrite the copy you have).
+- **A second source beyond AO3.** The seams are already per-site rather than AO3-shaped; see
+  [Key seams for future work](#key-seams-for-future-work).
+
+Every entity named above already exists, with its migration applied — what's missing is the
+scraping that would fill those tables and the UI over them. Statistics is the exception, and
+starts from nothing.
+
+**Non-goal: it never writes to AO3.** It reads. It will not leave kudos, comments or bookmarks,
+subscribe to anything, or post on your behalf, even though it holds a logged-in session that
+could do all four. The account you connect is for reading pages that require being logged in,
+and nothing else.
 
 ## Architecture
 
@@ -100,9 +156,6 @@ enough on its own, because sign-up never asks for an address.
 
 ## Data model
 
-- `Users` / `AspNetUsers` — ASP.NET Identity, plus `IsAdmin`.
-- `Ao3Credentials` — one row per user; `EncryptedPassword` + `EncryptedSessionCookie` are
-  Data-Protection-encrypted, never plaintext, never serialized back to the client.
 The model splits into **global** scraped data, stored once and shared by everyone, and
 **per-user** data keyed by `UserId`. That split is what stops two users watching the same ship
 from producing duplicate rows or, more importantly, duplicate fetches.
@@ -130,6 +183,12 @@ Per-user:
 - `UserWorkStates` — reading status, half-star rating (1–10, check-constrained), free-text note.
   Kept strictly apart from `Works` so re-scrapes can overwrite metadata without touching it.
 - `Downloads` — a user's request for a file, pointing at a shared `WorkDownloadFile`.
+- `SavedWorkFilters` / `SavedWorkFilterTags` / `SavedWorkFilterAuthors` — a named, reusable set of
+  criteria, with its included/excluded tags and included authors. Every criterion is its own typed
+  column rather than a serialized blob, because each one maps 1:1 onto a column of `Works` the
+  query compares against — which is what lets the same predicates serve both the list and the
+  match count. The cost is a migration per new criterion, acceptable while the vocabulary being
+  modelled is AO3's, and therefore fixed.
 
 Scheduling:
 
@@ -141,16 +200,17 @@ Scheduling:
 ## Interface: Sonarr-style navigation, Obsidian-compatible themes
 
 Navigation is a collapsible left sidebar, following Sonarr/Radarr's split — the library under
-**Dashboard** (Works, Ships, Schedules), per-user preferences under **Settings** (Account,
+**Dashboard** (Works, Filters, Ships, Schedules), per-user preferences under **Settings** (Account,
 Appearance), instance-wide administration under **System** (Scraping, Database). The hamburger
 collapses it to a 48px icon rail where groups open as flyouts; below 700px it becomes an overlay
 drawer. The choice is remembered per browser.
 
-The three Dashboard views are one story told in three places:
+The four Dashboard views are one story told in four places:
 
 | View | What it is | Endpoint |
 |---|---|---|
 | **Works** | Paginated, sortable list of everything scraped for the ships you follow | `GET /api/works` |
+| **Filters** | Named, reusable sets of criteria — AO3's filter sidebar, saved | `GET`/`POST`/`PUT`/`DELETE /api/saved-filters` |
 | **Ships** | Follow and unfollow relationship tags | `GET`/`POST`/`DELETE /api/ships` |
 | **Schedules** | Read-only view of the scrape schedule behind each ship | `GET /api/scrape-jobs` |
 
@@ -159,6 +219,23 @@ enables one `ScrapeJob` for it. Unfollowing removes *only* your subscription —
 and its run history stay for whoever else is watching, and the schedule switches off only when the
 last watcher leaves. On this build nothing is registered under the job's scraper key, so the Ships
 view says so rather than leaving you with a permanently empty library and no explanation.
+
+### Saved filters apply to the works list, and count against it
+
+A saved set is applied by passing `savedFilterId` to `GET /api/works`; an unqualified request
+picks up whichever set is marked default, which `useDefaultFilter=false` opts out of. Asking for
+a set that isn't yours is a `404`, not an empty list.
+
+Each set is listed with a `matchingWorkCount`, and that number and the list it links to are
+produced by the same code — the `Where` and `OrderBy` clauses live in
+`backend/Ao3Tracker.Api/Data/WorkQueries.cs` and are shared by both callers, because a count
+saying "412 works" next to a list showing a different set is worse than showing no count at all.
+A set naming a ship you have since unfollowed returns nothing rather than reaching outside your
+library: the ship criterion intersects with your subscriptions instead of replacing them.
+
+The filter editor's dropdowns come from `GET /api/lookups/*` — ratings, categories and warnings in
+AO3's own wording, and only the languages actually present in your library, so the list can't
+offer a language that would match nothing.
 
 ### Tags are verified after the fact, not before
 
@@ -376,9 +453,13 @@ on them.
 
 The entity model and both migration histories *have* been verified for real. The SQLite
 migration applies and the app boots on it; the PostgreSQL migration was applied against an
-actual `postgres:17-alpine` instance, confirming 23 tables, that the half-star rating check
-constraint translates on both providers, and that every timestamp lands as
-`timestamp with time zone`.
+actual `postgres:17-alpine` instance, confirming the 23 tables of the schema as it then stood,
+that the half-star rating check constraint translates on both providers, and that every timestamp
+lands as `timestamp with time zone`.
+
+That check predates the saved-filter migration, which added three tables — the model is at 26
+now, and the PostgreSQL history has not been re-applied against a real server since. The SQLite
+one has.
 
 The politeness layer has unit tests (`backend/Ao3Tracker.Tests`) covering the budget and
 breaker, the jitter bounds — including that a `Max < Min` misconfiguration clamps to `Min`
@@ -399,6 +480,13 @@ verification was additionally exercised end-to-end against a **local stub** stan
 feed link, User-Agent carrying the operator contact). No test has ever sent a request to the real
 archive, and none should: the stub is what makes the redirect path testable without spending
 somebody else's bandwidth on it.
+
+Saved filters have the largest suite of the three, over the same real database: that each
+criterion narrows the library the way it claims to (completion as genuinely three states, rating
+bands inclusive at both ends, included tags required rather than merely any-of), that a set is
+neither readable nor applicable by anyone but its owner, that promoting a default moves it off
+the set that held it, that a set naming a ship its author no longer follows stays inside their
+library, and that the reported match count counts only works its owner can see.
 
 The admin database-settings endpoint was verified too, including that it rejects an unreachable
 PostgreSQL connection string with a 400 *before* persisting or restarting anything.
