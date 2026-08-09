@@ -11,7 +11,10 @@ public record StoragePaths(string DataDirectory, string SqliteDbPath, string Set
 {
     public static StoragePaths Resolve(IConfiguration configuration, IHostEnvironment environment)
     {
-        var configuredDir = configuration["Storage:DataDirectory"] ?? "data";
+        // "appdata", not "data": on case-insensitive filesystems (Windows/macOS) a
+        // relative "data" folder collides with Data/ (the C# source folder) for gitignore
+        // purposes — see the .gitignore comment. Keep this in sync with appsettings.json.
+        var configuredDir = configuration["Storage:DataDirectory"] ?? "appdata";
         var dataDirectory = Path.IsPathRooted(configuredDir)
             ? configuredDir
             : Path.Combine(environment.ContentRootPath, configuredDir);

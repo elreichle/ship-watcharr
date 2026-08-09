@@ -85,11 +85,12 @@ switch later.
 **Precedence, if you use both environment variables and the admin UI:** `Database:Provider`
 and `Database:PostgresConnectionString` can be set via `appsettings.json`, environment
 variables (`Database__Provider`, `Database__PostgresConnectionString`), or the persisted
-`data/settings.json` file the admin UI writes to. Whichever settings.json says wins, once it
-exists — it's read after environment variables/command-line args, so it's the actual source of
-truth from that point on. To fully reset, stop the app and delete `data/settings.json` (not
-the whole `data/` directory, unless you also want to lose the SQLite db and Data Protection
-keys).
+`settings.json` file the admin UI writes to the data directory (`/app/data/settings.json` in
+Docker; `backend/Ao3Tracker.Api/appdata/settings.json` in local dev). Whichever settings.json
+says wins, once it exists — it's read after environment variables/command-line args, so it's
+the actual source of truth from that point on. To fully reset, stop the app and delete just
+that file (not the whole data directory, unless you also want to lose the SQLite db and Data
+Protection keys).
 
 **Why not just support one database?** EF Core migrations aren't portable across providers
 from a single migration history, so this uses two provider-specific `DbContext` subclasses
@@ -112,7 +113,7 @@ Prerequisites: .NET 10 SDK, Node 20+, and the `dotnet-ef` tool
 (`dotnet tool install --global dotnet-ef`). No database server needed — SQLite is the default.
 
 1. Run the backend — migrations apply automatically on startup, and the SQLite db file is
-   created under `backend/Ao3Tracker.Api/data/` on first run:
+   created under `backend/Ao3Tracker.Api/appdata/` on first run:
    ```
    cd backend/Ao3Tracker.Api
    dotnet run

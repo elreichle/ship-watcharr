@@ -34,4 +34,7 @@ yarn-error.log*
 .cache/
 
 # Local runtime data: SQLite db, Data Protection keys, admin-persisted settings.json
-backend/Ao3Tracker.Api/data/
+# Named "appdata" (not "data") specifically to avoid colliding with Data/ (the C# source
+# folder) on case-insensitive filesystems (Windows/macOS) — git would otherwise silently
+# ignore new files under Data/ too. Don't rename this back to "data/".
+backend/Ao3Tracker.Api/appdata/
