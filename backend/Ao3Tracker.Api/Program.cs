@@ -53,7 +53,17 @@ builder.Services
 builder.Services
     .AddIdentityCore<ApplicationUser>(options =>
     {
+        // Length is the only rule, and it is the one that actually resists guessing. Identity's
+        // composition defaults (a digit, both cases, a symbol) are off because they mostly push
+        // people toward Password1! while the register form only ever promised a length -- so they
+        // bought no real strength and produced an unexplained 400 for anyone who took the hint
+        // at its word.
         options.Password.RequiredLength = 8;
+        options.Password.RequireDigit = false;
+        options.Password.RequireLowercase = false;
+        options.Password.RequireUppercase = false;
+        options.Password.RequireNonAlphanumeric = false;
+
         // Sign-in is by username; email is optional. Identity's user validator treats
         // RequireUniqueEmail as "email is mandatory too", so it has to stay off here.
         options.User.RequireUniqueEmail = false;

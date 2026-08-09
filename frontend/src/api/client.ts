@@ -28,7 +28,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let message = response.statusText;
     try {
       const body = await response.json();
-      message = body.message ?? body.title ?? message;
+      // ValidationProblem (which is what every failed model/Identity check returns) puts the text
+      // worth reading under `errors`, keyed by field name or Identity error code, and leaves
+      // `title` as the generic "One or more validation errors occurred." Reading only `title` is
+      // what made a rejected password look like an unexplained 400. Endpoints that hand back a
+      // plain { message } -- login, for one -- still fall through to it.
+      const details = Object.values(body.errors ?? {}).flat() as string[];
+      message = details.length > 0 ? details.join(' ') : (body.message ?? body.title ?? message);
     } catch {
       // response had no JSON body
     }
