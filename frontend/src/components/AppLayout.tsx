@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Outlet } from 'react-router-dom';
+import { APP_NAME } from '../appInfo';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { Icon } from './Icon';
 import { Sidebar } from './Sidebar';
@@ -96,7 +97,7 @@ export function AppLayout() {
           >
             <Icon name="menu" size="m" />
           </button>
-          <span className="app-topbar-title">AO3 Tracker</span>
+          <span className="app-topbar-title">{APP_NAME}</span>
         </header>
 
         <main className="app-main">

@@ -1,8 +1,13 @@
-# AO3 Tracker
+# Ship Watcharr
 
-A self-hosted monitoring dashboard that scrapes [Archive of Our Own](https://archiveofourown.org)
-data on behalf of its users. Multiple people can register accounts on one instance; each user
-can separately connect their own AO3 login so scrapes run as them.
+A self-hosted dashboard for tracking fanwork about the ships you follow, scraping on behalf of
+its users. Multiple people can register accounts on one instance; each user separately connects
+their own account on the site being scraped, so scrapes run as them.
+
+[Archive of Our Own](https://archiveofourown.org) is the first site supported, and the only one
+today — but the seams are deliberately per-site rather than AO3-shaped, so a second source is an
+`IAo3Scraper` sibling and a credential store, not a rewrite. See
+[Key seams for future work](#key-seams-for-future-work).
 
 **Status: scaffold.** The scraping pipeline is fully wired end-to-end, but the only scraper
 implemented so far is a placeholder that fetches `example.com`'s title — real AO3 scraping
@@ -29,6 +34,11 @@ logic hasn't been written yet. See [Extending the scaffold](#extending-the-scaff
      so re-scraping doesn't require re-entering it every run.
 
 ### Key seams for future work
+
+Adding a second site means implementing these alongside the AO3 versions rather than replacing
+them — scheduling, budgets, persistence and the rate limiter are all site-agnostic already. The
+interface *names* still carry `Ao3`, which is honest about what exists today; renaming them to
+something site-neutral is worth doing at the point a second scraper actually lands, not before.
 
 | Seam | Interface | Where |
 |---|---|---|
@@ -232,7 +242,7 @@ Prerequisites: .NET 10 SDK, Node 20+, and the `dotnet-ef` tool
 To test against PostgreSQL locally instead, set before `dotnet run`:
 ```
 Database__Provider=Postgres
-Database__PostgresConnectionString="Host=localhost;Database=ao3tracker;Username=ao3tracker;Password=..."
+Database__PostgresConnectionString="Host=localhost;Database=shipwatcharr;Username=shipwatcharr;Password=..."
 ```
 
 To add a new migration after changing entities/`AppDbContext`, generate it for **both**

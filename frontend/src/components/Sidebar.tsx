@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { APP_NAME } from '../appInfo';
 import { useAuth } from '../auth/AuthContext';
 import { Icon } from './Icon';
 import { NavGroup, NavLeaf } from './NavItem';
@@ -33,7 +34,7 @@ export function Sidebar({ railed, onToggleRail, onNavigate }: SidebarProps) {
         >
           <Icon name="menu" size="m" />
         </button>
-        <span className="sidebar-title">AO3 Tracker</span>
+        <span className="sidebar-title">{APP_NAME}</span>
       </div>
 
       <ul className="nav-sections">

@@ -11,13 +11,13 @@ services:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-ao3tracker}
+      POSTGRES_USER: ${POSTGRES_USER:-shipwatcharr}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-      POSTGRES_DB: ${POSTGRES_DB:-ao3tracker}
+      POSTGRES_DB: ${POSTGRES_DB:-shipwatcharr}
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ao3tracker}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-shipwatcharr}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -29,8 +29,8 @@ services:
     environment:
       Database__Provider: Postgres
       Database__PostgresConnectionString: >-
-        Host=db;Port=5432;Database=${POSTGRES_DB:-ao3tracker};
-        Username=${POSTGRES_USER:-ao3tracker};Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+        Host=db;Port=5432;Database=${POSTGRES_DB:-shipwatcharr};
+        Username=${POSTGRES_USER:-shipwatcharr};Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
 
 volumes:
   db-data:

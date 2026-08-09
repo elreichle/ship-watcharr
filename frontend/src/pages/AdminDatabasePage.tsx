@@ -97,7 +97,7 @@ export function AdminDatabasePage() {
             <input
               value={postgresConnectionString}
               onChange={(e) => setPostgresConnectionString(e.target.value)}
-              placeholder="Host=db;Port=5432;Database=ao3tracker;Username=ao3tracker;Password=..."
+              placeholder="Host=db;Port=5432;Database=shipwatcharr;Username=shipwatcharr;Password=..."
               required
             />
           </label>
