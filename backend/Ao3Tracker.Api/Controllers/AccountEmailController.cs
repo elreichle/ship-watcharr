@@ -19,13 +19,16 @@ namespace Ao3Tracker.Api.Controllers;
 public class AccountEmailController : ControllerBase
 {
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly IOperatorContactResolver _contactResolver;
 
     public AccountEmailController(
         UserManager<ApplicationUser> userManager,
+        SignInManager<ApplicationUser> signInManager,
         IOperatorContactResolver contactResolver)
     {
         _userManager = userManager;
+        _signInManager = signInManager;
         _contactResolver = contactResolver;
     }
 
@@ -62,6 +65,12 @@ public class AccountEmailController : ControllerBase
                 ModelState.AddModelError(error.Code, error.Description);
             return ValidationProblem(ModelState);
         }
+
+        // SetEmailAsync rotates the security stamp, and AddIdentityCookies() puts
+        // SecurityStampValidator on the auth cookie -- so without re-issuing it here, saving your
+        // own email signs you out at the next validation interval, and the SPA just starts getting
+        // bare 401s. Same pairing AuthController.Register makes between CreateAsync and SignInAsync.
+        await _signInManager.RefreshSignInAsync(user);
 
         return Ok(await DescribeAsync(user, ct));
     }
