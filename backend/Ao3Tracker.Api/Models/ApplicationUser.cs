@@ -8,5 +8,13 @@ public class ApplicationUser : IdentityUser
 
     public Ao3Credential? Ao3Credential { get; set; }
 
-    public ICollection<ScrapeJob> ScrapeJobs { get; set; } = new List<ScrapeJob>();
+    /// <summary>
+    /// Ships this user follows. Note there is no ScrapeJobs navigation any more — jobs belong to
+    /// a <see cref="Ship"/>, since scraped data is shared across everyone watching it.
+    /// </summary>
+    public ICollection<WatchedShip> WatchedShips { get; set; } = new List<WatchedShip>();
+
+    public ICollection<UserWorkState> WorkStates { get; set; } = new List<UserWorkState>();
+
+    public ICollection<Download> Downloads { get; set; } = new List<Download>();
 }

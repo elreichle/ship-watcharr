@@ -65,6 +65,63 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.ToTable("Ao3Credentials");
                 });
 
+            modelBuilder.Entity("Ao3Tracker.Api.Models.Ao3Pseud", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("FirstSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PseudName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Username");
+
+                    b.HasIndex("Username", "PseudName")
+                        .IsUnique();
+
+                    b.ToTable("Ao3Pseuds");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.Ao3Series", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("FirstSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Ao3Series");
+                });
+
             modelBuilder.Entity("Ao3Tracker.Api.Models.ApplicationUser", b =>
                 {
                     b.Property<string>("Id")
@@ -132,6 +189,51 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.ToTable("AspNetUsers", (string)null);
                 });
 
+            modelBuilder.Entity("Ao3Tracker.Api.Models.Download", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("text");
+
+                    b.Property<byte>("Format")
+                        .HasColumnType("smallint");
+
+                    b.Property<DateTime>("RequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte>("Status")
+                        .HasColumnType("smallint");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("WorkDownloadFileId")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("WorkId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkDownloadFileId");
+
+                    b.HasIndex("WorkId");
+
+                    b.HasIndex("UserId", "WorkId", "Format")
+                        .IsUnique();
+
+                    b.ToTable("Downloads");
+                });
+
             modelBuilder.Entity("Ao3Tracker.Api.Models.ScrapeJob", b =>
                 {
                     b.Property<int>("Id")
@@ -154,22 +256,26 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasColumnType("text");
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<DateTime?>("NextRunAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("ScraperKey")
                         .IsRequired()
-                        .HasColumnType("text");
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<int>("ShipId")
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("ShipId")
+                        .IsUnique();
+
+                    b.HasIndex("IsEnabled", "NextRunAt");
 
                     b.ToTable("ScrapeJobs");
                 });
@@ -188,7 +294,31 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text");
 
-                    b.Property<int>("ItemsScraped")
+                    b.Property<int?>("FirstPageFetched")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("HeartbeatAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("HitRequestCap")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("HitTimeCap")
+                        .HasColumnType("boolean");
+
+                    b.Property<int?>("LastPageFetched")
+                        .HasColumnType("integer");
+
+                    b.Property<byte>("Mode")
+                        .HasColumnType("smallint");
+
+                    b.Property<int>("PagesFetched")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ParseWarnings")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("RequestsMade")
                         .HasColumnType("integer");
 
                     b.Property<int>("ScrapeJobId")
@@ -200,14 +330,29 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
+                    b.Property<string>("StopReason")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("WorksAdded")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("WorksSeen")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("WorksUpdated")
+                        .HasColumnType("integer");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("ScrapeJobId");
+                    b.HasIndex("Status");
+
+                    b.HasIndex("ScrapeJobId", "StartedAt");
 
                     b.ToTable("ScrapeRuns");
                 });
 
-            modelBuilder.Entity("Ao3Tracker.Api.Models.ScrapedItem", b =>
+            modelBuilder.Entity("Ao3Tracker.Api.Models.Ship", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -215,28 +360,431 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("PayloadJson")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<long?>("Ao3TagId")
+                        .HasColumnType("bigint");
 
-                    b.Property<int>("ScrapeRunId")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("ScrapedAt")
+                    b.Property<DateTime?>("BackfillBeforeUpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("SourceUrl")
+                    b.Property<DateTime?>("BackfillCompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("BackfillMinUpdatedAtSeen")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("BackfillNextPage")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("BackfillStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte>("BackfillState")
+                        .HasColumnType("smallint");
+
+                    b.Property<string>("CanonicalTagName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("CanonicalTagNameNormalized")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("IncrementalWatermarkUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastFullSweepCompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastFullSweepStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastIncrementalRunAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("LastKnownTotalWasAuthenticated")
+                        .HasColumnType("boolean");
+
+                    b.Property<int?>("LastKnownTotalWorks")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("LastKnownTotalWorksAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("TagId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TagUrlSegment")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Ao3TagId");
+
+                    b.HasIndex("CanonicalTagNameNormalized")
+                        .IsUnique();
+
+                    b.HasIndex("TagId");
+
+                    b.ToTable("Ships");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.ShipWork", b =>
+                {
+                    b.Property<int>("ShipId")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("WorkId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("FirstSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("MissingSinceAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("ShipId", "WorkId");
+
+                    b.HasIndex("WorkId");
+
+                    b.HasIndex("ShipId", "LastSeenAt");
+
+                    b.ToTable("ShipWorks");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.Tag", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<long?>("Ao3TagId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("FirstSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("NameNormalized")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<byte>("Type")
+                        .HasColumnType("smallint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Ao3TagId");
+
+                    b.HasIndex("Type", "NameNormalized")
+                        .IsUnique();
+
+                    b.ToTable("Tags");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.UserWorkState", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<int?>("Rating")
+                        .HasColumnType("integer");
+
+                    b.Property<byte>("Status")
+                        .HasColumnType("smallint");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UserId")
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("Title")
+                    b.Property<long>("WorkId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkId");
+
+                    b.HasIndex("UserId", "Rating");
+
+                    b.HasIndex("UserId", "Status");
+
+                    b.HasIndex("UserId", "WorkId")
+                        .IsUnique();
+
+                    b.ToTable("UserWorkStates", t =>
+                        {
+                            t.HasCheckConstraint("CK_UserWorkStates_Rating", "\"Rating\" IS NULL OR (\"Rating\" >= 1 AND \"Rating\" <= 10)");
+                        });
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.WatchedShip", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DisplayNameOverride")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("NotificationsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("ShipId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
                         .HasColumnType("text");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ScrapeRunId");
+                    b.HasIndex("ShipId");
 
-                    b.ToTable("ScrapedItems");
+                    b.HasIndex("UserId", "ShipId")
+                        .IsUnique();
+
+                    b.ToTable("WatchedShips");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.Work", b =>
+                {
+                    b.Property<long>("Id")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Bookmarks")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Categories")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ChapterCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CollectionCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CommentCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DetailFetchedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("FirstSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Hits")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsAnonymous")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsComplete")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsRestricted")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Kudos")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("LanguageCode")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("LanguageName")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("LastScrapedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("PlannedChapterCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("PublishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Rating")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SummaryHtml")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("UpdatedAtIsApproximate")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Warnings")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("WordCount")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Bookmarks");
+
+                    b.HasIndex("CommentCount");
+
+                    b.HasIndex("Hits");
+
+                    b.HasIndex("IsComplete");
+
+                    b.HasIndex("Kudos");
+
+                    b.HasIndex("LanguageCode");
+
+                    b.HasIndex("LastSeenAt");
+
+                    b.HasIndex("Rating");
+
+                    b.HasIndex("UpdatedAt");
+
+                    b.HasIndex("WordCount");
+
+                    b.ToTable("Works");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.WorkAuthor", b =>
+                {
+                    b.Property<long>("WorkId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("PseudId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer");
+
+                    b.HasKey("WorkId", "PseudId");
+
+                    b.HasIndex("PseudId");
+
+                    b.ToTable("WorkAuthors");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.WorkDownloadFile", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("FetchedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte>("Format")
+                        .HasColumnType("smallint");
+
+                    b.Property<string>("RelativePath")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Sha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("WorkId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("WorkUpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkId", "Format", "WorkUpdatedAt")
+                        .IsUnique();
+
+                    b.ToTable("WorkDownloadFiles");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.WorkSeries", b =>
+                {
+                    b.Property<long>("WorkId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("SeriesId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("Part")
+                        .HasColumnType("integer");
+
+                    b.HasKey("WorkId", "SeriesId");
+
+                    b.HasIndex("SeriesId");
+
+                    b.ToTable("WorkSeries");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.WorkTag", b =>
+                {
+                    b.Property<long>("WorkId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("TagId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("WorkId", "TagId");
+
+                    b.HasIndex("TagId", "WorkId");
+
+                    b.ToTable("WorkTags");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
@@ -382,15 +930,41 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("Ao3Tracker.Api.Models.ScrapeJob", b =>
+            modelBuilder.Entity("Ao3Tracker.Api.Models.Download", b =>
                 {
                     b.HasOne("Ao3Tracker.Api.Models.ApplicationUser", "User")
-                        .WithMany("ScrapeJobs")
+                        .WithMany("Downloads")
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("Ao3Tracker.Api.Models.WorkDownloadFile", "File")
+                        .WithMany()
+                        .HasForeignKey("WorkDownloadFileId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Ao3Tracker.Api.Models.Work", "Work")
+                        .WithMany()
+                        .HasForeignKey("WorkId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("File");
+
                     b.Navigation("User");
+
+                    b.Navigation("Work");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.ScrapeJob", b =>
+                {
+                    b.HasOne("Ao3Tracker.Api.Models.Ship", "Ship")
+                        .WithMany()
+                        .HasForeignKey("ShipId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Ship");
                 });
 
             modelBuilder.Entity("Ao3Tracker.Api.Models.ScrapeRun", b =>
@@ -404,15 +978,139 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.Navigation("ScrapeJob");
                 });
 
-            modelBuilder.Entity("Ao3Tracker.Api.Models.ScrapedItem", b =>
+            modelBuilder.Entity("Ao3Tracker.Api.Models.Ship", b =>
                 {
-                    b.HasOne("Ao3Tracker.Api.Models.ScrapeRun", "ScrapeRun")
-                        .WithMany("Items")
-                        .HasForeignKey("ScrapeRunId")
+                    b.HasOne("Ao3Tracker.Api.Models.Tag", "Tag")
+                        .WithMany()
+                        .HasForeignKey("TagId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Tag");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.ShipWork", b =>
+                {
+                    b.HasOne("Ao3Tracker.Api.Models.Ship", "Ship")
+                        .WithMany("Works")
+                        .HasForeignKey("ShipId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.Navigation("ScrapeRun");
+                    b.HasOne("Ao3Tracker.Api.Models.Work", "Work")
+                        .WithMany("Ships")
+                        .HasForeignKey("WorkId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Ship");
+
+                    b.Navigation("Work");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.UserWorkState", b =>
+                {
+                    b.HasOne("Ao3Tracker.Api.Models.ApplicationUser", "User")
+                        .WithMany("WorkStates")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ao3Tracker.Api.Models.Work", "Work")
+                        .WithMany()
+                        .HasForeignKey("WorkId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+
+                    b.Navigation("Work");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.WatchedShip", b =>
+                {
+                    b.HasOne("Ao3Tracker.Api.Models.Ship", "Ship")
+                        .WithMany("Watchers")
+                        .HasForeignKey("ShipId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ao3Tracker.Api.Models.ApplicationUser", "User")
+                        .WithMany("WatchedShips")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Ship");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.WorkAuthor", b =>
+                {
+                    b.HasOne("Ao3Tracker.Api.Models.Ao3Pseud", "Pseud")
+                        .WithMany("Works")
+                        .HasForeignKey("PseudId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ao3Tracker.Api.Models.Work", "Work")
+                        .WithMany("Authors")
+                        .HasForeignKey("WorkId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Pseud");
+
+                    b.Navigation("Work");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.WorkDownloadFile", b =>
+                {
+                    b.HasOne("Ao3Tracker.Api.Models.Work", "Work")
+                        .WithMany()
+                        .HasForeignKey("WorkId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Work");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.WorkSeries", b =>
+                {
+                    b.HasOne("Ao3Tracker.Api.Models.Ao3Series", "Series")
+                        .WithMany("Works")
+                        .HasForeignKey("SeriesId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ao3Tracker.Api.Models.Work", "Work")
+                        .WithMany("Series")
+                        .HasForeignKey("WorkId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Series");
+
+                    b.Navigation("Work");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.WorkTag", b =>
+                {
+                    b.HasOne("Ao3Tracker.Api.Models.Tag", "Tag")
+                        .WithMany("Works")
+                        .HasForeignKey("TagId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ao3Tracker.Api.Models.Work", "Work")
+                        .WithMany("Tags")
+                        .HasForeignKey("WorkId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Tag");
+
+                    b.Navigation("Work");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
@@ -466,11 +1164,25 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Ao3Tracker.Api.Models.Ao3Pseud", b =>
+                {
+                    b.Navigation("Works");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.Ao3Series", b =>
+                {
+                    b.Navigation("Works");
+                });
+
             modelBuilder.Entity("Ao3Tracker.Api.Models.ApplicationUser", b =>
                 {
                     b.Navigation("Ao3Credential");
 
-                    b.Navigation("ScrapeJobs");
+                    b.Navigation("Downloads");
+
+                    b.Navigation("WatchedShips");
+
+                    b.Navigation("WorkStates");
                 });
 
             modelBuilder.Entity("Ao3Tracker.Api.Models.ScrapeJob", b =>
@@ -478,9 +1190,27 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.Navigation("Runs");
                 });
 
-            modelBuilder.Entity("Ao3Tracker.Api.Models.ScrapeRun", b =>
+            modelBuilder.Entity("Ao3Tracker.Api.Models.Ship", b =>
                 {
-                    b.Navigation("Items");
+                    b.Navigation("Watchers");
+
+                    b.Navigation("Works");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.Tag", b =>
+                {
+                    b.Navigation("Works");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.Work", b =>
+                {
+                    b.Navigation("Authors");
+
+                    b.Navigation("Series");
+
+                    b.Navigation("Ships");
+
+                    b.Navigation("Tags");
                 });
 #pragma warning restore 612, 618
         }

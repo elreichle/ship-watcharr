@@ -15,8 +15,8 @@ export function NavBar() {
   return (
     <nav className="navbar">
       <Link to="/">Dashboard</Link>
-      <Link to="/data">Scraped data</Link>
       <Link to="/settings">Account settings</Link>
+      {user.isAdmin && <Link to="/admin/scraping">Scraping</Link>}
       {user.isAdmin && <Link to="/admin/database">Database</Link>}
       <span className="spacer" />
       <span>{user.email}</span>

@@ -44,24 +44,86 @@ AO3 is volunteer-run infrastructure. Every scraper **must** go through
 the whole system polite, and it is not optional:
 
 - Serializes every outbound request through a single gate — no matter how many users/jobs run
-  concurrently, requests never leave faster than `Ao3HttpClient:MinDelayBetweenRequests` apart
-  (default 5s).
-- Retries `429`/`5xx` with exponential backoff, honoring `Retry-After` when present.
+  concurrently, requests never leave faster than the configured spacing apart.
+- Spaces requests by a **random 5–8s** (`Ao3HttpClient:MinDelayBetweenRequests` /
+  `MaxDelayBetweenRequests`). Randomizing raises the *average* delay above the floor, so this
+  makes the scraper slower, not stealthier; it also stops several instances settling into
+  lockstep and delivering synchronized load spikes. A `Max` below `Min` clamps up to `Min`, so
+  a misconfiguration can only ever slow things down.
+- Retries `429`/`5xx` with exponential backoff (jittered by ±20%), honoring `Retry-After`
+  verbatim when present — an explicit instruction is not something to guess on top of.
+- Spreads each job's next run by ±10%, so jobs sharing an interval don't converge onto one tick.
+- Aborts a run after `MaxConsecutiveFailures` (default 3) consecutive failures, and caps each run
+  at `MaxRequestsPerRun` (default 500) requests and `MaxRunDuration` (default 2h).
 - Caches successful responses for `Ao3HttpClient:CacheDuration` (default 15 min) so unchanged
-  pages aren't re-fetched.
-- Sends a descriptive `User-Agent` (`Ao3HttpClient:UserAgent`) — set this to something that
-  actually identifies your instance and a way to reach you before pointing it at real AO3 pages.
+  pages aren't re-fetched. Cache hits don't count against the per-run budget — they cost AO3
+  nothing.
+
+### How this instance identifies itself
+
+Every request carries a `User-Agent` built from three parts:
+
+```
+ShipWatcharr/0.1 (+contact: you@example.com; instance/a3f9c2)
+\_____________/    \______________________/  \_____________/
+  the software        who runs this copy       which copy
+```
+
+- **Product token** — constant and public. This is what lets AO3 recognise the tool's traffic
+  as a known, well-behaved client. Not editable.
+- **Operator contact** — how AO3 reaches *whoever runs this deployment*. Defaults to the address
+  the admin account registered with (registration is email-based, so that address is both their
+  username and a real mailbox). Change it under **Settings → Scraping**, or set
+  `Ao3HttpClient:OperatorContact` in configuration. Deliberately per-deployment: the project's
+  author must never be the contact for someone else's instance.
+- **Instance id** — 3 random bytes generated on first run into the data directory. Lets AO3
+  distinguish two deployments in their logs without either revealing who runs them. Not derived
+  from hostname or MAC, precisely so it leaks nothing about the operator's environment.
+
+**With no usable contact, scraping is disabled** — the app still boots and serves its UI (that's
+where you go to fix it), but the worker refuses to make requests and logs why. This is checked
+every poll rather than once at startup, so a fresh install starts scraping as soon as the first
+admin registers.
 
 ## Data model
 
 - `Users` / `AspNetUsers` — ASP.NET Identity, plus `IsAdmin`.
 - `Ao3Credentials` — one row per user; `EncryptedPassword` + `EncryptedSessionCookie` are
   Data-Protection-encrypted, never plaintext, never serialized back to the client.
-- `ScrapeJobs` — per-user schedule config (`ScraperKey`, `Interval`, `IsEnabled`, `NextRunAt`).
-- `ScrapeRuns` — one row per execution attempt (status, timing, error message).
-- `ScrapedItems` — generic `{SourceUrl, Title, PayloadJson}` rows produced by a run. This is
-  intentionally loose and will be redesigned into target-specific tables (works, bookmarks,
-  stats, ...) once real scrape targets are defined.
+The model splits into **global** scraped data, stored once and shared by everyone, and
+**per-user** data keyed by `UserId`. That split is what stops two users watching the same ship
+from producing duplicate rows or, more importantly, duplicate fetches.
+
+Global (scraped from AO3):
+
+- `Works` — one row per AO3 work id, which is used directly as the primary key. Carries the full
+  blurb metadata plus `FirstSeenAt` / `LastSeenAt` / `LastScrapedAt`.
+- `Tags` / `WorkTags` — fandoms, relationships, characters, freeforms, warnings.
+- `Ao3Pseuds` / `WorkAuthors` — creators, in byline order.
+- `Ao3Series` / `WorkSeries` — series membership and part number.
+- `Ships` — a tracked relationship tag, and **where all scrape state lives**: incremental
+  watermark, backfill cursor, full-sweep timestamps.
+- `ShipWorks` — "this work appeared in this ship's listing". Separate from tags because AO3 tag
+  synonyms mean a work returned by the canonical tag may not carry it in its own blurb.
+- `WorkDownloadFiles` — downloaded files on disk, keyed by (work, format, work version).
+
+Per-user:
+
+- `Users` / `AspNetUsers` — ASP.NET Identity, plus `IsAdmin`.
+- `Ao3Credentials` — one row per user; `EncryptedPassword` + `EncryptedSessionCookie` are
+  Data-Protection-encrypted, never plaintext, never serialized back to the client.
+- `WatchedShips` — a user's subscription to a `Ship`. Owns no scrape state, so adding or
+  removing a watcher never affects what has been scraped.
+- `UserWorkStates` — reading status, half-star rating (1–10, check-constrained), free-text note.
+  Kept strictly apart from `Works` so re-scrapes can overwrite metadata without touching it.
+- `Downloads` — a user's request for a file, pointing at a shared `WorkDownloadFile`.
+
+Scheduling:
+
+- `ScrapeJobs` — schedule config, scoped to a **ship**, not a user: scraped data is shared, so a
+  per-user job would mean N users watching one ship producing N identical scrapes.
+- `ScrapeRuns` — one row per execution attempt, with pages/requests/works counters, stop reason,
+  and a heartbeat so a crashed run is distinguishable from a slow one.
 
 ## Database: SQLite by default, PostgreSQL if you want it
 
@@ -145,7 +207,7 @@ dotnet ef migrations add <Name> --context PostgresAppDbContext -o Data/Migration
 
 ```
 cp .env.example .env
-# edit .env — set AO3_USER_AGENT at minimum
+# edit .env — set AO3_OPERATOR_CONTACT at minimum
 docker compose up --build
 ```
 
@@ -166,8 +228,9 @@ docker compose -f docker-compose.yml -f docker-compose.postgres.yml up --build
 
 | Variable | Purpose |
 |---|---|
-| `AO3_USER_AGENT` | Sent as the scraper's User-Agent. Required — identify your instance and a contact method. |
-| `AO3_MIN_DELAY` | Minimum spacing between scrape requests (`HH:MM:SS`), default `00:00:05`. |
+| `AO3_OPERATOR_CONTACT` | Email or project URL AO3 can reach you at. Without it scraping stays disabled. Overridable later under Settings → Scraping. |
+| `AO3_MIN_DELAY` | Lower bound on spacing between scrape requests (`HH:MM:SS`), default `00:00:05`. |
+| `AO3_MAX_DELAY` | Upper bound; each delay is drawn at random from the range. Default `00:00:08`. |
 | `APP_PORT` | Host port the app is published on, default `8080`. |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Only used with `docker-compose.postgres.yml`. |
 
@@ -178,28 +241,39 @@ same double-underscore env var convention EF/ASP.NET Core uses, e.g. `Ao3HttpCli
 ## Extending the scaffold
 
 To add a real AO3 scraper:
-1. Implement `IAo3Scraper` (see `PlaceholderScraper` for the shape) in
-   `Services/Scraping/`, using `IRateLimitedHttpClient` for all HTTP access.
-2. Register it: `builder.Services.AddScoped<IAo3Scraper, YourScraper>();` in `Program.cs`.
+1. Implement `IAo3Scraper` in `Services/Scraping/`, using `IRateLimitedHttpClient` for all HTTP
+   access — never a raw `HttpClient`, or the request goes out without rate limiting or the
+   instance's User-Agent.
+2. Consult `ScrapeContext.Budget` before every fetch and record the outcome
+   (`RecordSuccess` / `RecordFailure` / `RecordCacheHit`). That is what enforces the per-run
+   request cap, the wall-clock cap, and the circuit breaker.
+3. Register it: `builder.Services.AddScoped<IAo3Scraper, YourScraper>();` in `Program.cs`.
    `ScraperRegistry` picks it up automatically — no scheduling/persistence code changes needed.
-3. Users create a `ScrapeJob` with `ScraperKey` matching your scraper's `Key`, from the
-   dashboard's "New scrape job" form (the scraper key list is populated from
-   `GET /api/scrape-jobs/scrapers`).
-4. Once real scrape targets are defined, replace the generic `ScrapedItem` table with
-   target-specific entities/tables as needed.
+4. A `ScrapeJob` is created per ship with `ScraperKey` matching your scraper's `Key`. The
+   available keys are exposed at `GET /api/scrape-jobs/scrapers`.
 
 ## Note on this scaffold's testing
 
-This was built without a Docker daemon available in the environment that generated it, so
-`docker compose up` itself has not been run — review the Dockerfile/compose files before
-relying on them. Everything else has been exercised directly against a running instance
-(`dotnet run` with SQLite), not just built: register → login → save AO3 credentials → create
-a scrape job → the background worker picks it up within a minute → placeholder scraper fetches
-`example.com` → a `ScrapedItem` appears via the API, with correctly UTC-tagged timestamps
-throughout. The admin database-settings endpoint was verified too, including that it rejects
-an unreachable PostgreSQL connection string with a 400 *before* persisting or restarting
-anything (a real Postgres switch-over end-to-end was not exercised, to avoid touching
-infrastructure outside this project without asking first).
+`docker compose up` has still not been run — review the Dockerfile/compose files before relying
+on them.
+
+The entity model and both migration histories *have* been verified for real. The SQLite
+migration applies and the app boots on it; the PostgreSQL migration was applied against an
+actual `postgres:17-alpine` instance, confirming 23 tables, that the half-star rating check
+constraint translates on both providers, and that every timestamp lands as
+`timestamp with time zone`.
+
+The politeness layer has unit tests (`backend/Ao3Tracker.Tests`) covering the budget and
+breaker, the jitter bounds — including that a `Max < Min` misconfiguration clamps to `Min`
+rather than to zero delay — contact validation, and operator-contact precedence. The scraping
+identity was also exercised end-to-end against a running instance: a fresh install logs
+`Scraping is disabled`, registering the first admin flips it to
+`Scraping enabled. Identifying to AO3 as: …` on the next poll, overriding and clearing the
+contact both work without a restart, and unreachable contacts (`nobody`) and header-injection
+attempts (`a@b.com) Mozilla/5.0 (`) are rejected with a 400.
+
+The admin database-settings endpoint was verified too, including that it rejects an unreachable
+PostgreSQL connection string with a 400 *before* persisting or restarting anything.
 
 One accepted, currently-unpatched issue: `Microsoft.EntityFrameworkCore.Sqlite` pulls in
 `SQLitePCLRaw.lib.e_sqlite3`, which has an open NuGet advisory

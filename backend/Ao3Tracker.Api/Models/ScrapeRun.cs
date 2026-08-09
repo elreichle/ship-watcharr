@@ -6,6 +6,12 @@ public enum ScrapeRunStatus
     Running,
     Succeeded,
     Failed,
+
+    /// <summary>
+    /// The process died mid-run. Backfills can run for hours, so a crash would otherwise leave a
+    /// row claiming to be Running forever; startup reconciliation converts stale ones to this.
+    /// </summary>
+    Interrupted,
 }
 
 /// <summary>One execution attempt of a ScrapeJob, with status/timing/error history.</summary>
@@ -18,14 +24,46 @@ public class ScrapeRun
 
     public ScrapeRunStatus Status { get; set; } = ScrapeRunStatus.Pending;
 
+    public ScrapeRunMode Mode { get; set; } = ScrapeRunMode.Incremental;
+
     // DateTime (UTC), not DateTimeOffset: StartedAt is ordered by, and the SQLite
     // provider can't translate ordering/comparisons on DateTimeOffset — see README.
     public DateTime StartedAt { get; set; } = DateTime.UtcNow;
     public DateTime? CompletedAt { get; set; }
 
+    /// <summary>Bumped as the run progresses so a stalled run is distinguishable from a dead one.</summary>
+    public DateTime? HeartbeatAt { get; set; }
+
     public string? ErrorMessage { get; set; }
 
-    public int ItemsScraped { get; set; }
+    // --- Counters ---
 
-    public ICollection<ScrapedItem> Items { get; set; } = new List<ScrapedItem>();
+    /// <summary>
+    /// Listing pages successfully parsed. Tracked separately from <see cref="RequestsMade"/>
+    /// because AO3 frequently returns transient Cloudflare errors, so a page can cost several
+    /// requests — the two numbers are not interchangeable and the budget counts the latter.
+    /// </summary>
+    public int PagesFetched { get; set; }
+
+    /// <summary>Requests that actually reached AO3. Cache hits don't count; they cost AO3 nothing.</summary>
+    public int RequestsMade { get; set; }
+
+    public int WorksSeen { get; set; }
+    public int WorksAdded { get; set; }
+    public int WorksUpdated { get; set; }
+
+    /// <summary>Blurbs that failed to parse but stayed under the abort threshold.</summary>
+    public int ParseWarnings { get; set; }
+
+    public int? FirstPageFetched { get; set; }
+    public int? LastPageFetched { get; set; }
+
+    /// <summary>Stopped at the per-run request budget. Expected for backfills, not an error.</summary>
+    public bool HitRequestCap { get; set; }
+
+    /// <summary>Stopped at the wall-clock budget.</summary>
+    public bool HitTimeCap { get; set; }
+
+    /// <summary>"watermark" | "cap" | "breaker" | "lastPage" | "error".</summary>
+    public string? StopReason { get; set; }
 }

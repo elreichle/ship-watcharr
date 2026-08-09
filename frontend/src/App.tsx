@@ -7,8 +7,8 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { AccountSettingsPage } from './pages/AccountSettingsPage';
-import { ScrapedDataPage } from './pages/ScrapedDataPage';
 import { AdminDatabasePage } from './pages/AdminDatabasePage';
+import { AdminScrapingPage } from './pages/AdminScrapingPage';
 
 export default function App() {
   return (
@@ -26,14 +26,6 @@ export default function App() {
           }
         />
         <Route
-          path="/data"
-          element={
-            <ProtectedRoute>
-              <ScrapedDataPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
           path="/settings"
           element={
             <ProtectedRoute>
@@ -46,6 +38,14 @@ export default function App() {
           element={
             <AdminRoute>
               <AdminDatabasePage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/scraping"
+          element={
+            <AdminRoute>
+              <AdminScrapingPage />
             </AdminRoute>
           }
         />

@@ -10,6 +10,11 @@ namespace Ao3Tracker.Api.Data;
 /// <see cref="PostgresAppDbContext"/> are the concrete, migratable contexts, each with
 /// its own migration history. Everything else in the app depends on this base type and
 /// is unaware of which provider is actually active.
+///
+/// The model divides into global scraped data (works, tags, authors, series, ships) stored once
+/// and shared by every user, and per-user data (watched ships, reading state, downloads,
+/// credentials) keyed by UserId. Keeping scrape state off the per-user rows is what allows two
+/// users watching the same ship to share one scrape instead of duplicating it.
 /// </summary>
 public abstract class AppDbContext : IdentityDbContext<ApplicationUser>
 {
@@ -17,17 +22,35 @@ public abstract class AppDbContext : IdentityDbContext<ApplicationUser>
     {
     }
 
+    // Per-user
     public DbSet<Ao3Credential> Ao3Credentials => Set<Ao3Credential>();
+    public DbSet<WatchedShip> WatchedShips => Set<WatchedShip>();
+    public DbSet<UserWorkState> UserWorkStates => Set<UserWorkState>();
+    public DbSet<Download> Downloads => Set<Download>();
+
+    // Global — scraped data
+    public DbSet<Work> Works => Set<Work>();
+    public DbSet<Tag> Tags => Set<Tag>();
+    public DbSet<WorkTag> WorkTags => Set<WorkTag>();
+    public DbSet<Ao3Pseud> Ao3Pseuds => Set<Ao3Pseud>();
+    public DbSet<WorkAuthor> WorkAuthors => Set<WorkAuthor>();
+    public DbSet<Ao3Series> Ao3Series => Set<Ao3Series>();
+    public DbSet<WorkSeries> WorkSeries => Set<WorkSeries>();
+    public DbSet<Ship> Ships => Set<Ship>();
+    public DbSet<ShipWork> ShipWorks => Set<ShipWork>();
+    public DbSet<WorkDownloadFile> WorkDownloadFiles => Set<WorkDownloadFile>();
+
+    // Scheduling
     public DbSet<ScrapeJob> ScrapeJobs => Set<ScrapeJob>();
     public DbSet<ScrapeRun> ScrapeRuns => Set<ScrapeRun>();
-    public DbSet<ScrapedItem> ScrapedItems => Set<ScrapedItem>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
         base.ConfigureConventions(configurationBuilder);
 
         // See UtcDateTimeConverter: guarantees every DateTime read back from either
-        // provider comes back Kind=Utc, so it serializes to JSON with a "Z".
+        // provider comes back Kind=Utc, so it serializes to JSON with a "Z", and that every
+        // value written is Kind=Utc, which Npgsql requires and will otherwise reject.
         configurationBuilder.Properties<DateTime>().HaveConversion<UtcDateTimeConverter>();
     }
 
@@ -35,37 +58,9 @@ public abstract class AppDbContext : IdentityDbContext<ApplicationUser>
     {
         base.OnModelCreating(builder);
 
-        builder.Entity<Ao3Credential>(entity =>
-        {
-            entity.HasIndex(c => c.UserId).IsUnique();
-            entity.HasOne(c => c.User)
-                .WithOne(u => u.Ao3Credential)
-                .HasForeignKey<Ao3Credential>(c => c.UserId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        builder.Entity<ScrapeJob>(entity =>
-        {
-            entity.HasOne(j => j.User)
-                .WithMany(u => u.ScrapeJobs)
-                .HasForeignKey(j => j.UserId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        builder.Entity<ScrapeRun>(entity =>
-        {
-            entity.HasOne(r => r.ScrapeJob)
-                .WithMany(j => j.Runs)
-                .HasForeignKey(r => r.ScrapeJobId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        builder.Entity<ScrapedItem>(entity =>
-        {
-            entity.HasOne(i => i.ScrapeRun)
-                .WithMany(r => r.Items)
-                .HasForeignKey(i => i.ScrapeRunId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
+        // Configuration lives in Data/Configurations. Both concrete contexts scan the same
+        // assembly, so neither provider can drift from the other's model — which is the
+        // invariant the whole two-context arrangement depends on.
+        builder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
     }
 }

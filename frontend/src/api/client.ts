@@ -4,7 +4,7 @@ import type {
   DatabaseStatus,
   ScrapeJob,
   ScrapeRun,
-  ScrapedItem,
+  ScrapingIdentity,
 } from './types';
 
 export class ApiError extends Error {
@@ -63,21 +63,15 @@ export const api = {
 
   getAvailableScrapers: () => request<string[]>('/scrape-jobs/scrapers'),
 
-  createScrapeJob: (name: string, scraperKey: string, intervalMinutes: number) =>
-    request<ScrapeJob>('/scrape-jobs', {
-      method: 'POST',
-      body: JSON.stringify({ name, scraperKey, intervalMinutes }),
-    }),
-
-  setScrapeJobEnabled: (id: number, enabled: boolean) =>
-    request<void>(`/scrape-jobs/${id}/enable?enabled=${enabled}`, { method: 'POST' }),
-
-  deleteScrapeJob: (id: number) => request<void>(`/scrape-jobs/${id}`, { method: 'DELETE' }),
-
   getScrapeRuns: (jobId: number) => request<ScrapeRun[]>(`/scrape-jobs/${jobId}/runs`),
 
-  getScrapedItems: (scrapeJobId?: number) =>
-    request<ScrapedItem[]>(`/scraped-items${scrapeJobId ? `?scrapeJobId=${scrapeJobId}` : ''}`),
+  getScrapingIdentity: () => request<ScrapingIdentity>('/admin/scraping/identity'),
+
+  updateScrapingIdentity: (operatorContact: string | null) =>
+    request<ScrapingIdentity>('/admin/scraping/identity', {
+      method: 'PUT',
+      body: JSON.stringify({ operatorContact }),
+    }),
 
   getDatabaseStatus: () => request<DatabaseStatus>('/admin/database'),
 

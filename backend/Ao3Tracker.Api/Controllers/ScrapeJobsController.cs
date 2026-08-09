@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using Ao3Tracker.Api.Data;
 using Ao3Tracker.Api.Dtos;
-using Ao3Tracker.Api.Models;
 using Ao3Tracker.Api.Services.Scraping;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -9,6 +8,13 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Ao3Tracker.Api.Controllers;
 
+/// <summary>
+/// Read-only view of the scrape schedules behind the ships the current user watches.
+///
+/// Jobs are no longer created or deleted here: a job belongs to a <c>Ship</c>, and its lifecycle
+/// follows subscription (created when the first user watches a ship, disabled when the last one
+/// stops). The endpoints that add and remove watched ships arrive with the full scrape pipeline.
+/// </summary>
 [ApiController]
 [Authorize]
 [Route("api/scrape-jobs")]
@@ -30,22 +36,27 @@ public class ScrapeJobsController : ControllerBase
     public ActionResult<IReadOnlyCollection<string>> GetAvailableScrapers() =>
         Ok(_scraperRegistry.AvailableKeys);
 
+    /// <summary>Jobs for every ship the current user watches.</summary>
     [HttpGet]
     public async Task<ActionResult<List<ScrapeJobDto>>> GetJobs(CancellationToken ct)
     {
+        var userId = CurrentUserId;
+
         var jobs = await _db.ScrapeJobs
-            .Where(j => j.UserId == CurrentUserId)
+            .Where(j => _db.WatchedShips.Any(w => w.UserId == userId && w.ShipId == j.ShipId))
             .OrderBy(j => j.Name)
             .Select(j => new
             {
                 Job = j,
+                ShipName = j.Ship.CanonicalTagName,
                 LastRun = j.Runs.OrderByDescending(r => r.StartedAt).FirstOrDefault(),
             })
             .ToListAsync(ct);
 
         var dtos = jobs.Select(x => new ScrapeJobDto(
             x.Job.Id,
-            x.Job.Name,
+            x.Job.ShipId,
+            x.ShipName,
             x.Job.ScraperKey,
             (int)x.Job.Interval.TotalMinutes,
             x.Job.IsEnabled,
@@ -57,62 +68,34 @@ public class ScrapeJobsController : ControllerBase
         return Ok(dtos);
     }
 
-    [HttpPost]
-    public async Task<ActionResult<ScrapeJobDto>> CreateJob(CreateScrapeJobRequest request, CancellationToken ct)
-    {
-        if (_scraperRegistry.TryGet(request.ScraperKey) is null)
-            return BadRequest(new { message = $"Unknown scraper key '{request.ScraperKey}'." });
-
-        var job = new ScrapeJob
-        {
-            UserId = CurrentUserId,
-            Name = request.Name,
-            ScraperKey = request.ScraperKey,
-            Interval = TimeSpan.FromMinutes(request.IntervalMinutes),
-            IsEnabled = true,
-            NextRunAt = DateTime.UtcNow,
-        };
-
-        _db.ScrapeJobs.Add(job);
-        await _db.SaveChangesAsync(ct);
-
-        return Ok(new ScrapeJobDto(job.Id, job.Name, job.ScraperKey, request.IntervalMinutes, job.IsEnabled, null, job.NextRunAt, null, null));
-    }
-
-    [HttpPost("{id:int}/enable")]
-    public async Task<IActionResult> SetEnabled(int id, [FromQuery] bool enabled, CancellationToken ct)
-    {
-        var job = await _db.ScrapeJobs.SingleOrDefaultAsync(j => j.Id == id && j.UserId == CurrentUserId, ct);
-        if (job is null) return NotFound();
-
-        job.IsEnabled = enabled;
-        if (enabled && job.NextRunAt is null) job.NextRunAt = DateTime.UtcNow;
-        await _db.SaveChangesAsync(ct);
-        return NoContent();
-    }
-
-    [HttpDelete("{id:int}")]
-    public async Task<IActionResult> DeleteJob(int id, CancellationToken ct)
-    {
-        var job = await _db.ScrapeJobs.SingleOrDefaultAsync(j => j.Id == id && j.UserId == CurrentUserId, ct);
-        if (job is null) return NotFound();
-
-        _db.ScrapeJobs.Remove(job);
-        await _db.SaveChangesAsync(ct);
-        return NoContent();
-    }
-
     [HttpGet("{id:int}/runs")]
     public async Task<ActionResult<List<ScrapeRunDto>>> GetRuns(int id, CancellationToken ct)
     {
-        var jobExists = await _db.ScrapeJobs.AnyAsync(j => j.Id == id && j.UserId == CurrentUserId, ct);
-        if (!jobExists) return NotFound();
+        var userId = CurrentUserId;
+
+        var visible = await _db.ScrapeJobs
+            .AnyAsync(j => j.Id == id
+                && _db.WatchedShips.Any(w => w.UserId == userId && w.ShipId == j.ShipId), ct);
+        if (!visible) return NotFound();
 
         var runs = await _db.ScrapeRuns
             .Where(r => r.ScrapeJobId == id)
             .OrderByDescending(r => r.StartedAt)
             .Take(50)
-            .Select(r => new ScrapeRunDto(r.Id, r.ScrapeJobId, r.Status.ToString(), r.StartedAt, r.CompletedAt, r.ItemsScraped, r.ErrorMessage))
+            .Select(r => new ScrapeRunDto(
+                r.Id,
+                r.ScrapeJobId,
+                r.Status.ToString(),
+                r.Mode.ToString(),
+                r.StartedAt,
+                r.CompletedAt,
+                r.PagesFetched,
+                r.RequestsMade,
+                r.WorksSeen,
+                r.WorksAdded,
+                r.WorksUpdated,
+                r.StopReason,
+                r.ErrorMessage))
             .ToListAsync(ct);
 
         return Ok(runs);

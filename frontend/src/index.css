@@ -95,3 +95,14 @@ td {
   font-size: 0.8rem;
   opacity: 0.75;
 }
+
+/* The literal User-Agent header. Wraps rather than scrolls so the whole value is always
+   visible — the point of showing it is that nothing about it is hidden. */
+.user-agent {
+  padding: 0.75rem;
+  border-radius: 4px;
+  background: rgba(127, 127, 127, 0.12);
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

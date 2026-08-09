@@ -18,17 +18,20 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
     private readonly HttpClient _httpClient;
     private readonly IMemoryCache _cache;
     private readonly Ao3HttpClientOptions _options;
+    private readonly Ao3UserAgentProvider _userAgents;
     private readonly ILogger<RateLimitedAo3HttpClient> _logger;
 
     public RateLimitedAo3HttpClient(
         HttpClient httpClient,
         IMemoryCache cache,
         IOptions<Ao3HttpClientOptions> options,
+        Ao3UserAgentProvider userAgents,
         ILogger<RateLimitedAo3HttpClient> logger)
     {
         _httpClient = httpClient;
         _cache = cache;
         _options = options.Value;
+        _userAgents = userAgents;
         _logger = logger;
     }
 
@@ -44,16 +47,27 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
         try
         {
             await WaitForRateLimitSlotAsync(ct);
-            var response = await SendWithRetryAsync(url, ct);
 
-            _lastRequestAt = DateTimeOffset.UtcNow;
-
-            if (response.StatusCode == HttpStatusCode.OK)
+            try
             {
-                _cache.Set(CacheKey(url), response, _options.CacheDuration);
-            }
+                var response = await SendWithRetryAsync(url, ct);
 
-            return response;
+                if (response.StatusCode == HttpStatusCode.OK)
+                {
+                    _cache.Set(CacheKey(url), response, _options.CacheDuration);
+                }
+
+                return response;
+            }
+            finally
+            {
+                // Must be in a finally, not on the success path. A network failure or the 30s
+                // HttpClient timeout throws straight out of SendWithRetryAsync, and if the
+                // timestamp were only advanced on success the next caller would compute a
+                // negative "time since last request" and fire immediately. That would remove
+                // the rate limit precisely when AO3 is failing and least able to absorb load.
+                _lastRequestAt = DateTimeOffset.UtcNow;
+            }
         }
         finally
         {
@@ -61,24 +75,54 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
         }
     }
 
+    /// <summary>
+    /// Waits out the spacing owed since the previous request, using a fresh random target drawn
+    /// per request from [Min, Max].
+    ///
+    /// Randomizing raises the mean delay above the floor (5s fixed becomes ~6.5s across 5–8s), so
+    /// this strictly reduces request rate. It also breaks up the lockstep that fixed intervals
+    /// produce, which is what turns several independent clients into a synchronized load spike.
+    /// </summary>
     private async Task WaitForRateLimitSlotAsync(CancellationToken ct)
     {
+        var target = NextDelayTarget();
         var elapsedSinceLast = DateTimeOffset.UtcNow - _lastRequestAt;
-        var remaining = _options.MinDelayBetweenRequests - elapsedSinceLast;
+        var remaining = target - elapsedSinceLast;
         if (remaining > TimeSpan.Zero)
         {
-            _logger.LogDebug("Rate limiting: waiting {Delay}", remaining);
+            _logger.LogDebug("Rate limiting: waiting {Delay} (target spacing {Target})", remaining, target);
             await Task.Delay(remaining, ct);
         }
+    }
+
+    internal TimeSpan NextDelayTarget()
+    {
+        var min = _options.MinDelayBetweenRequests;
+
+        // Clamp rather than throw: a Max below Min is a misconfiguration that must degrade to
+        // "slower", never to "no spacing at all".
+        var max = _options.MaxDelayBetweenRequests < min ? min : _options.MaxDelayBetweenRequests;
+        if (max == min) return min;
+
+        return min + (max - min) * Random.Shared.NextDouble();
     }
 
     private async Task<ScrapeHttpResponse> SendWithRetryAsync(string url, CancellationToken ct)
     {
         var backoff = _options.InitialBackoff;
 
+        // Resolved once per logical fetch, not once per client: the settings UI can change the
+        // operator contact at any time, and a pooled HttpClient's default headers would keep
+        // sending the old one until its handler was recycled. Throws if no contact is usable,
+        // which is the intended fail-closed behaviour — no contact, no request.
+        var userAgent = await _userAgents.GetUserAgentAsync(ct);
+
         for (var attempt = 0; ; attempt++)
         {
-            using var response = await _httpClient.GetAsync(url, ct);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.UserAgent.ParseAdd(userAgent);
+
+            using var response = await _httpClient.SendAsync(request, ct);
             var isRetryable = response.StatusCode == HttpStatusCode.TooManyRequests ||
                                (int)response.StatusCode >= 500;
 
@@ -88,7 +132,11 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
                 return new ScrapeHttpResponse(content, response.StatusCode, FromCache: false);
             }
 
-            var delay = response.Headers.RetryAfter?.Delta ?? backoff;
+            // Retry-After is AO3 telling us exactly what it wants; honor it verbatim and do not
+            // jitter it — the whole value of an explicit instruction is that it isn't guesswork.
+            // Our own backoff is a guess, so that one gets jittered.
+            var delay = response.Headers.RetryAfter?.Delta ?? Jitter(backoff);
+
             _logger.LogWarning(
                 "Scrape request to {Url} got {StatusCode}, retrying in {Delay} (attempt {Attempt}/{MaxRetries})",
                 url, response.StatusCode, delay, attempt + 1, _options.MaxRetries);
@@ -96,6 +144,19 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
             await Task.Delay(delay, ct);
             backoff *= 2;
         }
+    }
+
+    /// <summary>
+    /// Spreads a computed backoff by ±<see cref="Ao3HttpClientOptions.BackoffJitterFactor"/>, so
+    /// that every client which failed at the same instant does not retry at the same instant too.
+    /// </summary>
+    internal TimeSpan Jitter(TimeSpan value)
+    {
+        var factor = Math.Clamp(_options.BackoffJitterFactor, 0, 1);
+        if (factor == 0) return value;
+
+        var multiplier = 1 + ((Random.Shared.NextDouble() * 2 - 1) * factor);
+        return value * multiplier;
     }
 
     private static string CacheKey(string url) => $"ao3http:{url}";

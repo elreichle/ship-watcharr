@@ -1,15 +1,13 @@
-using System.ComponentModel.DataAnnotations;
-
 namespace Ao3Tracker.Api.Dtos;
 
-public record CreateScrapeJobRequest(
-    [Required] string Name,
-    [Required] string ScraperKey,
-    [Range(1, int.MaxValue)] int IntervalMinutes);
-
+/// <summary>
+/// A scrape schedule. Jobs belong to a ship rather than to a user, so this is exposed to a user
+/// only via the ships they watch — there is no per-user job to create or delete directly.
+/// </summary>
 public record ScrapeJobDto(
     int Id,
-    string Name,
+    int ShipId,
+    string ShipName,
     string ScraperKey,
     int IntervalMinutes,
     bool IsEnabled,
@@ -22,15 +20,13 @@ public record ScrapeRunDto(
     int Id,
     int ScrapeJobId,
     string Status,
+    string Mode,
     DateTime StartedAt,
     DateTime? CompletedAt,
-    int ItemsScraped,
+    int PagesFetched,
+    int RequestsMade,
+    int WorksSeen,
+    int WorksAdded,
+    int WorksUpdated,
+    string? StopReason,
     string? ErrorMessage);
-
-public record ScrapedItemDto(
-    int Id,
-    int ScrapeRunId,
-    string SourceUrl,
-    string? Title,
-    string PayloadJson,
-    DateTime ScrapedAt);

@@ -1,10 +1,17 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>7325a38f-9c09-4e5e-9a48-cd97fc2a421d</UserSecretsId>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The jitter and scheduling helpers are internal: they are implementation detail, but their
+         bounds are exactly the kind of thing that must not silently regress into "no delay". -->
+    <InternalsVisibleTo Include="Ao3Tracker.Tests" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="AngleSharp" Version="1.7.1" />

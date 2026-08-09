@@ -98,16 +98,28 @@ builder.Services.AddScoped<IAo3CredentialStore, Ao3CredentialStore>();
 // ---- Rate-limited scraping HTTP client ----
 builder.Services.Configure<Ao3HttpClientOptions>(builder.Configuration.GetSection(Ao3HttpClientOptions.SectionName));
 builder.Services.AddMemoryCache();
+
+// Stable random id for this deployment, so two installs are distinguishable in AO3's logs
+// without either revealing who runs them. Created on first run under the data directory.
+builder.Services.AddSingleton(sp => InstanceIdentity.LoadOrCreate(sp.GetRequiredService<StoragePaths>()));
+
+// Both scoped: resolving the operator contact reads settings.json and may fall back to the admin
+// account's address, so it needs the (scoped) DbContext and must reflect changes made through the
+// settings UI without a restart. The User-Agent is therefore built per request, not per client.
+builder.Services.AddScoped<IOperatorContactResolver, OperatorContactResolver>();
+builder.Services.AddScoped<Ao3UserAgentProvider>();
+
 builder.Services
-    .AddHttpClient<IRateLimitedHttpClient, RateLimitedAo3HttpClient>((sp, client) =>
+    .AddHttpClient<IRateLimitedHttpClient, RateLimitedAo3HttpClient>(client =>
     {
-        var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Ao3HttpClientOptions>>().Value;
-        client.DefaultRequestHeaders.UserAgent.ParseAdd(options.UserAgent);
+        // No default User-Agent here on purpose — see RateLimitedAo3HttpClient.SendWithRetryAsync,
+        // which sets it per request so a settings change takes effect immediately.
         client.Timeout = TimeSpan.FromSeconds(30);
     });
 
 // ---- Scrapers (add new IAo3Scraper implementations here; ScraperRegistry picks them up automatically) ----
-builder.Services.AddScoped<IAo3Scraper, PlaceholderScraper>();
+// None registered yet: the placeholder scraper was removed along with the placeholder schema,
+// and the real ship-index scraper arrives with the AO3 parser.
 builder.Services.AddScoped<ScraperRegistry>();
 
 // ---- Background scheduling worker ----
