@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { APP_NAME } from '../appInfo';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import { ErrorBoundary } from './ErrorBoundary';
 import { Icon } from './Icon';
 import { Sidebar } from './Sidebar';
 
@@ -37,6 +38,7 @@ function writeCollapsed(collapsed: boolean): void {
 export function AppLayout() {
   const isNarrow = useMediaQuery(NARROW_QUERY);
   const isMobile = useMediaQuery(MOBILE_QUERY);
+  const location = useLocation();
 
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -101,7 +103,12 @@ export function AppLayout() {
         </header>
 
         <main className="app-main">
-          <Outlet />
+          {/* Keyed by path so navigating away clears a tripped boundary: a boundary holds its
+              error until it remounts, and without this one broken page would keep showing its
+              error no matter where the sidebar took you. */}
+          <ErrorBoundary scope="page" key={location.pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

@@ -22,7 +22,30 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/**
+ * A check on a successful response body, run before the caller ever sees it.
+ *
+ * `request<T>` only *asserts* T — nothing verifies the server actually sent that shape. A server
+ * running different code than this page (a stale dev process, a half-applied deploy) can answer
+ * 200 with a body that satisfies the compiler and is `undefined` where the UI expects an array.
+ * The first `.map` on it then throws during render, which used to take the entire app down.
+ *
+ * Checking here turns that into an ordinary failed request, which every page already knows how to
+ * show. Only shapes the UI indexes into are worth checking — a missing scalar renders as blank,
+ * which is untidy rather than fatal.
+ */
+type ResponseCheck = (body: unknown) => boolean;
+
+function isRecord(body: unknown): body is Record<string, unknown> {
+  return typeof body === 'object' && body !== null;
+}
+
+const hasArray =
+  (field: string): ResponseCheck =>
+  (body) =>
+    isRecord(body) && Array.isArray(body[field]);
+
+async function request<T>(path: string, init?: RequestInit, isValid?: ResponseCheck): Promise<T> {
   const response = await fetch(`/api${path}`, {
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -47,7 +70,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+
+  const body = (await response.json()) as T;
+  if (isValid && !isValid(body)) {
+    throw new ApiError(
+      response.status,
+      `The server's response to ${path} wasn't in the expected format. This usually means it is ` +
+        `running a different version than this page — restarting it, or reloading after a deploy ` +
+        `finishes, normally clears it.`,
+    );
+  }
+  return body;
 }
 
 export const api = {
@@ -82,7 +115,7 @@ export const api = {
 
   removeAo3Credential: () => request<void>('/account/ao3-credential', { method: 'DELETE' }),
 
-  getWatchedShips: () => request<WatchedShipsResponse>('/ships'),
+  getWatchedShips: () => request<WatchedShipsResponse>('/ships', undefined, hasArray('ships')),
 
   watchShip: (tagName: string) =>
     request<WatchedShip>('/ships', { method: 'POST', body: JSON.stringify({ tagName }) }),
@@ -99,14 +132,15 @@ export const api = {
     if (sort !== undefined) query.set('sort', sort);
     if (ascending !== undefined) query.set('ascending', String(ascending));
 
-    return request<PagedResult<WorkListItem>>(`/works?${query}`);
+    return request<PagedResult<WorkListItem>>(`/works?${query}`, undefined, hasArray('items'));
   },
 
-  getScrapeJobs: () => request<ScrapeJob[]>('/scrape-jobs'),
+  getScrapeJobs: () => request<ScrapeJob[]>('/scrape-jobs', undefined, Array.isArray),
 
-  getAvailableScrapers: () => request<string[]>('/scrape-jobs/scrapers'),
+  getAvailableScrapers: () => request<string[]>('/scrape-jobs/scrapers', undefined, Array.isArray),
 
-  getScrapeRuns: (jobId: number) => request<ScrapeRun[]>(`/scrape-jobs/${jobId}/runs`),
+  getScrapeRuns: (jobId: number) =>
+    request<ScrapeRun[]>(`/scrape-jobs/${jobId}/runs`, undefined, Array.isArray),
 
   getScrapingIdentity: () => request<ScrapingIdentity>('/admin/scraping/identity'),
 

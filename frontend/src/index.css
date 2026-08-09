@@ -584,6 +584,31 @@
     border-left: 3px solid var(--text-warning);
   }
 
+  /* Shown in place of whatever crashed. Padded like a page rather than a banner, because when the
+     app-level boundary trips this is the only thing on screen. */
+  .error-boundary {
+    max-width: 60ch;
+    padding: var(--size-4-6) var(--size-4-4);
+  }
+
+  .error-boundary-message {
+    margin: var(--size-4-3) 0;
+    padding: var(--size-4-3);
+    border-left: 3px solid var(--text-error);
+    border-radius: var(--radius-s);
+    background-color: var(--background-modifier-hover);
+    font-family: var(--font-monospace);
+    font-size: var(--font-ui-smaller);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .error-boundary-actions {
+    display: flex;
+    gap: var(--size-4-2);
+    margin-bottom: var(--size-4-3);
+  }
+
   /* The literal User-Agent header. Wraps rather than scrolls so the whole value is always
      visible — the point of showing it is that nothing about it is hidden. */
   .user-agent {

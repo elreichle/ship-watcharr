@@ -187,6 +187,27 @@ identical works, which is the duplicate fetching the shared-`Ship` design exists
 Whichever way it resolves, `WatchedShip.RequestedTagName` records what that user originally typed,
 so the UI can say why the tag on screen is not the one they entered.
 
+### A broken page never blanks the app
+
+React unmounts the whole tree when a render throws and nothing catches it, so any single bad field
+could leave the interface as an empty `<body>` — no message, no navigation, indistinguishable from
+the server being down. Two things prevent that:
+
+- **`ErrorBoundary`** (`frontend/src/components/ErrorBoundary.tsx`) wraps the routed page inside
+  `AppLayout`, so a failed page keeps the sidebar and says what went wrong; a second one wraps the
+  whole app for anything above the shell. The page-level boundary is keyed on the path, because a
+  boundary holds its error until it remounts — without that, one broken page would keep showing its
+  error wherever you navigated next.
+- **Response shape checks** in `frontend/src/api/client.ts`. `request<T>` only *asserts* `T`;
+  nothing verifies the server sent it. A backend running different code than the page — a stale dev
+  process, a half-applied deploy — can answer `200` with a body that typechecks and is `undefined`
+  where the UI expects an array. The endpoints whose arrays the UI indexes into are checked at
+  runtime and fail as ordinary request errors, which every page already renders.
+
+Note that neither one is licence to swallow a failure: a page that cannot load its data says so.
+`WorksPage` in particular distinguishes "you follow no ships" from "the ship list didn't load",
+because claiming the former sends someone off to re-add ships they already have.
+
 ### Bring your own theme
 
 Every pixel of the UI is painted from **Obsidian's CSS variables** — `--background-primary`,

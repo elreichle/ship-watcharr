@@ -36,7 +36,9 @@ function formatUpdated(work: WorkListItem): string {
 export function WorksPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [result, setResult] = useState<PagedResult<WorkListItem> | null>(null);
-  const [ships, setShips] = useState<WatchedShip[]>([]);
+  // null means "we could not find out", which is not the same as "you follow none" — saying the
+  // latter when the request failed sends someone off to re-add ships they already have.
+  const [ships, setShips] = useState<WatchedShip[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -51,7 +53,9 @@ export function WorksPage() {
   const shipId = shipIdParam === null ? null : Number(shipIdParam);
 
   useEffect(() => {
-    api.getWatchedShips().then((response) => setShips(response.ships)).catch(() => setShips([]));
+    // The filter is a convenience, not the page — if it can't load, the works list below still
+    // stands on its own and reports its own failure.
+    api.getWatchedShips().then((response) => setShips(response.ships)).catch(() => setShips(null));
   }, []);
 
   useEffect(() => {
@@ -107,7 +111,7 @@ export function WorksPage() {
             onChange={(e) => updateQuery({ shipId: e.target.value === '' ? null : e.target.value })}
           >
             <option value="">All ships you follow</option>
-            {ships.map((ship) => (
+            {ships?.map((ship) => (
               <option key={ship.shipId} value={ship.shipId}>
                 {ship.tagName}
               </option>
@@ -155,7 +159,7 @@ export function WorksPage() {
         !error && <p>Loading…</p>
       ) : works.length === 0 ? (
         <p className="hint">
-          {ships.length === 0 ? (
+          {ships !== null && ships.length === 0 ? (
             <>
               Nothing here yet — you aren’t following any ships. Add a relationship tag on the{' '}
               <Link to="/ships">Ships</Link> tab and its works will show up here.
