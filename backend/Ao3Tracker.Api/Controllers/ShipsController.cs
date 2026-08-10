@@ -30,12 +30,18 @@ public class ShipsController : ControllerBase
     private readonly AppDbContext _db;
     private readonly ScraperRegistry _scraperRegistry;
     private readonly Ao3UserAgentProvider _userAgents;
+    private readonly ScrapeWakeSignal _scrapeWake;
 
-    public ShipsController(AppDbContext db, ScraperRegistry scraperRegistry, Ao3UserAgentProvider userAgents)
+    public ShipsController(
+        AppDbContext db,
+        ScraperRegistry scraperRegistry,
+        Ao3UserAgentProvider userAgents,
+        ScrapeWakeSignal scrapeWake)
     {
         _db = db;
         _scraperRegistry = scraperRegistry;
         _userAgents = userAgents;
+        _scrapeWake = scrapeWake;
     }
 
     private string CurrentUserId => User.FindFirstValue(ClaimTypes.NameIdentifier)
@@ -136,8 +142,13 @@ public class ShipsController : ControllerBase
             return Conflict(new { message = $"You are already tracking {ship.CanonicalTagName}." });
 
         _db.WatchedShips.Add(new WatchedShip { UserId = userId, ShipId = ship.Id });
-        await EnsureScheduledAsync(ship, ct);
+        var scheduled = await EnsureScheduledAsync(ship, ct);
         await _db.SaveChangesAsync(ct);
+
+        // After the commit, never before: the worker sweeps in a scope of its own, so a signal sent
+        // while this transaction was still open could find nothing and go back to sleep for a full
+        // interval — the exact wait this is here to remove.
+        if (scheduled) _scrapeWake.Wake();
 
         var dto = (await LoadWatchedShipsAsync(ship.Id, ct)).Single();
         return CreatedAtAction(nameof(GetWatchedShips), dto);
@@ -218,7 +229,11 @@ public class ShipsController : ControllerBase
     /// Gives the ship a scrape schedule, or re-enables the one it already has. Left unsaved for the
     /// caller so the subscription and its schedule commit together.
     /// </summary>
-    private async Task EnsureScheduledAsync(Ship ship, CancellationToken ct)
+    /// <returns>
+    /// Whether the ship now has an enabled schedule — false for a tag AO3 has already denied, which
+    /// is the one case where there is nothing for the worker to be woken for.
+    /// </returns>
+    private async Task<bool> EnsureScheduledAsync(Ship ship, CancellationToken ct)
     {
         // A tag AO3 has already told us does not exist stays unscheduled, however many people
         // follow it. Enabling it here would undo what verification concluded and put a permanently
@@ -229,7 +244,7 @@ public class ShipsController : ControllerBase
         if (job is not null)
         {
             job.IsEnabled = enabled;
-            return;
+            return enabled;
         }
 
         _db.ScrapeJobs.Add(new ScrapeJob
@@ -240,9 +255,12 @@ public class ShipsController : ControllerBase
             Interval = DefaultScrapeInterval,
             IsEnabled = enabled,
 
-            // Null NextRunAt makes it due on the next poll. Nothing stampedes: the worker runs due
-            // jobs one at a time and every request they make queues behind the shared rate gate.
+            // Null NextRunAt makes it due immediately, and the caller's signal has the worker pick it
+            // up rather than wait for a tick. Nothing stampedes: the worker runs due jobs one at a
+            // time and every request they make queues behind the shared rate gate.
             NextRunAt = null,
         });
+
+        return enabled;
     }
 }

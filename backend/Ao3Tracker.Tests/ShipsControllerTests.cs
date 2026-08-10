@@ -45,9 +45,79 @@ public class ShipsControllerTests : IDisposable
         Assert.Equal(Ao3ScraperKeys.ShipIndex, job.ScraperKey);
         Assert.True(job.IsEnabled);
 
-        // Null means "due on the next poll" — a newly followed ship should not wait an interval
-        // before anything happens.
+        // Null means "due now" — a newly followed ship should not wait an interval before anything
+        // happens. The wake below is what stops it waiting out a poll tick either.
         Assert.Null(job.NextRunAt);
+    }
+
+    [Fact]
+    public async Task Following_a_tag_wakes_the_scrape_worker()
+    {
+        // Without this the job is due immediately but nothing looks at it for up to a poll interval,
+        // so the first pass on a tag someone just added appears to hang.
+        var emma = _host.SeedUser();
+
+        Created(await _host.Ships(emma).WatchShip(new("Clarke Griffin/Lexa"), default));
+
+        Assert.True(await _host.ScrapeWake.WaitAsync(TimeSpan.Zero));
+    }
+
+    [Fact]
+    public async Task A_burst_of_follows_wakes_the_worker_once()
+    {
+        // One sweep picks up every job that is due, so signalling per follow would only spend
+        // database round trips finding the work the first sweep already took.
+        var emma = _host.SeedUser();
+
+        Created(await _host.Ships(emma).WatchShip(new("Clarke Griffin/Lexa"), default));
+        Created(await _host.Ships(emma).WatchShip(new("Korra/Asami Sato"), default));
+        Created(await _host.Ships(emma).WatchShip(new("Kirk/Spock"), default));
+
+        Assert.True(await _host.ScrapeWake.WaitAsync(TimeSpan.Zero));
+        Assert.False(await _host.ScrapeWake.WaitAsync(TimeSpan.Zero));
+    }
+
+    [Fact]
+    public async Task Re_following_a_tag_you_already_follow_does_not_wake_the_worker()
+    {
+        // The conflict changes nothing about the schedule, so there is nothing new to sweep for.
+        var emma = _host.SeedUser();
+        Created(await _host.Ships(emma).WatchShip(new("Clarke Griffin/Lexa"), default));
+        await _host.ScrapeWake.WaitAsync(TimeSpan.Zero);
+
+        await _host.Ships(emma).WatchShip(new("Clarke Griffin/Lexa"), default);
+
+        Assert.False(await _host.ScrapeWake.WaitAsync(TimeSpan.Zero));
+    }
+
+    [Fact]
+    public async Task Following_a_tag_AO3_has_denied_does_not_wake_the_worker()
+    {
+        // Its schedule stays switched off, so a sweep would find nothing to run for it. Waking here
+        // would turn a known-dead tag into a pointless database pass every time somebody follows it.
+        //
+        // The ship is seeded already denied rather than followed and then updated: verification is
+        // what sets that state, and it runs long before a second person follows the same typo.
+        var emma = _host.SeedUser();
+
+        await using (var db = _host.NewContext())
+        {
+            db.Ships.Add(new Ship
+            {
+                CanonicalTagName = "Clarke Griffin/Lexaa",
+                CanonicalTagNameNormalized = "CLARKE GRIFFIN/LEXAA",
+                TagUrlSegment = Ao3TagUrl.ToUrlSegment("Clarke Griffin/Lexaa"),
+                VerificationState = ShipVerificationState.NotFoundOnAo3,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        Created(await _host.Ships(emma).WatchShip(new("Clarke Griffin/Lexaa"), default));
+
+        await using (var db = _host.NewContext())
+            Assert.False((await db.ScrapeJobs.SingleAsync()).IsEnabled);
+
+        Assert.False(await _host.ScrapeWake.WaitAsync(TimeSpan.Zero));
     }
 
     [Fact]

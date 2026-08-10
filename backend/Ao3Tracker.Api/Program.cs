@@ -139,6 +139,9 @@ builder.Services.AddScoped<ScraperRegistry>();
 builder.Services.AddScoped<IShipVerifier, Ao3ShipVerifier>();
 
 // ---- Background workers ----
+// Singleton, and registered before the worker that waits on it: the signal is the one piece of
+// state a scoped request and the long-lived worker have to share.
+builder.Services.AddSingleton<ScrapeWakeSignal>();
 builder.Services.AddHostedService<ScrapeWorker>();
 builder.Services.AddHostedService<ShipVerificationWorker>();
 

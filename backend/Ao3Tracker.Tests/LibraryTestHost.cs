@@ -42,6 +42,12 @@ internal sealed class LibraryTestHost : IDisposable
     /// </summary>
     public string? OperatorContact { get; set; } = "ops@example.com";
 
+    /// <summary>
+    /// The signal a request uses to wake the scrape worker. There is no worker running in these
+    /// tests, so a pending wake stays pending — which is what lets a test assert one was sent.
+    /// </summary>
+    public ScrapeWakeSignal ScrapeWake { get; } = new();
+
     public LibraryTestHost(params IAo3Scraper[] scrapers)
     {
         _connection = new SqliteConnection("DataSource=:memory:");
@@ -77,6 +83,7 @@ internal sealed class LibraryTestHost : IDisposable
 
         services.AddSingleton<IRateLimitedHttpClient>(Http);
         services.AddScoped<IShipVerifier, Ao3ShipVerifier>();
+        services.AddSingleton(ScrapeWake);
 
         _provider = services.BuildServiceProvider();
 
@@ -152,7 +159,8 @@ internal sealed class LibraryTestHost : IDisposable
     public ShipsController Ships(ApplicationUser user) => Build(new ShipsController(
         _request.ServiceProvider.GetRequiredService<AppDbContext>(),
         _request.ServiceProvider.GetRequiredService<ScraperRegistry>(),
-        _request.ServiceProvider.GetRequiredService<Ao3UserAgentProvider>()), user);
+        _request.ServiceProvider.GetRequiredService<Ao3UserAgentProvider>(),
+        _request.ServiceProvider.GetRequiredService<ScrapeWakeSignal>()), user);
 
     public WorksController Works(ApplicationUser user) => Build(new WorksController(
         _request.ServiceProvider.GetRequiredService<AppDbContext>()), user);

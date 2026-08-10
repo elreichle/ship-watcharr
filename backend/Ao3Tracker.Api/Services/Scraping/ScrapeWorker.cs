@@ -6,13 +6,20 @@ using Microsoft.Extensions.Options;
 namespace Ao3Tracker.Api.Services.Scraping;
 
 /// <summary>
-/// In-process job scheduler: polls due ScrapeJobs on a fixed tick, runs each one through
-/// its configured IAo3Scraper, and records a ScrapeRun per execution.
+/// In-process job scheduler: polls due ScrapeJobs, runs each one through its configured
+/// IAo3Scraper, and records a ScrapeRun per execution.
 /// This is a BackgroundService (not an OS-level service) because everything — API and
 /// worker — ships as one container/process.
+///
+/// The poll is a floor, not the only trigger: following a tag makes its job due immediately and
+/// signals <see cref="ScrapeWakeSignal"/>, so a first pass starts without waiting out a tick.
 /// </summary>
 public class ScrapeWorker : BackgroundService
 {
+    /// <summary>
+    /// How long the worker sleeps when nothing wakes it. Only jobs that came due while it slept
+    /// depend on this — a newly followed ship arrives by signal instead.
+    /// </summary>
     private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(1);
 
     /// <summary>
@@ -27,6 +34,7 @@ public class ScrapeWorker : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<ScrapeWorker> _logger;
     private readonly Ao3HttpClientOptions _httpOptions;
+    private readonly ScrapeWakeSignal _wake;
 
     /// <summary>Last logged scraping-enabled state; null until the first check. See RunDueJobsAsync.</summary>
     private bool? _scrapingEnabled;
@@ -34,11 +42,13 @@ public class ScrapeWorker : BackgroundService
     public ScrapeWorker(
         IServiceScopeFactory scopeFactory,
         ILogger<ScrapeWorker> logger,
-        IOptions<Ao3HttpClientOptions> httpOptions)
+        IOptions<Ao3HttpClientOptions> httpOptions,
+        ScrapeWakeSignal wake)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
         _httpOptions = httpOptions.Value;
+        _wake = wake;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -49,8 +59,10 @@ public class ScrapeWorker : BackgroundService
 
         await ReconcileInterruptedRunsAsync(stoppingToken);
 
-        using var timer = new PeriodicTimer(PollInterval);
-        do
+        // Sweep, then sleep until woken or until the interval expires — rather than a PeriodicTimer,
+        // whose tick cannot be brought forward by a follow. Measuring the wait from the end of a
+        // sweep also stops a long backfill from stacking up ticks it owed while it ran.
+        while (true)
         {
             try
             {
@@ -60,7 +72,9 @@ public class ScrapeWorker : BackgroundService
             {
                 _logger.LogError(ex, "Unhandled error while polling scrape jobs");
             }
-        } while (await timer.WaitForNextTickAsync(stoppingToken));
+
+            await _wake.WaitAsync(PollInterval, stoppingToken);
+        }
     }
 
     /// <summary>
