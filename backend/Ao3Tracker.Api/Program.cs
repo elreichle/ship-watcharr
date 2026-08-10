@@ -106,6 +106,7 @@ builder.Services.AddDataProtection()
 
 // ---- AO3 credential storage ----
 builder.Services.AddScoped<IAo3CredentialStore, Ao3CredentialStore>();
+builder.Services.AddScoped<IAo3InstanceCredentialStore, Ao3InstanceCredentialStore>();
 
 // ---- Rate-limited scraping HTTP client ----
 builder.Services.Configure<Ao3HttpClientOptions>(builder.Configuration.GetSection(Ao3HttpClientOptions.SectionName));
