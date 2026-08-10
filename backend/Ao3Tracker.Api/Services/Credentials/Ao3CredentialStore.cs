@@ -12,7 +12,9 @@ namespace Ao3Tracker.Api.Services.Credentials;
 /// </summary>
 public class Ao3CredentialStore : IAo3CredentialStore
 {
-    private const string Purpose = "Ao3Tracker.Ao3Credentials.v1";
+    // Shared with the instance-level store rather than repeated, so the two cannot drift apart
+    // while a per-user credential is still being carried over into the instance one as ciphertext.
+    private const string Purpose = Ao3InstanceCredentialStore.Purpose;
 
     private readonly AppDbContext _db;
     private readonly IDataProtector _protector;

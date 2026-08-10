@@ -65,6 +65,43 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.ToTable("Ao3Credentials");
                 });
 
+            modelBuilder.Entity("Ao3Tracker.Api.Models.Ao3InstanceCredential", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Ao3Username")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EncryptedPassword")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("EncryptedSessionCookie")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("SessionEstablishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("SessionExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Ao3InstanceCredentials", t =>
+                        {
+                            t.HasCheckConstraint("CK_Ao3InstanceCredentials_SingleRow", "\"Id\" = 1");
+                        });
+                });
+
             modelBuilder.Entity("Ao3Tracker.Api.Models.Ao3Pseud", b =>
                 {
                     b.Property<int>("Id")

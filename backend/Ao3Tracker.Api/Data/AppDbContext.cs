@@ -43,6 +43,10 @@ public abstract class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ShipWork> ShipWorks => Set<ShipWork>();
     public DbSet<WorkDownloadFile> WorkDownloadFiles => Set<WorkDownloadFile>();
 
+    // Instance-level — the one AO3 account this deployment scrapes as. Not per-user: a ship is
+    // scraped once for everyone following it, so there is no per-user login for it to use.
+    public DbSet<Ao3InstanceCredential> Ao3InstanceCredentials => Set<Ao3InstanceCredential>();
+
     // Scheduling
     public DbSet<ScrapeJob> ScrapeJobs => Set<ScrapeJob>();
     public DbSet<ScrapeRun> ScrapeRuns => Set<ScrapeRun>();

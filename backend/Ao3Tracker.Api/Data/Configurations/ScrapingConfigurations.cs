@@ -45,3 +45,26 @@ public class ScrapeRunConfiguration : IEntityTypeConfiguration<ScrapeRun>
         entity.HasIndex(r => r.Status);
     }
 }
+
+public class Ao3InstanceCredentialConfiguration : IEntityTypeConfiguration<Ao3InstanceCredential>
+{
+    public void Configure(EntityTypeBuilder<Ao3InstanceCredential> entity)
+    {
+        entity.HasKey(c => c.Id);
+
+        // Never generated: the key is the fixed singleton id, not an identity column. Left to the
+        // provider, PostgreSQL would hand out 1, 2, 3… and quietly allow a second account.
+        entity.Property(c => c.Id).ValueGeneratedNever();
+
+        entity.Property(c => c.Ao3Username).HasMaxLength(100).IsRequired();
+        entity.Property(c => c.EncryptedPassword).IsRequired();
+
+        // One account per deployment, enforced by the database rather than by every caller
+        // remembering to. Double-quoted identifiers are portable across both providers, and this is
+        // a brand-new table — SQLite cannot ALTER TABLE ADD CONSTRAINT, so adding it later would
+        // force a full table rebuild.
+        entity.ToTable(t => t.HasCheckConstraint(
+            "CK_Ao3InstanceCredentials_SingleRow",
+            $"\"Id\" = {Ao3InstanceCredential.SingletonId}"));
+    }
+}
