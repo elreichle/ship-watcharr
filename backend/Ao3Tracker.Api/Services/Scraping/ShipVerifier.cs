@@ -97,11 +97,12 @@ public sealed class Ao3ShipVerifier : IShipVerifier
         {
             response = await _http.GetAsync(url, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ScrapeCancellation.IsShutdown(ex, ct))
         {
             // Covers the no-operator-contact case too: the client throws rather than sending a
             // request it cannot identify, and an instance that is not allowed to talk to AO3 has
-            // learned nothing about the tag.
+            // learned nothing about the tag. A request that timed out is the same kind of silence,
+            // and reaches here for the same reason — see ScrapeCancellation.
             return await InconclusiveAsync(ship, ex.Message, ct);
         }
 

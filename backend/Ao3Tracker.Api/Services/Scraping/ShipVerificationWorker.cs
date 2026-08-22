@@ -46,8 +46,10 @@ public class ShipVerificationWorker : BackgroundService
             {
                 await VerifyDueShipsAsync(stoppingToken);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!ScrapeCancellation.IsShutdown(ex, stoppingToken))
             {
+                // Must absorb request timeouts as well as ordinary faults: this is a
+                // BackgroundService, so anything escaping here stops the host. See ScrapeCancellation.
                 _logger.LogError(ex, "Unhandled error while verifying ships");
             }
         } while (await timer.WaitForNextTickAsync(stoppingToken));
@@ -106,7 +108,7 @@ public class ShipVerificationWorker : BackgroundService
             {
                 await verifier.VerifyAsync(shipId, ct);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!ScrapeCancellation.IsShutdown(ex, ct))
             {
                 // The verifier records its own inconclusive outcomes; reaching here means it threw
                 // outside that path, so this ship is skipped and picked up on a later tick.

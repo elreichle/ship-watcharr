@@ -68,8 +68,11 @@ public class ScrapeWorker : BackgroundService
             {
                 await RunDueJobsAsync(stoppingToken);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!ScrapeCancellation.IsShutdown(ex, stoppingToken))
             {
+                // Nothing a scraper can throw may end this loop. A BackgroundService that throws
+                // stops the host, so an escaping exception does not merely lose one ship's run — it
+                // takes the API down with it. See ScrapeCancellation.
                 _logger.LogError(ex, "Unhandled error while polling scrape jobs");
             }
 
@@ -108,7 +111,7 @@ public class ScrapeWorker : BackgroundService
             await db.SaveChangesAsync(ct);
             _logger.LogWarning("Marked {Count} stale scrape run(s) as Interrupted on startup", stale.Count);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ScrapeCancellation.IsShutdown(ex, ct))
         {
             _logger.LogError(ex, "Failed to reconcile interrupted scrape runs");
         }
@@ -231,8 +234,10 @@ public class ScrapeWorker : BackgroundService
             run.StopReason = outcome.StopReason;
             run.Status = ScrapeRunStatus.Succeeded;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ScrapeCancellation.IsShutdown(ex, ct))
         {
+            // A timed-out request lands here rather than escaping to kill the host, and is recorded
+            // as this run failing — which is what it is. See ScrapeCancellation.
             _logger.LogError(ex, "ScrapeJob {JobId} ({ScraperKey}) failed", job.Id, job.ScraperKey);
             run.Status = ScrapeRunStatus.Failed;
             run.StopReason = ScrapeStopReason.Error;
