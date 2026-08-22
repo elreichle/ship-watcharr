@@ -285,7 +285,7 @@ build. Not something a task should chase.
   fast-refresh warnings only. All five new tests were confirmed red first — the three isolation
   ones by the `DbUpdateException` escaping `RunJobAsync`'s `finally` at line 263, which is the bug
   itself in a stack trace.
-- commit: a100dca "Give each scrape job its own scope, and a way to record a failed run"
+- commit: 8ed1941 "Give each scrape job its own scope, and a way to record a failed run"
 - next: **The test seam is the reusable part.** `LibraryTestHost` gained a
   `LibraryTestHost(Action<IServiceCollection>?, params IAo3Scraper[])` constructor, because the
   `params` one registers the scrapers it is handed as *singletons* and this task needed a **scoped**
