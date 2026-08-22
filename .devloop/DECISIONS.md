@@ -160,3 +160,34 @@ the same findings" observation from T2 held for T21–T23, but this pass found f
 the same pre-loop scraper. That code has now had four review passes over it and is still yielding
 findings, which says the scraper predates the loop's standard of care rather than that the reviews
 are noisy.
+
+## 2026-08-22 — a run-order list, and T28: audit the stopping rules before building a third pass
+
+Two structural changes, agreed with Emma after T23's review, both made because the plan was relying
+on prose that only worked by luck.
+
+**`tasks.md` now opens with a "Run order" section, and it overrides file order.** The pull-forwards
+recorded here for T21–T23 and again for T24/T27 were never actually reachable by the rule the skill
+follows — "the first `todo` whose `blocked-by` are all `done`" is T6 by file order, and has been
+since T21 was added. Three iterations honored the prose anyway, which was luck rather than
+mechanism, and the next one might not have. Priority is not a dependency, so expressing it as
+`blocked-by` would have been a lie; an explicit ordered list at the top of the file is the honest
+form. It is self-deleting — entries go as their tasks complete, and the section goes when empty.
+
+**T28 audits the walking and stopping rules, and T15 is now `blocked-by: T28`.** This loop has found
+ten defects in pre-loop scraper code across four review passes, and the rate is not falling. Eight
+of the ten are one shape: *a pass concluding something it had not seen enough to conclude* — an end
+of listing, a watermark, an absence, an empty byline. T15 adds a third pass over the same listing
+and is the only one permitted to conclude a work has left a tag, which is the strongest conclusion
+in the system and rests directly on the rules that keep turning out to be wrong. Building it first
+gets three broken passes instead of two.
+
+T28 deliberately **fixes nothing** — it tabulates the rules the code actually has, and queues each
+gap as a task added both to `tasks.md` and to T15's `blocked-by`. That keeps it to one bounded
+iteration rather than an open-ended rewrite, and makes "the audit's findings land before the full
+sweep" structural instead of something a future iteration has to remember. Its verification requires
+every test it names to be confirmed to match more than zero tests — the trap T22 hit, where a filter
+matching nothing looks exactly like a pass.
+
+Sequenced fourth rather than last: the audit reads best while the T24–T27 fixes are fresh, and it
+should be auditing the rules as repaired, not as found.

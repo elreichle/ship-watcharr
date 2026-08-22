@@ -5,6 +5,25 @@ half-finished) · `done` (verified green and committed) · `blocked` (3 failed a
 a dependency cannot be met — needs a human).
 `attempts` counts failed verification runs on this task.
 
+## Run order
+
+Tasks are **not** taken in file order. Take the first `todo` listed here whose `blocked-by` are all
+`done`; only when this list is exhausted does file order apply.
+
+1. T24 — a resumed backfill setting the watermark from its oldest pages
+2. T27 — one scope per job, and a failed save that escapes the `finally`
+3. T25, T26 — the remaining pre-loop scraper defects
+4. T28 — the audit of the walking and stopping rules, while that code is still fresh
+5. then file order, from T6
+
+Why this list exists at all: T24 and T27 both make this app re-request AO3 in a loop, which is the
+one thing its politeness rules exist to prevent, and both are live right now. The reasoning is in
+`DECISIONS.md` under the T23 review. Everything above was found by review of pre-loop scraper code,
+so none of it appears where the original plan put it — without this list, file order would send an
+iteration to T6 and leave the archive being hammered.
+
+Delete an entry once its task is `done`. When this section is empty, delete the section.
+
 Read `.devloop/spec.md` before starting any task. Every task additionally has to leave
 `cd backend && PATH="$HOME/.dotnet:$PATH" dotnet test`, `cd frontend && npm run build` and
 `npm run lint` green — that is the floor, not the verification.
@@ -243,7 +262,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 ## T15 — The full-sweep pass
 - status: todo
 - attempts: 0
-- blocked-by: none
+- blocked-by: T28
 - delivers: A third pass over a ship's index that walks every page and, only afterwards, marks the
   `ShipWork` rows it did not see as having left the tag — so the library stops drifting from AO3.
 - verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~FullSweep`
@@ -484,3 +503,33 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   only reconciled at startup, so it never resolves on its own. A scope per job, and saving the
   run/job rows in the `finally` on a context that cannot be carrying a poisoned change set, is the
   shape the fix wants. Make the `Program.cs` comment true rather than deleting it.
+
+## T28 — Audit the scraper's walking and stopping rules
+- status: todo
+- attempts: 0
+- blocked-by: T24, T25, T26, T27
+- delivers: `.devloop/scraper-audit.md` — one table row per rule that decides where a pass starts,
+  where it stops, what it may conclude from stopping, and what it writes back to the ship. Each row
+  names the rule, the code that implements it, which passes it applies to, what it concludes, and
+  the test that pins it. Every gap found becomes a new task, added to this file **and** to T15's
+  `blocked-by`.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test` green, `.devloop/scraper-audit.md` exists,
+  and every row's named test is confirmed to exist and to bite — run each named filter and check it
+  matches more than zero tests. A row naming a test that matches nothing is a gap, not a row.
+- notes: **This task fixes nothing.** It reads, tabulates, and queues; a fix found here is a task,
+  not a diff in this commit. That is what keeps it to one bounded iteration instead of an open-ended
+  rewrite. Scope: `Ao3ShipIndexScraper` first and hardest, then `ScrapeWorker`'s mode selection and
+  `WorkIngestor`'s reconcile rules — those are where all ten defects this loop has found so far
+  lived. The question to hold throughout is the spec's: *which pass is entitled to conclude this,
+  and has it actually seen enough to be entitled?* Every defect so far has been a pass concluding
+  something it had not earned — absence, an end of listing, a watermark, an empty byline.
+  Existing rules worth a row each, as a starting list and not a complete one: where each mode starts;
+  what advances `BackfillNextPage`; what may propose a watermark and what may commit one; what marks
+  a backfill `Complete`; what an undated blurb does (T22); what a refused page does (T23); what an
+  empty page does; what a parse shortfall may erase (T26). Write down the rules the code *has*,
+  not the rules it should have — a row saying "no rule; nothing decides this" is the most valuable
+  kind of row here.
+  Why it comes before T15: the full sweep adds a **third** pass over the same listing and is the
+  only one permitted to conclude a work has left a tag — the strongest conclusion in the system,
+  built on the stopping rules this audit is checking. Building it on rules already known to be wrong
+  gets three broken passes instead of two.
