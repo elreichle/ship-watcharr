@@ -722,6 +722,8 @@ public class SavedFiltersControllerTests : IDisposable
             Id = id,
             Username = name,
             PseudName = name,
+            UsernameNormalized = name.ToUpperInvariant(),
+            PseudNameNormalized = name.ToUpperInvariant(),
             DisplayName = name,
             DisplayNameNormalized = name.ToUpperInvariant(),
         });

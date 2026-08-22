@@ -131,3 +131,35 @@ build. Not something a task should chase.
   The dev instance on 5110 runs the DLL this loop rebuilds, so its database has now had the table
   dropped too — that is the intended product change, not an accident, but it is not reversible from
   here.
+
+## 2026-08-22 — T21 Pseud lookup folds case the way the key does — done
+
+- did: Made "what a row is stored under" and "what it is looked up by" the same thing by
+  construction. `WorkIngestor` grew two key functions — `TagKey` and `PseudKey` — that truncate to
+  the column width *and* normalize, and every producer and consumer of those dictionaries now goes
+  through them. `Ao3Pseud` gained `UsernameNormalized` / `PseudNameNormalized`, the unique index
+  moved onto that pair, and the existing-row query filters on the normalized column instead of the
+  rendered one. Two bugs closed: an author re-rendered in another case became a second row (and
+  failed the page's save), and a tag over 200 characters — or an author name over 100 — missed its
+  own row, so it was dropped from the work and then reconciled away on the next pass.
+- files: `Api/Models/Ao3Pseud.cs`, `Api/Data/Configurations/WorkConfigurations.cs`,
+  `Api/Services/Scraping/WorkIngestor.cs`, migrations
+  `{Sqlite,Postgres}/*_NormalizedPseudIdentity.cs`, `Tests/WorkIngestorPseudTests.cs` (new),
+  `Tests/WorksControllerTests.cs`, `Tests/SavedFiltersControllerTests.cs`
+- ran: `dotnet test --filter FullyQualifiedName~Pseud` → 6 passed; `dotnet test` → 332 passed;
+  frontend untouched. The migration's four SQL statements were pulled straight out of the shipped
+  file and run against a SQLite database seeded with three capitalisations of one creator: they
+  merged to the lowest id, repointed one work's link, dropped the link that would have collided,
+  left an unrelated creator alone, and the unique index then created cleanly. A fresh instance
+  booted and applied `20260822182752_NormalizedPseudIdentity` with the expected columns and
+  indexes.
+- commit: "Give a pseud one identity, whatever case AO3 rendered it in"
+- next: The Postgres migration carries the identical SQL and could not be run here — there is no
+  Postgres server in this environment. It is standard correlated-subquery SQL that both providers
+  accept, but it is unverified, and T20's Docker task is the first place it could actually be
+  exercised.
+  One documented limitation, in the migration's own summary: the backfill uses SQL `UPPER`, which
+  on SQLite folds ASCII only, while the app normalizes with `ToUpperInvariant`. AO3 usernames are
+  ASCII; pseud names need not be. A pre-existing non-ASCII pseud on SQLite can therefore keep a
+  normalized form the app spells differently, which costs a second row for that pseud the next time
+  it is seen — not a failed save, and it does not compound.

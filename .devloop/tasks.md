@@ -330,7 +330,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   made untrue.
 
 ## T21 — Pseud lookup folds case the way the key does
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: Re-seeing an author whose username differs only in case from the stored row reuses that

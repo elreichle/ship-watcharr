@@ -17,6 +17,17 @@ public class Ao3Pseud
     /// <summary>The pseud name. Equal to <see cref="Username"/> for the default pseud.</summary>
     public string PseudName { get; set; } = null!;
 
+    /// <summary>
+    /// <see cref="Username"/> and <see cref="PseudName"/> uppercased with the invariant culture.
+    /// These are the columns identity goes through — the unique key is on the pair of them, so one
+    /// creator is one row whatever case AO3 rendered their byline in this week. Same
+    /// provider-portability requirement as <see cref="Tag.NameNormalized"/>; see the remarks there.
+    /// </summary>
+    public string UsernameNormalized { get; set; } = null!;
+
+    /// <inheritdoc cref="UsernameNormalized"/>
+    public string PseudNameNormalized { get; set; } = null!;
+
     /// <summary>The byline text AO3 actually rendered.</summary>
     public string DisplayName { get; set; } = null!;
 

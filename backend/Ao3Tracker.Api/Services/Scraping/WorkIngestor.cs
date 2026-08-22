@@ -159,7 +159,7 @@ public sealed class WorkIngestor : IWorkIngestor
     private void ApplyTags(Work work, Ao3WorkBlurb blurb, Dictionary<(Ao3TagType, string), Tag> tagsByKey)
     {
         var desired = blurb.Tags
-            .Select(t => tagsByKey.GetValueOrDefault((t.Type, Normalize(t.Name))))
+            .Select(t => tagsByKey.GetValueOrDefault(TagKey(t.Type, t.Name)))
             .Where(t => t is not null)
             .Select(t => t!.Id)
             .ToHashSet();
@@ -170,7 +170,7 @@ public sealed class WorkIngestor : IWorkIngestor
     private void ApplyAuthors(Work work, Ao3WorkBlurb blurb, Dictionary<(string, string), Ao3Pseud> pseudsByKey)
     {
         var ordered = blurb.Authors
-            .Select(a => pseudsByKey.GetValueOrDefault((Normalize(a.Username), Normalize(a.PseudName))))
+            .Select(a => pseudsByKey.GetValueOrDefault(PseudKey(a.Username, a.PseudName)))
             .Where(p => p is not null)
             .Select((p, index) => (Pseud: p!, Position: index))
             .ToList();
@@ -273,8 +273,8 @@ public sealed class WorkIngestor : IWorkIngestor
     {
         var wanted = blurbs
             .SelectMany(b => b.Tags)
-            .Select(t => (t.Type, Name: Truncate(t.Name, 200)!))
-            .DistinctBy(t => (t.Type, Normalize(t.Name)))
+            .Select(t => (t.Type, Name: Truncate(t.Name, MaxTagNameLength)!))
+            .DistinctBy(t => TagKey(t.Type, t.Name))
             .ToList();
 
         if (wanted.Count == 0) return [];
@@ -292,7 +292,7 @@ public sealed class WorkIngestor : IWorkIngestor
 
         foreach (var (type, name) in wanted)
         {
-            var key = (type, Normalize(name));
+            var key = TagKey(type, name);
             if (byKey.ContainsKey(key)) continue;
 
             var tag = new Tag { Type = type, Name = name, NameNormalized = Normalize(name), FirstSeenAt = now };
@@ -312,29 +312,37 @@ public sealed class WorkIngestor : IWorkIngestor
         var wanted = blurbs
             .SelectMany(b => b.Authors)
             .Select(a => new Ao3BlurbAuthor(
-                Truncate(a.Username, 100)!, Truncate(a.PseudName, 100)!, Truncate(a.DisplayName, 200)!))
-            .DistinctBy(a => (Normalize(a.Username), Normalize(a.PseudName)))
+                Truncate(a.Username, MaxPseudNameLength)!,
+                Truncate(a.PseudName, MaxPseudNameLength)!,
+                Truncate(a.DisplayName, MaxDisplayNameLength)!))
+            .DistinctBy(a => PseudKey(a.Username, a.PseudName))
             .ToList();
 
         if (wanted.Count == 0) return [];
 
-        var usernames = wanted.Select(a => a.Username).Distinct().ToList();
+        var usernames = wanted.Select(a => Normalize(a.Username)).Distinct().ToList();
 
+        // Matched on the normalized column, not the rendered one. Both providers compare text
+        // case-sensitively, so filtering on Username would miss a row stored under a different
+        // capitalisation of the same account — and then this method would insert a second row for
+        // that author and the whole page's save would fail on the unique key.
         var existing = await _db.Ao3Pseuds
-            .Where(p => usernames.Contains(p.Username))
+            .Where(p => usernames.Contains(p.UsernameNormalized))
             .ToListAsync(ct);
 
-        var byKey = existing.ToDictionary(p => (Normalize(p.Username), Normalize(p.PseudName)));
+        var byKey = existing.ToDictionary(p => (p.UsernameNormalized, p.PseudNameNormalized));
 
         foreach (var author in wanted)
         {
-            var key = (Normalize(author.Username), Normalize(author.PseudName));
+            var key = PseudKey(author.Username, author.PseudName);
             if (byKey.ContainsKey(key)) continue;
 
             var pseud = new Ao3Pseud
             {
                 Username = author.Username,
                 PseudName = author.PseudName,
+                UsernameNormalized = key.Username,
+                PseudNameNormalized = key.PseudName,
                 DisplayName = author.DisplayName,
                 DisplayNameNormalized = Normalize(author.DisplayName),
                 FirstSeenAt = now,
@@ -380,6 +388,23 @@ public sealed class WorkIngestor : IWorkIngestor
     }
 
     private static string Normalize(string value) => value.ToUpperInvariant();
+
+    // Column widths, named because identity depends on them: a key built from an untruncated name
+    // does not match the row stored under the truncated one, so the lookup misses and the tag or
+    // author is silently dropped from the work. Truncating inside the key functions is what keeps
+    // "what we store" and "what we look up by" the same thing by construction.
+    private const int MaxTagNameLength = 200;
+    private const int MaxPseudNameLength = 100;
+    private const int MaxDisplayNameLength = 200;
+
+    /// <summary>How a tag is identified: its type, and its stored, normalized name.</summary>
+    private static (Ao3TagType Type, string Name) TagKey(Ao3TagType type, string name) =>
+        (type, Normalize(Truncate(name, MaxTagNameLength)!));
+
+    /// <summary>How a creator is identified: the stored, normalized username and pseud.</summary>
+    private static (string Username, string PseudName) PseudKey(string username, string pseudName) =>
+        (Normalize(Truncate(username, MaxPseudNameLength)!),
+            Normalize(Truncate(pseudName, MaxPseudNameLength)!));
 
     /// <summary>
     /// Clips a value to its column width. AO3 enforces its own limits, but they are AO3's to change,

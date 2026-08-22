@@ -80,11 +80,16 @@ public class Ao3PseudConfiguration : IEntityTypeConfiguration<Ao3Pseud>
 
         entity.Property(p => p.Username).HasMaxLength(100).IsRequired();
         entity.Property(p => p.PseudName).HasMaxLength(100).IsRequired();
+        entity.Property(p => p.UsernameNormalized).HasMaxLength(100).IsRequired();
+        entity.Property(p => p.PseudNameNormalized).HasMaxLength(100).IsRequired();
         entity.Property(p => p.DisplayName).HasMaxLength(200).IsRequired();
         entity.Property(p => p.DisplayNameNormalized).HasMaxLength(200).IsRequired();
 
-        entity.HasIndex(p => new { p.Username, p.PseudName }).IsUnique();
-        entity.HasIndex(p => p.Username);
+        // Unique on the normalized pair, not the rendered one: AO3 bylines vary in case, and a
+        // unique key over the raw columns lets the same creator become two rows — which is how a
+        // work ends up listed under an author the library then treats as a stranger.
+        entity.HasIndex(p => new { p.UsernameNormalized, p.PseudNameNormalized }).IsUnique();
+        entity.HasIndex(p => p.UsernameNormalized);
 
         // Author search goes through the normalized column, never DisplayName — see Tag.
         entity.HasIndex(p => p.DisplayNameNormalized);

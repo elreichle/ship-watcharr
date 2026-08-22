@@ -85,7 +85,17 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("PseudNameNormalized")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("UsernameNormalized")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -94,9 +104,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
 
                     b.HasIndex("DisplayNameNormalized");
 
-                    b.HasIndex("Username");
+                    b.HasIndex("UsernameNormalized");
 
-                    b.HasIndex("Username", "PseudName")
+                    b.HasIndex("UsernameNormalized", "PseudNameNormalized")
                         .IsUnique();
 
                     b.ToTable("Ao3Pseuds");
