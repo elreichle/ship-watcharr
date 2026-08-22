@@ -10,17 +10,21 @@ a dependency cannot be met — needs a human).
 Tasks are **not** taken in file order. Take the first `todo` listed here whose `blocked-by` are all
 `done`; only when this list is exhausted does file order apply.
 
-1. T27 — one scope per job, and a failed save that escapes the `finally`
+1. T29 — the incremental pass overwrites a ship's total with a filtered count
 2. T25, T26 — the remaining pre-loop scraper defects
 3. T28 — the audit of the walking and stopping rules, while that code is still fresh
 4. then file order, from T6
 
-Why this list exists at all: T27 makes this app re-request AO3 in a loop, which is the one thing its
-politeness rules exist to prevent, and it is live right now. T24, the same shape and the more
-expensive of the two, is done. The reasoning is in `DECISIONS.md` under the T23 review. Everything
-above was found by review of pre-loop scraper code, so none of it appears where the original plan
-put it — without this list, file order would send an iteration to T6 and leave the archive being
-hammered.
+Why this list exists at all: every entry was found by review of pre-loop scraper code, so none of it
+appears where the original plan put it — without this list, file order would send an iteration to T6
+and leave the scraper's live defects in place. T23, T24 and T27 — the three that made this app
+re-request AO3 in a loop, the one thing its politeness rules exist to prevent — are done. The
+reasoning is in `DECISIONS.md` under the T23 and T27 reviews.
+
+T29 leads because it silently corrupts the one number T15's full sweep is supposed to sanity-check
+itself against, and it does so on every incremental pass. T30 is in the audit's `blocked-by` beside
+it for the same reason — both decide what a pass writes back to the ship, which is what T28
+tabulates. T31, T32 and T33 are real but slow-acting and sit in file order, after the planned work.
 
 Delete an entry once its task is `done`. When this section is empty, delete the section.
 
@@ -262,7 +266,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 ## T15 — The full-sweep pass
 - status: todo
 - attempts: 0
-- blocked-by: T28
+- blocked-by: T28, T29, T30
 - delivers: A third pass over a ship's index that walks every page and, only afterwards, marks the
   `ShipWork` rows it did not see as having left the tag — so the library stops drifting from AO3.
 - verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~FullSweep`
@@ -481,7 +485,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   "Anonymous" as plain text in the byline. Decide the rule and say so in a comment.
 
 ## T27 — One scope per job, and a failed save that does not escape the finally
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A job whose save fails is recorded as failed and reschedules, instead of leaving a
@@ -507,7 +511,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 ## T28 — Audit the scraper's walking and stopping rules
 - status: todo
 - attempts: 0
-- blocked-by: T24, T25, T26, T27
+- blocked-by: T24, T25, T26, T27, T29, T30
 - delivers: `.devloop/scraper-audit.md` — one table row per rule that decides where a pass starts,
   where it stops, what it may conclude from stopping, and what it writes back to the ship. Each row
   names the rule, the code that implements it, which passes it applies to, what it concludes, and
@@ -533,3 +537,81 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   only one permitted to conclude a work has left a tag — the strongest conclusion in the system,
   built on the stopping rules this audit is checking. Building it on rules already known to be wrong
   gets three broken passes instead of two.
+
+## T29 — An incremental pass must not overwrite a ship's total with a filtered count
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: `Ship.LastKnownTotalWorks` holds the number of works in the tag, not the number matching
+  the last request's date filter.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Total`
+- notes: Found by `/code-review` during T27, in pre-loop code, and verified against the source.
+  `BuildUrl` (~line 367) adds `work_search[revised_at]=> {watermark-1d}` on every incremental pass
+  that has a watermark, so AO3's `h2.heading` then counts the *filtered* result set. `RecordTotal`
+  (~line 388) is called for every fetched page (~line 214) with no mode check, so a ship that
+  finished its backfill at 4,317 works has `LastKnownTotalWorks = 2` after the next quiet
+  incremental pass. `Ship.cs` documents the field as the tag's total and names it as the input a
+  full sweep checks itself against before concluding works have disappeared — which is T15, and why
+  T15 is now blocked by this. Gate `RecordTotal` on the request having carried no `revised_at`
+  filter rather than on the mode, so it stays true if the filter's conditions ever change. The
+  existing test `Stamps_the_tags_total_from_the_injected_clock_on_an_incremental_pass` passes today
+  only because its ship has no watermark, so the filter is never applied — check the new filter
+  bites before trusting it (see T22).
+
+## T30 — `LastKnownTotalWasAuthenticated` must describe the total it sits beside
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: The flag says whether *this* ship's stored total was read while logged in, and can go
+  back to false when a later run reads one anonymously.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Authenticated`
+- notes: Found by `/code-review` during T27, in pre-loop code, and verified.
+  `Ao3ShipIndexScraper.FinishAsync` (~line 487) does `if (sawRestricted) ship.LastKnownTotalWasAuthenticated = true;`
+  — a one-way latch. A logged-in run sets it; the session lapses; a later anonymous run overwrites
+  `LastKnownTotalWorks` with a lower count through `RecordTotal` while the flag still claims the
+  total came from an authenticated run. That is precisely the confusion the field exists to prevent,
+  and it is what T15 would read before concluding works had vanished. Second half: `sawRestricted`
+  is computed over `toIngest` only (~line 273), so an incremental page whose restricted works were
+  all already held never sets it even on a genuinely authenticated run. Assign the flag per run,
+  beside the total, from what the run actually observed. Latent until T5 makes the scraper log in —
+  but T5 is the task that makes it bite, so it should not land after it.
+
+## T31 — A singular listing heading must not be read as the tag's name
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: `ParseTotalWorks` reads "1 Work in <tag>" as 1, whatever digits the tag name contains.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~TotalWorks`
+- notes: Found by `/code-review` during T27, in pre-loop code, and verified by reading.
+  `Ao3BlurbParser.ParseTotalWorks` (~line 392) locates the count by `IndexOf("Works")` and, when
+  that is -1, scans the *whole* heading backwards for the last run of digits. A tag with exactly one
+  work renders "1 Work in …" — singular — so a tag name carrying digits (Star Wars clone
+  designations, a disambiguating year) donates them to the total. Match the singular form too, or
+  require the digits to be followed by whitespace and "Work". No live markup needed: this is a pure
+  parser test over a heading string, so it does **not** wait on a fixture.
+
+## T32 — The non-monotonic-boundary warning names the wrong page
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: The warning names the page where the shift was seen.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Monotonic`
+- notes: Found by `/code-review` during T27, in pre-loop code, and verified.
+  `ship.BackfillNextPage = page + 1` runs at ~line 319 and `TrackBackfillFloor` at ~line 320 logs
+  `ship.BackfillNextPage` as `{Page}` (~line 412), so the message is off by one. Cosmetic in the
+  database, not in use: this warning is how a human learns a listing shifted under a backfill, and
+  T15 exists to clean up after exactly that. Pass `page` in explicitly.
+
+## T33 — One page of known works should not read a cartesian product
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: `LoadExistingWorksAsync` reads its three collections as three flat queries.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ingest`
+- notes: Found by `/code-review` during T27, in pre-loop code, and verified — nothing in this
+  project sets `QuerySplittingBehavior`, globally or locally. `WorkIngestor.LoadExistingWorksAsync`
+  (~line 253) chains `Include(Tags)`, `Include(Authors)` and `Include(Series)` in one query, so
+  twenty known works with ~15 tags, ~2 authors and ~1 series each materialise several hundred
+  duplicated rows — on every incremental pass, over works that have not changed. `.AsSplitQuery()`
+  is the whole fix. Cheapest task on this list; it changes no behaviour, so its verification is
+  that the existing ingest tests stay green.

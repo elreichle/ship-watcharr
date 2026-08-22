@@ -154,17 +154,37 @@ public class ScrapeWorker : BackgroundService
         }
 
         var now = DateTime.UtcNow;
-        var dueJobs = await db.ScrapeJobs
-            .Include(j => j.Ship)
+
+        // Ids, not entities: each job is run in a scope of its own below, and an entity tracked by
+        // this scope's context has no business being written through that one.
+        var dueJobIds = await db.ScrapeJobs
             .Where(j => j.IsEnabled)
             .Where(j => !j.NextRunAt.HasValue || j.NextRunAt.Value <= now)
             .OrderBy(j => j.NextRunAt)
+            .Select(j => j.Id)
             .ToListAsync(ct);
 
-        foreach (var job in dueJobs)
+        foreach (var jobId in dueJobIds)
         {
             ct.ThrowIfCancellationRequested();
-            await RunJobAsync(scope.ServiceProvider, job, ct);
+
+            // One scope per job, which is what Program.cs says the worker does. Sharing a scope
+            // across the tick shares the AppDbContext, the scraper and the ingestor between every
+            // due job, so a change set one job's database refused is still tracked when the next
+            // job saves — one ship's bad page then fails every ship behind it.
+            using var jobScope = _scopeFactory.CreateScope();
+
+            try
+            {
+                await RunJobAsync(jobScope.ServiceProvider, jobId, ct);
+            }
+            catch (Exception ex) when (!ScrapeCancellation.IsShutdown(ex, ct))
+            {
+                // RunJobAsync records its own failures; anything still escaping happened around
+                // the run rather than inside it. Contained here so it costs one job and not the
+                // rest of the poll.
+                _logger.LogError(ex, "ScrapeJob {JobId} could not be run", jobId);
+            }
         }
     }
 
@@ -182,10 +202,23 @@ public class ScrapeWorker : BackgroundService
         return DateTime.UtcNow + (interval * multiplier);
     }
 
-    private async Task RunJobAsync(IServiceProvider services, ScrapeJob job, CancellationToken ct)
+    private async Task RunJobAsync(IServiceProvider services, int jobId, CancellationToken ct)
     {
         var db = services.GetRequiredService<AppDbContext>();
         var registry = services.GetRequiredService<ScraperRegistry>();
+
+        // Re-read inside this job's own scope. The poll selected ids; this is where the row and its
+        // ship become entities, tracked by the context the scrape will write through.
+        var job = await db.ScrapeJobs
+            .Include(j => j.Ship)
+            .FirstOrDefaultAsync(j => j.Id == jobId, ct);
+
+        if (job is null)
+        {
+            // Unfollowed between the poll's query and now. Nothing to run and nothing to record.
+            _logger.LogInformation("ScrapeJob {JobId} no longer exists; skipping", jobId);
+            return;
+        }
 
         var scraper = registry.TryGet(job.ScraperKey);
         if (scraper is null)
@@ -237,7 +270,14 @@ public class ScrapeWorker : BackgroundService
             run.LastPageFetched = outcome.LastPage;
             run.StopReason = outcome.StopReason;
             run.ErrorMessage = outcome.ErrorMessage;
-            run.Status = ScrapeRunStatus.Succeeded;
+
+            // Returning is how a scraper reports most of its failures — a 404 on the first page, a
+            // non-OK status mid-walk, a page nothing on which could be dated all stop the run with
+            // Error rather than throwing. Recording those as Succeeded leaves the run history, the
+            // only place this worker reports itself, agreeing that everything went fine.
+            run.Status = outcome.StopReason == ScrapeStopReason.Error
+                ? ScrapeRunStatus.Failed
+                : ScrapeRunStatus.Succeeded;
         }
         catch (Exception ex) when (!ScrapeCancellation.IsShutdown(ex, ct))
         {
@@ -260,7 +300,95 @@ public class ScrapeWorker : BackgroundService
             run.HeartbeatAt = run.CompletedAt;
             job.LastRunAt = run.CompletedAt;
             job.NextRunAt = NextRunAfter(job.Interval);
-            await db.SaveChangesAsync(ct);
+
+            await PersistCompletionAsync(db, run, job, ct);
         }
+    }
+
+    /// <summary>
+    /// Writes a finished run and its job's new schedule, and never throws.
+    ///
+    /// This is called from a <c>finally</c>, so an exception here does not merely lose the write —
+    /// it replaces whatever the run was doing and escapes the job entirely. That matters most in
+    /// the case it is most likely: a scrape that failed because <c>SaveChangesAsync</c> was
+    /// refused leaves the rejected change set tracked on this very context, EF Core having no
+    /// reason to detach it, so saving again asks the database the same rejected question. The run
+    /// would stay <c>Running</c> — reconciled only by a restart, half an hour later — and
+    /// <c>NextRunAt</c> would stay where it was, making the job due again on the next minute-poll
+    /// and putting this app in a tight retry loop against AO3.
+    ///
+    /// So the fallback writes the same two rows through a context that never saw the scrape.
+    /// </summary>
+    private async Task PersistCompletionAsync(AppDbContext db, ScrapeRun run, ScrapeJob job, CancellationToken ct)
+    {
+        Exception saveError;
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            return;
+        }
+        catch (Exception ex) when (!ScrapeCancellation.IsShutdown(ex, ct))
+        {
+            _logger.LogError(
+                ex, "Could not record ScrapeRun {RunId} for ScrapeJob {JobId} on the run's own context",
+                run.Id, job.Id);
+            saveError = ex;
+        }
+
+        try
+        {
+            using var recovery = _scopeFactory.CreateScope();
+            var recoveryDb = recovery.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var freshRun = await recoveryDb.ScrapeRuns.FirstOrDefaultAsync(r => r.Id == run.Id, ct);
+            var freshJob = await recoveryDb.ScrapeJobs.FirstOrDefaultAsync(j => j.Id == job.Id, ct);
+
+            if (freshRun is null || freshJob is null)
+            {
+                _logger.LogError(
+                    "ScrapeRun {RunId} or ScrapeJob {JobId} vanished while being closed out", run.Id, job.Id);
+                return;
+            }
+
+            CopyCompletion(run, freshRun);
+
+            // Failed however the scrape itself ended: a run whose results could not be written is
+            // not a run that succeeded, and the save error is the part a reader needs.
+            freshRun.Status = ScrapeRunStatus.Failed;
+            freshRun.StopReason = ScrapeStopReason.Error;
+            freshRun.ErrorMessage = run.ErrorMessage is null
+                ? saveError.Message
+                : $"{run.ErrorMessage} — and the run could not be recorded: {saveError.Message}";
+
+            freshJob.LastRunAt = job.LastRunAt;
+            freshJob.NextRunAt = job.NextRunAt;
+
+            await recoveryDb.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (!ScrapeCancellation.IsShutdown(ex, ct))
+        {
+            // Out of ways to record it. Swallowed rather than rethrown because this is still a
+            // finally: the run is left Running for startup reconciliation to close out, which is
+            // the outcome this whole method exists to make rare rather than routine.
+            _logger.LogError(ex, "Could not close out ScrapeRun {RunId} at all", run.Id);
+        }
+    }
+
+    /// <summary>Everything the finally had just written onto the run, onto a freshly loaded copy.</summary>
+    private static void CopyCompletion(ScrapeRun from, ScrapeRun to)
+    {
+        to.PagesFetched = from.PagesFetched;
+        to.RequestsMade = from.RequestsMade;
+        to.WorksSeen = from.WorksSeen;
+        to.WorksAdded = from.WorksAdded;
+        to.WorksUpdated = from.WorksUpdated;
+        to.ParseWarnings = from.ParseWarnings;
+        to.FirstPageFetched = from.FirstPageFetched;
+        to.LastPageFetched = from.LastPageFetched;
+        to.HitRequestCap = from.HitRequestCap;
+        to.HitTimeCap = from.HitTimeCap;
+        to.CompletedAt = from.CompletedAt;
+        to.HeartbeatAt = from.HeartbeatAt;
     }
 }

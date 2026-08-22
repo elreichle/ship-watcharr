@@ -64,7 +64,14 @@ internal sealed class LibraryTestHost : IDisposable
     /// </summary>
     public FixedClock Clock { get; } = new();
 
-    public LibraryTestHost(params IAo3Scraper[] scrapers)
+    public LibraryTestHost(params IAo3Scraper[] scrapers) : this(null, scrapers) { }
+
+    /// <summary>
+    /// As above, with a last word on the container. For a test that needs a service this fixture
+    /// does not register — in particular a *scoped* one, which the <c>scrapers</c> parameter cannot
+    /// express because it registers the instances it is handed as singletons.
+    /// </summary>
+    public LibraryTestHost(Action<IServiceCollection>? configure, params IAo3Scraper[] scrapers)
     {
         _connection = new SqliteConnection("DataSource=:memory:");
         _connection.Open();
@@ -132,6 +139,8 @@ internal sealed class LibraryTestHost : IDisposable
         services.AddSingleton<TimeProvider>(Clock);
         services.AddScoped<IWorkIngestor, WorkIngestor>();
         services.AddScoped<Ao3ShipIndexScraper>();
+
+        configure?.Invoke(services);
 
         _provider = services.BuildServiceProvider();
 
@@ -384,15 +393,20 @@ internal sealed class StubContacts(Func<string?> contact) : IOperatorContactReso
 /// Claims a scraper key without doing anything. Only its presence in the registry matters — it is
 /// what lets a test distinguish "no implementation is registered" from "one is", which is the
 /// difference the Ships list reports as <c>ScraperAvailable</c>.
+///
+/// The stop reason is settable because a scraper reports most failures by *returning* one rather
+/// than throwing — see <see cref="ScrapeStopReason.Error"/> — and what the worker records for such
+/// a run is a question a stub that only ever succeeds cannot ask.
 /// </summary>
-internal sealed class StubScraper(string key) : IAo3Scraper
+internal sealed class StubScraper(string key, string stopReason = "stub", string? errorMessage = null)
+    : IAo3Scraper
 {
     public string Key { get; } = key;
 
     public bool Supports(ScrapeRunMode mode) => true;
 
     public Task<ScrapeOutcome> ExecuteAsync(ScrapeContext context, CancellationToken ct = default) =>
-        Task.FromResult(ScrapeOutcome.Empty("stub"));
+        Task.FromResult(ScrapeOutcome.Empty(stopReason) with { ErrorMessage = errorMessage });
 }
 
 /// <summary>

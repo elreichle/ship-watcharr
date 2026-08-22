@@ -264,3 +264,47 @@ build. Not something a task should chase.
   `ResumeBackfillAtAsync(shipId, page)` is new in the test file — it plants the ship state a capped
   run leaves behind, which is the only way to test a resumed run's conclusions without paying for a
   first run that would itself set the watermark.
+
+## 2026-08-22 — T27 One scope per job, and a failed save that does not escape the finally — done
+
+- did: Two changes and one folded-in line. **A scope per job**: `RunDueJobsAsync` now selects job
+  *ids* and gives each job its own scope, so the `AppDbContext`, scraper and ingestor it uses are
+  its own; the job and its ship are re-read inside that scope, and a per-job `catch` contains
+  anything that still escapes so one ship's failure costs one ship's run. **A terminal write that
+  cannot throw**: `PersistCompletionAsync` tries the job's own context and, on failure, writes the
+  run and job rows through a fresh scope, because a scrape that failed *because* a save was refused
+  leaves that rejected change set tracked — EF Core never detaches it — and saving again from a
+  `finally` threw out of the job entirely, leaving the run `Running` and the job due again on the
+  next minute-poll. **Folded in from the review**: a scraper reports most failures by *returning*
+  `StopReason = Error`, and `RunJobAsync` recorded those as `Succeeded`; it now reads the stop
+  reason. The `Program.cs` comment claiming a scope per job was left alone — it is now true.
+- files: `Api/Services/Scraping/ScrapeWorker.cs`, `Tests/LibraryTestHost.cs`,
+  `Tests/ScrapeWorkerJobIsolationTests.cs` (new), `Tests/ScrapeWorkerRunStatusTests.cs` (new)
+- ran: `dotnet test --filter FullyQualifiedName~ScrapeWorker` → 12 passed (7 before this task);
+  `dotnet test` → 350 passed; `npm run build` + `npm run lint` → clean, the two pre-existing
+  fast-refresh warnings only. All five new tests were confirmed red first — the three isolation
+  ones by the `DbUpdateException` escaping `RunJobAsync`'s `finally` at line 263, which is the bug
+  itself in a stack trace.
+- commit: a100dca "Give each scrape job its own scope, and a way to record a failed run"
+- next: **The test seam is the reusable part.** `LibraryTestHost` gained a
+  `LibraryTestHost(Action<IServiceCollection>?, params IAo3Scraper[])` constructor, because the
+  `params` one registers the scrapers it is handed as *singletons* and this task needed a **scoped**
+  scraper — one sharing the job's own `AppDbContext`, since a poisoned change set on that context is
+  the whole failure. `PoisoningScraper` in the isolation tests adds two `Ship` rows under one
+  normalized tag, which is a unique-index violation and the shape of the real thing. `StubScraper`
+  now takes an optional stop reason and error message, which is what makes a *returned* failure
+  testable at all.
+  Filters checked to bite, per T22's lesson: `~ScrapeWorker` matched 7 before this task and 12 now.
+  The new tasks' filters are **unchecked**: T29 `~Total`, T30 `~Authenticated`, T31 `~TotalWorks`,
+  T32 `~Monotonic`, T33 `~Ingest`. T29's and T31's are the ones to distrust — `~Total` and
+  `~TotalWorks` overlap, and T29's note records that the one existing total test passes only
+  because its ship has no watermark.
+  T27's review found **six** defects; one was in T27's own method (folded in) and five are queued as
+  T29–T33, all verified against the source. **T29 and T30 are now in T28's `blocked-by` and T15's**,
+  because both decide what a pass writes back to the ship and both feed `LastKnownTotalWorks` — the
+  number a full sweep checks itself against before concluding works have left a tag. T29 is the one
+  to take next: an incremental pass overwrites a ship's total with the count of its own date-filtered
+  result set, so a tag backfilled to 4,317 works reads 2 after one quiet pass, silently, forever.
+  This was the fifth review pass over this scraper and the pre-loop defect count is now fifteen. The
+  rate is not falling. Four of T27's five are the same shape: a value written back to the ship that
+  nothing downstream can tell is wrong.

@@ -232,3 +232,66 @@ task in this loop has had a review over its diff, and the four passes over this 
 found ten defects between them. The diff is three tests, a threaded parameter and a rewritten comment
 block in `Ao3ShipIndexScraper.FinishAsync`; it is worth a review over the commit when limits reset,
 and the next iteration should not assume it happened.
+
+## 2026-08-22 — T27: where a run's completion is written, and one line folded in from its review
+
+**Decided: a job's terminal write goes through a context that cannot be carrying the change set
+that failed.** `RunJobAsync`'s `finally` used to call `SaveChangesAsync` on the same
+`AppDbContext` the scrape wrote through. EF Core does not detach a change set the database
+refused, so when a scrape failed *because* a save was refused — a page colliding on a tag or a
+pseud, which is the failure T21 existed to reduce and cannot rule out — the `finally` asked the
+database the identical rejected question and threw from a `finally`, escaping the job entirely.
+The run stayed `Running`, `NextRunAt` was never advanced, and the job was due again on the very
+next minute-poll: a tight retry loop against AO3, the third one this loop has found and the last
+of the three that were live. The write now happens in `PersistCompletionAsync`, which tries the
+job's own context, and on failure writes the same two rows through a fresh scope. It never throws;
+the last resort is leaving the run for startup reconciliation, which is what this method exists to
+make rare rather than routine.
+
+**And: one scope per job, which is what `Program.cs` already claimed.** The poll now selects job
+*ids* and each job gets its own scope, so the `AppDbContext`, the scraper and the ingestor a job
+uses are its own. The job row and its ship are re-read inside that scope — an entity tracked by the
+poll's context has no business being saved through the job's. A per-job `catch` around the call
+contains anything that still escapes, so one ship's bad page costs one ship's run instead of every
+job behind it in the tick. The comment in `Program.cs` was left alone: it is now true.
+
+**Folded in from `/code-review`, one line in the same method: a returned error is a failed run.**
+`Ao3ShipIndexScraper` reports most failures by *returning* an outcome with
+`StopReason = ScrapeStopReason.Error` rather than throwing — a 404 on the first page, any non-OK
+status, a page nothing on which could be dated. `RunJobAsync` copied that stop reason and error
+message onto the run and then set `Status = Succeeded` unconditionally, so the run history said a
+scrape that never read a page went fine. Folded rather than queued because it is one line inside
+the method this task rewrites and it is the same question the task is about — whether a run that
+failed is recorded as one. T23 added the `ErrorMessage` copy immediately above it and left the
+status alone, so this is that change finished rather than a new direction.
+
+## 2026-08-22 — T29–T33 added, from T27's review; T29 and T30 in front of the audit
+
+`/code-review` over T27's diff reported six defects. One was in T27's own method and is folded in
+above; the other five are in pre-loop scraper code and were each verified against the source before
+being written down:
+
+- **T29**: `RecordTotal` writes AO3's heading count on every page, but an incremental pass with a
+  watermark asks for a `revised_at`-filtered listing, so the heading counts the filter's result set.
+  A ship that backfilled to 4,317 works reads `LastKnownTotalWorks = 2` after one quiet pass.
+- **T30**: `LastKnownTotalWasAuthenticated` is only ever set true, so it can outlive the total it
+  describes; and the `sawRestricted` it is set from is computed over newly ingested works only.
+- **T31**: `ParseTotalWorks` matches "Works" and falls back to the last digits in the whole heading,
+  so a tag with exactly one work — heading "1 Work in …" — can report digits out of its own name.
+- **T32**: the non-monotonic-boundary warning logs `BackfillNextPage`, set one line earlier, so it
+  names the page after the one where the shift was seen.
+- **T33**: `LoadExistingWorksAsync` chains three collection `Include`s with no `AsSplitQuery`, and
+  nothing in this project sets `QuerySplittingBehavior` — a cartesian product per page, per pass.
+
+**T29 and T30 are now in T28's `blocked-by`, and T15's.** Both decide what a pass writes back to the
+ship, which is exactly what the audit tabulates, and both feed `LastKnownTotalWorks` — the number
+T15's full sweep is supposed to check itself against before concluding works have left a tag. A
+sweep reading a total that a routine incremental pass silently replaced with 2 would conclude that
+almost the entire tag had disappeared. Expressed as `blocked-by` rather than as prose in the run
+order, per the lesson recorded when that section was created: priority is not a dependency, but
+*this* is one.
+
+Worth recording: this is the fifth review pass over this scraper and the count of pre-loop defects
+it has found is now fifteen. The rate is not falling, and T27's five continue the pattern — four of
+the five are a value written back to the ship that nothing later can tell is wrong. T28 was already
+sequenced before T15 for that reason; nothing here changes the plan beyond adding to it.
