@@ -236,6 +236,7 @@ public class ScrapeWorker : BackgroundService
             run.FirstPageFetched = outcome.FirstPage;
             run.LastPageFetched = outcome.LastPage;
             run.StopReason = outcome.StopReason;
+            run.ErrorMessage = outcome.ErrorMessage;
             run.Status = ScrapeRunStatus.Succeeded;
         }
         catch (Exception ex) when (!ScrapeCancellation.IsShutdown(ex, ct))

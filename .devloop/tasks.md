@@ -375,7 +375,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   other write in the class uses the injected `_time`, so a fake clock cannot see it.
 
 ## T23 — A failing page must not be re-requested forever
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A page that answers with a non-OK status is either retried a bounded number of times or
@@ -391,3 +391,96 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   stop the run and record the status — and say which in a comment. The circuit breaker is the
   neighbouring concern; check whether it already covers repeated non-OK responses before adding
   anything new. Test it against the fake HTTP client answering 500 for one page.
+
+## T24 — A resumed backfill must not set the watermark from its oldest pages
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: Only a pass that actually saw the newest end of a listing may propose an incremental
+  watermark, so a multi-run backfill cannot leave the ship re-reading its whole tag forever.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Watermark`
+- notes: Found by `/code-review` during T23, in code that predates this loop. Verified against the
+  source, including the scheduling that makes it reachable. `FinishAsync` (~line 425) advances
+  `IncrementalWatermarkUtc` on any `LastPage` stop, and the "refuses to move the watermark
+  backwards" guard the comment leans on only bites when a watermark already exists
+  (`ship.IncrementalWatermarkUtc is null || newest > …`). It is always null here:
+  `ScrapeWorker.RunJobAsync` (~line 199) picks Backfill whenever `BackfillState` is `NotStarted` or
+  `InProgress`, so a ship being backfilled never runs an incremental pass and never gets a
+  watermark. `MaxPagesPerRun = 200` and `MaxRequestsPerRun = 500` mean any tag over ~4,000 works
+  takes several runs, and the run that finally reaches `LastPage` has read only the *oldest* pages
+  of a `revised_at desc` listing — so `newestSeen` is the revision date of some of the oldest works
+  in the tag, and that becomes the watermark. Every later incremental pass then asks for
+  `revised_at > (that old date - 1d)`, gets essentially the whole tag, walks to the 200-page
+  ceiling and stops with `Cap` — which is not `reachedTheEnd`, so the watermark never advances and
+  the next pass does it again, re-ingesting thousands of works on every tick, forever. This is the
+  same class of defect as T23 but far more expensive. Fix by only letting a pass that began at
+  page 1 propose a watermark, or by carrying the backfill's own newest-seen across resumes — say
+  which and why in a comment. `Sets_a_watermark_when_a_backfill_finishes` covers only the
+  single-run case; the test this needs is a backfill resumed at a page above 1.
+
+## T25 — What actually ends a backfill
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A resumed backfill can reach `Complete`, and a page that is not the end of the listing
+  can no longer be mistaken for one.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Backfill`
+- notes: Found by `/code-review` during T23, in code that predates this loop. Two halves of one
+  question — which page ends a walk — both in `Ao3ShipIndexScraper.ExecuteAsync`:
+  (1) The 404 branch (~line 163) tests `pagesFetched == 0` to mean "the first page", but `startPage`
+  (~line 79) is `ship.BackfillNextPage` for a backfill, so a run's first request is routinely page
+  57 rather than page 1. If the listing shrank between runs, that request 404s with
+  `pagesFetched == 0` and is recorded as `Error` instead of `LastPage` — so `BackfillState` never
+  becomes `Complete`, the cursor never advances, and the ship re-requests the same missing page on
+  every scheduled run indefinitely. The guard wants `page == 1`.
+  (2) A 200-OK page that parses to zero works mid-walk (~line 216) takes the `LastPage` branch,
+  which in `FinishAsync` marks the backfill `Complete` and stamps `BackfillCompletedAt` — and the
+  "either the tag is empty or the markup has changed" warning is emitted only when
+  `pagesFetched == 1`. The loop only reached page N because page N-1 advertised a Next link, so an
+  empty page there is anomalous by construction: a markup change or a soft-error page at page 57 of
+  a 3,000-page backfill records the ship as fully backfilled with the rest never read, silently.
+  Decide what an empty page mid-walk means and say so in a comment.
+
+## T26 — An unreadable byline must not erase authorship
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A blurb whose creators cannot be read leaves the work's existing authors alone and
+  counts a parse warning, rather than quietly rewriting it as anonymous with no creators.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Author`
+- notes: Found by `/code-review` during T23, in code that predates this loop.
+  `Ao3BlurbParser.ParseAuthors` (~line 247) returns `[]` for any heading it cannot read, and
+  `TryParseBlurb` (~line 116) then sets `IsAnonymous: true` and raises **no** `ParseWarnings` —
+  unlike the title, which both falls back to `Unknown work {id}` *and* increments the counter.
+  `WorkIngestor.ApplyAuthors` hands that empty set to `Reconcile`, which deletes every existing
+  `WorkAuthor` row for the work. So a change to `rel="author"` or the `h4.heading` shape means the
+  next incremental pass over an existing library rewrites every re-seen work as anonymous with zero
+  creators, and the run record shows zero parse warnings to explain it. The parser's own contract
+  says a shortfall is counted into `ParseWarnings`; this is the field that does not. Note the real
+  ambiguity to resolve: a genuinely anonymous work also has no `rel="author"` anchors, so "no
+  authors" and "could not read the authors" have to be told apart by something else — AO3 renders
+  "Anonymous" as plain text in the byline. Decide the rule and say so in a comment.
+
+## T27 — One scope per job, and a failed save that does not escape the finally
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A job whose save fails is recorded as failed and reschedules, instead of leaving a
+  `Running` run forever, retrying the same page against AO3 every minute, and skipping every other
+  due job in the tick.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~ScrapeWorker`
+- notes: Found by `/code-review` during T23, in code that predates this loop, and verified.
+  `ScrapeWorker.RunDueJobsAsync` (~line 121) creates **one** scope for the whole poll and passes
+  `scope.ServiceProvider` to every `RunJobAsync` in the tick, so the `AppDbContext`, the scraper and
+  the ingestor are one instance shared across all due jobs — which also contradicts the comment in
+  `Program.cs` saying "the worker resolves one per job inside that job's own scope". Consequence: if
+  a `SaveChangesAsync` inside `WorkIngestor` fails, the offending entities stay tracked on that
+  shared context; the `catch` sets `Status = Failed`, and then the `finally`'s
+  `await db.SaveChangesAsync(ct)` (~line 260) retries the same broken change set and throws again —
+  from the `finally`, so it escapes `RunJobAsync` entirely. The `ScrapeRun` stays `Running` with no
+  `CompletedAt`, `job.NextRunAt` is never advanced so the job is due again on the very next
+  minute-poll (a tight retry loop against AO3, which is the load this project's politeness rules
+  exist to prevent), and every remaining due job in that tick is skipped. Stale `Running` rows are
+  only reconciled at startup, so it never resolves on its own. A scope per job, and saving the
+  run/job rows in the `finally` on a context that cannot be carrying a poisoned change set, is the
+  shape the fix wants. Make the `Program.cs` comment true rather than deleting it.

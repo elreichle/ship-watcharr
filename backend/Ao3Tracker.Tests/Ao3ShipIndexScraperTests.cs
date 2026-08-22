@@ -533,6 +533,79 @@ public class Ao3ShipIndexScraperTests : IDisposable
         Assert.NotEqual(ShipBackfillState.Complete, (await ReloadAsync(shipId)).BackfillState);
     }
 
+    // ---- a page the archive will not serve -----------------------------------------------------------
+
+    [Fact]
+    public async Task Asks_once_for_a_page_the_archive_refuses()
+    {
+        // RateLimitedAo3HttpClient has already retried a 429 or a 5xx up to MaxRetries times with
+        // backoff by the time one arrives here, so re-asking from the walk multiplies a request AO3
+        // has already refused several times over. This branch used to `continue` without advancing
+        // `page`, which re-sent the identical URL until the circuit breaker tripped.
+        _host.Http.Responds = url => url.Contains("page=2")
+            ? new ScrapeHttpResponse("", HttpStatusCode.InternalServerError, FromCache: false, FinalUrl: url)
+            : Ok(url, Page(1, [Blurb(1)], nextPage: true).Html);
+
+        var shipId = await FollowAsync();
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(1, _host.Http.Requested.Count(url => url.Contains("page=2")));
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+    }
+
+    [Fact]
+    public async Task Records_the_status_that_stopped_the_run()
+    {
+        // "Something went wrong" in the run history is not actionable; the status is. Reporting it
+        // as the breaker — which is what re-asking until it tripped used to do — actively misleads,
+        // blaming the archive for being down when one page was refusing.
+        _host.Http.Responds = url => url.Contains("page=2")
+            ? new ScrapeHttpResponse("", HttpStatusCode.Forbidden, FromCache: false, FinalUrl: url)
+            : Ok(url, Page(1, [Blurb(1)], nextPage: true).Html);
+
+        var shipId = await FollowAsync();
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Contains("403", outcome.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task Keeps_what_it_read_before_the_page_that_failed()
+    {
+        _host.Http.Responds = url => url.Contains("page=2")
+            ? new ScrapeHttpResponse("", HttpStatusCode.InternalServerError, FromCache: false, FinalUrl: url)
+            : Ok(url, Page(1, [Blurb(1)], nextPage: true).Html);
+
+        var shipId = await FollowAsync();
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(1, outcome.WorksAdded);
+
+        // Not "left behind": the cursor still points at the page that failed, so the next run asks
+        // for it again — once, at the scheduler's spacing rather than in a tight loop. Skipping it
+        // would lose every work on it with nothing ever going back.
+        Assert.Equal(2, (await ReloadAsync(shipId)).BackfillNextPage);
+    }
+
+    [Fact]
+    public async Task Leaves_the_watermark_alone_when_a_page_fails()
+    {
+        // The works on the pages the run never reached are older than the newest it did read, so a
+        // watermark moved here would put them permanently out of reach of any later pass.
+        _host.Http.Responds = url => url.Contains("page=2")
+            ? new ScrapeHttpResponse("", HttpStatusCode.InternalServerError, FromCache: false, FinalUrl: url)
+            : Ok(url, Page(1, [Blurb(1)], nextPage: true).Html);
+
+        var shipId = await FollowAsync();
+
+        await _host.ScrapeAsync(shipId);
+
+        Assert.Null((await ReloadAsync(shipId)).IncrementalWatermarkUtc);
+    }
+
     // ---- helpers -------------------------------------------------------------------------------------------
 
     private static ScrapeBudget OneRequest() => new(maxRequests: 1, maxConsecutiveFailures: 3, maxDuration: TimeSpan.FromHours(1));

@@ -94,3 +94,69 @@ Two further things settled in the same task rather than queued:
   hand-rolled rather than pulled in from a testing package. It is what lets a test tell a timestamp
   written through the injected clock apart from one written by calling `DateTime.UtcNow` — the
   second half of T22, and a seam the rest of the loop can reuse.
+
+## 2026-08-22 — what a refused page does, decided in T23; and a correction to its premise
+
+**T23's premise was not quite right, and the correction matters.** The task said a persistent
+non-OK response re-requests one URL "until the budget runs out". It does not: every pass through
+that branch calls `budget.RecordFailure()`, so the circuit breaker opens after
+`MaxConsecutiveFailures` (3) and the run stops. Measured before the fix, a page answering 500 was
+requested exactly 3 times, not 500. The bug is real but smaller than written down, and the honest
+statement of it is:
+
+- Three round trips to a page AO3 has already refused — and each of those is itself up to
+  `MaxRetries`+1 attempts inside `RateLimitedAo3HttpClient`, which retries 429 and 5xx with
+  backoff. So up to twelve requests for one page that was never going to be served.
+- The run is then recorded as stopping on `Breaker`, which reads as "the archive is down" when in
+  fact one page was refusing. The wrong diagnosis in the run history is the part a human pays for.
+- `pagesFetched` never incremented on that path, so the `MaxPagesPerRun` ceiling could not fire —
+  harmless while the breaker holds, but it means the ceiling was not the bound anyone thought.
+
+**Decided: the walk adds no retry of its own for a non-OK status.** It stops the run with
+`ScrapeStopReason.Error` and records the status. The reasoning is that the retry already happened
+one layer down — a response reaching the scraper has exhausted the client's own retries — and a
+status the client did not consider retryable (403, 410, an unfollowed redirect) will not become OK
+by asking again. Nothing is lost by stopping: `FinishAsync` only advances the watermark for a run
+that reached the end of the listing, and a backfill's cursor still points at the failed page, so
+that page is retried once per run at the scheduler's spacing instead of in a tight loop inside one.
+
+**The transport-failure branch keeps its retry, deliberately.** It is the same `continue`-without-
+advancing shape, so it was considered rather than missed. It stays because nothing retried it:
+`SendWithRetryAsync` only retries *responses*, so a timeout or a connection failure has had exactly
+one attempt, and it is the failure most likely to succeed on the next. It is bounded by the
+breaker, which is documented for precisely that. The asymmetry is now stated in a comment beside
+both branches so it does not read as an oversight.
+
+**`ScrapeOutcome` gained `ErrorMessage`, copied onto `ScrapeRun.ErrorMessage` by `ScrapeWorker`.**
+Not in T23's `delivers` line, but "record the status" needs somewhere to record it, and that column
+previously only ever held the message of an exception that escaped the scraper — a run that stopped
+on a refused page recorded nothing actionable. The other two `Error` stops in the class (a 404 on
+the first page requested, and a page no blurb on which could be dated) now fill it too, so the
+field is not half-populated. No migration: the column is unbounded `TEXT`/`text` on both providers.
+
+## 2026-08-22 — T24–T27 added, from T23's review; T24 and T27 to run next
+
+`/code-review` over T23's diff reported five defects. **None was in T23's own change** — all five
+are in scraper code committed before this loop started, and all five were verified against the
+source (including the scheduling that makes the first one reachable) before being written down:
+
+- **T24**: a multi-run backfill sets the incremental watermark from the *oldest* pages it read.
+- **T25**: `pagesFetched == 0` is used to mean "page 1", so a resumed backfill can never complete;
+  and a zero-work page mid-walk is taken for the end of the listing.
+- **T26**: an unreadable byline parses to no authors, raises no parse warning, and the ingestor's
+  `Reconcile` then deletes the work's existing creators.
+- **T27**: one `AppDbContext` is shared by every job in a poll, and a failed save is retried from
+  the `finally` where it escapes — leaving a run `Running` and its job due every minute.
+
+**T24 and T27 run next, before T6.** Same reasoning as the earlier pull-forward, and the same kind
+of defect T23 just closed: both make this app hammer AO3 in a loop. T24 leaves a completed backfill
+re-reading its entire tag on every incremental pass forever; T27 leaves a failed job re-requesting
+the same page on every minute-poll. Neither is theoretical — T24 is reachable by any tag over about
+4,000 works, which is most of the ones this app exists to watch. T25 and T26 sit after them: both
+are real, neither spins.
+
+Worth recording because it changes how the earlier note should be read: the "every review re-reports
+the same findings" observation from T2 held for T21–T23, but this pass found five *new* defects in
+the same pre-loop scraper. That code has now had four review passes over it and is still yielding
+findings, which says the scraper predates the loop's standard of care rather than that the reviews
+are noisy.

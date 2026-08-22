@@ -195,3 +195,38 @@ build. Not something a task should chase.
   match the whole class.
   T23 is the last of the three pulled-forward defects, and it is in the same method
   (`ExecuteAsync`'s non-OK branch, ~line 168 now), so expect a merge-adjacent diff.
+
+## 2026-08-22 — T23 A failing page must not be re-requested forever — done
+
+- did: A non-OK response now ends the run instead of `continue`ing without advancing `page`. The
+  walk deliberately adds no retry of its own: `RateLimitedAo3HttpClient.SendWithRetryAsync` has
+  already retried a 429 or 5xx up to `MaxRetries` times with jittered backoff before the response
+  reaches the scraper, and a status it did not consider retryable will not become OK by asking
+  again. The run stops with `ScrapeStopReason.Error` and records the status. The transport-failure
+  branch above it keeps its retry — nothing retried *that* one, since the client only retries
+  responses, and the breaker is documented as its bound — with a comment at both sites so the
+  asymmetry reads as a decision rather than an oversight. `ScrapeOutcome` gained an `ErrorMessage`
+  that `ScrapeWorker` copies onto `ScrapeRun.ErrorMessage`, filled by all three `Error` stops in the
+  class so the field is not half-populated. No migration: the column is unbounded TEXT on both
+  providers.
+- files: `Api/Services/Scraping/{Ao3ShipIndexScraper.cs,IAo3Scraper.cs,ScrapeWorker.cs}`,
+  `Tests/Ao3ShipIndexScraperTests.cs`
+- ran: `dotnet test --filter FullyQualifiedName~Ao3ShipIndexScraper` → 32 passed;
+  `dotnet test` → 342 passed; `npm run build` + `npm run lint` → clean (the two pre-existing
+  fast-refresh warnings only). Two of the four new tests were confirmed red first.
+- commit: 5a429f7 "Stop asking AO3 again for a page it has already refused"
+- next: **The task's premise was wrong and the measurement is the useful part.** T23 said the loop
+  re-requests "until the budget runs out"; it does not — `budget.RecordFailure()` on that path
+  opens the breaker after `MaxConsecutiveFailures`, and a page answering 500 was requested exactly
+  **3** times, not 500. Worth knowing generally: a defect written into `tasks.md` from a review is a
+  hypothesis, and this loop can measure it before believing it. The real costs were the ~12 requests
+  (3 × the client's own retries) spent on an already-refused page and the misleading `Breaker` stop
+  reason.
+  T23's review found **five new defects, none of them in T23's diff** — all pre-loop scraper code,
+  now queued as T24–T27 and all verified against the source. T24 (a multi-run backfill setting the
+  watermark from its oldest pages) is the worst thing found in this loop so far: it makes any tag
+  over ~4,000 works re-read its entire catalogue on every incremental pass, forever. T24 and T27 are
+  pulled forward to run before T6.
+  Note the verification filters for the new tasks: `~Watermark`, `~Backfill`, `~Author`,
+  `~ScrapeWorker`. T22 learned the hard way that a filter matching zero tests looks like a pass —
+  check each one bites before trusting it.

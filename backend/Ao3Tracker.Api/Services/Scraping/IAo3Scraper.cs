@@ -24,7 +24,14 @@ public sealed record ScrapeOutcome(
     int ParseWarnings,
     int? FirstPage,
     int? LastPage,
-    string StopReason)
+    string StopReason,
+    /// <summary>
+    /// What went wrong, when <see cref="StopReason"/> says something did. Copied onto
+    /// <c>ScrapeRun.ErrorMessage</c>, which until now only ever carried the message of an exception
+    /// that escaped the scraper — so a run that stopped on a refused page recorded nothing a reader
+    /// could act on.
+    /// </summary>
+    string? ErrorMessage = null)
 {
     public static ScrapeOutcome Empty(string stopReason) =>
         new(0, 0, 0, 0, 0, 0, null, null, stopReason);

@@ -95,6 +95,10 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
         string stopReason;
 
+        // Set alongside a stopReason that reports trouble, so the run history says what the trouble
+        // was. Null on every healthy stop.
+        string? errorMessage = null;
+
         if (context.Mode == ScrapeRunMode.Backfill) BeginBackfill(ship);
 
         while (true)
@@ -132,6 +136,12 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 budget.RecordFailure();
                 _logger.LogWarning(ex, "Fetching {Url} for ship {ShipId} failed", url, ship.Id);
 
+                // Unlike a non-OK status below, this one *does* re-ask for the same URL. Nothing
+                // retried it: SendWithRetryAsync only retries responses, so a transport failure or
+                // a timeout has had exactly one attempt, and those are the failures most likely to
+                // succeed on the next. The re-asking is bounded by the breaker, which counts
+                // consecutive failures and is documented for precisely this — MaxConsecutiveFailures
+                // attempts, spaced by the shared 5-8s gate, and then the run gives up.
                 if (!budget.CanContinue(out var afterFailure)) { stopReason = afterFailure!; break; }
                 continue;
             }
@@ -158,6 +168,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                         ship.Id, ship.CanonicalTagName, url);
 
                     stopReason = ScrapeStopReason.Error;
+                    errorMessage = $"AO3 returned 404 for the first page requested, {url}";
                 }
                 else
                 {
@@ -169,11 +180,28 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
             if (response.StatusCode != HttpStatusCode.OK)
             {
+                // The walk adds no retry of its own, because one has already happened:
+                // RateLimitedAo3HttpClient retries 429 and 5xx up to MaxRetries times with jittered
+                // backoff, so a non-OK response arriving here is one AO3 has already refused
+                // several times over. Every other status — 403, 410, an unfollowed redirect — is
+                // not going to become OK by asking a fourth time either.
+                //
+                // This used to `continue` without advancing `page`, which re-sent the identical URL
+                // until the circuit breaker tripped: MaxConsecutiveFailures further round trips,
+                // each itself up to MaxRetries attempts, all spent on a page already refused — and
+                // then a run recorded as "the archive is down" when a single page was refusing.
+                //
+                // Neither pass loses anything by stopping here. The watermark only moves for a run
+                // that reached the end of the listing (see FinishAsync), and a backfill's cursor
+                // still points at this page — so the page is retried, once per run at the
+                // scheduler's spacing, rather than in a tight loop inside one.
                 _logger.LogWarning(
-                    "AO3 returned {Status} for {Url} (ship {ShipId})", (int)response.StatusCode, url, ship.Id);
+                    "AO3 returned {Status} for {Url} (ship {ShipId}); stopping the run",
+                    (int)response.StatusCode, url, ship.Id);
 
-                if (!budget.CanContinue(out var afterError)) { stopReason = afterError!; break; }
-                continue;
+                stopReason = ScrapeStopReason.Error;
+                errorMessage = $"AO3 returned {(int)response.StatusCode} for {url}";
+                break;
             }
 
             var listing = Ao3BlurbParser.ParseListing(response.Content);
@@ -280,6 +308,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                     page, ship.Id, ship.CanonicalTagName);
 
                 stopReason = ScrapeStopReason.Error;
+                errorMessage = $"No blurb on page {page} carried a readable date";
                 break;
             }
 
@@ -305,7 +334,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
         return new ScrapeOutcome(
             pagesFetched, budget.RequestsMade, worksSeen, worksAdded, worksUpdated,
-            parseWarnings, firstPage, lastPage, stopReason);
+            parseWarnings, firstPage, lastPage, stopReason, errorMessage);
     }
 
     // ---- URLs --------------------------------------------------------------------------------
