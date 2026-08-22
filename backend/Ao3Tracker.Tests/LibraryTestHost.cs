@@ -56,6 +56,14 @@ internal sealed class LibraryTestHost : IDisposable
     /// </summary>
     public ScrapeWakeSignal ScrapeWake { get; } = new();
 
+    /// <summary>
+    /// The clock every service in this fixture reads, registered as the container's TimeProvider.
+    /// Settable so a test can tell a timestamp the app wrote through its injected clock apart from
+    /// one it wrote by calling DateTime.UtcNow directly — which is a difference nothing else here
+    /// can see.
+    /// </summary>
+    public FixedClock Clock { get; } = new();
+
     public LibraryTestHost(params IAo3Scraper[] scrapers)
     {
         _connection = new SqliteConnection("DataSource=:memory:");
@@ -121,7 +129,7 @@ internal sealed class LibraryTestHost : IDisposable
         // The real ingestor and the real ship-index scraper, over the same in-memory database as
         // everything else here: what these tests are about is which rows a walk leaves behind, and a
         // stubbed ingestor would assert only that the scraper called something.
-        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<TimeProvider>(Clock);
         services.AddScoped<IWorkIngestor, WorkIngestor>();
         services.AddScoped<Ao3ShipIndexScraper>();
 
@@ -385,4 +393,16 @@ internal sealed class StubScraper(string key) : IAo3Scraper
 
     public Task<ScrapeOutcome> ExecuteAsync(ScrapeContext context, CancellationToken ct = default) =>
         Task.FromResult(ScrapeOutcome.Empty("stub"));
+}
+
+/// <summary>
+/// A clock a test can move. Starts at the wall clock so a fixture that never touches it behaves as
+/// it always did, and hand-rolled rather than pulled in from a testing package — one settable
+/// property is the whole requirement.
+/// </summary>
+internal sealed class FixedClock : TimeProvider
+{
+    public DateTimeOffset Now { get; set; } = DateTimeOffset.UtcNow;
+
+    public override DateTimeOffset GetUtcNow() => Now;
 }

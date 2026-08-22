@@ -162,6 +162,132 @@ public class Ao3ShipIndexScraperTests : IDisposable
         Assert.Null((await ReloadAsync(shipId)).IncrementalWatermarkUtc);
     }
 
+    // ---- blurbs whose date could not be read -------------------------------------------------------
+
+    [Fact]
+    public async Task Keeps_an_incremental_pass_going_past_a_blurb_whose_date_it_could_not_read()
+    {
+        // The worst shape of the bug this covers: an unreadable date reads as DateTime.MinValue,
+        // MinValue is not newer than the watermark, so the page looked like it held something we
+        // already had and the pass stopped on page 1 — while still advancing the watermark to the
+        // newest work it *had* seen. Work 3 would then be behind the watermark forever, and no
+        // later incremental pass looks that far back.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1, updatedAt: Jan(9)), Blurb(2, undated: true)], nextPage: true),
+            Page(2, [Blurb(3, updatedAt: Jan(8))]));
+
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(5));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
+        Assert.Equal(2, outcome.PagesFetched);
+
+        // The undated work is ingested rather than dropped: it is a real work, and storing it with
+        // an unknown revision time is the lesser loss.
+        await using var db = _host.NewContext();
+        Assert.Equal([1, 2, 3], await db.Works.OrderBy(w => w.Id).Select(w => w.Id).ToListAsync());
+
+        // ...but it does not get to propose a watermark. Jan 9 is the newest *dated* work.
+        Assert.Equal(Jan(9), (await ReloadAsync(shipId)).IncrementalWatermarkUtc);
+    }
+
+    [Fact]
+    public async Task Still_stops_an_incremental_pass_on_a_page_holding_a_dated_work_it_already_has()
+    {
+        // Abstaining must not disable the stop. One undated blurb beside a stale one still means
+        // the walk has caught up with itself.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1, updatedAt: Jan(9)), Blurb(2, undated: true), Blurb(3, updatedAt: Jan(2))], nextPage: true),
+            Page(2, [Blurb(4, updatedAt: Jan(1))]));
+
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(5));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.Watermark, outcome.StopReason);
+        Assert.Equal(1, outcome.PagesFetched);
+
+        await using var db = _host.NewContext();
+        Assert.Equal([1, 2], await db.Works.OrderBy(w => w.Id).Select(w => w.Id).ToListAsync());
+    }
+
+    [Fact]
+    public async Task Stops_an_incremental_pass_when_no_blurb_on_a_page_carries_a_readable_date()
+    {
+        // Every voter abstained, so nothing on the page says where in the listing we are. Reading
+        // on would walk the whole tag on every pass — the cost this pass exists to avoid.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1, undated: true)], nextPage: true),
+            Page(2, [Blurb(2, updatedAt: Jan(9))]));
+
+        var shipId = await FollowAsync();
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        Assert.Equal(1, outcome.PagesFetched);
+
+        // Stopped for a reason that means "something is wrong", not "there was nothing more to
+        // read" — so the watermark stays where it was.
+        Assert.Null((await ReloadAsync(shipId)).IncrementalWatermarkUtc);
+
+        // The work is still ingested; only the walk stopped.
+        await using var db = _host.NewContext();
+        Assert.Equal([1], await db.Works.Select(w => w.Id).ToListAsync());
+    }
+
+    [Fact]
+    public async Task Does_not_call_a_last_page_an_error_when_an_incremental_pass_could_not_read_its_dates()
+    {
+        // A small tag on one page, whose dates the parser cannot read. There is no page after it,
+        // so there is no runaway walk to prevent — and calling this an error would leave the
+        // watermark null and repeat the same complaint on every incremental pass forever.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1, undated: true)]));
+
+        var shipId = await FollowAsync();
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
+
+        await using var db = _host.NewContext();
+        Assert.Equal([1], await db.Works.Select(w => w.Id).ToListAsync());
+    }
+
+    [Fact]
+    public async Task Marks_a_work_an_incremental_pass_first_saw_undated_as_having_an_approximate_date()
+    {
+        // Its UpdatedAt is the default of year 1, which is not a date anybody read. The row must
+        // not present it as an exact one.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1, undated: true)]));
+
+        var shipId = await FollowAsync();
+        await _host.ScrapeAsync(shipId);
+
+        await using var db = _host.NewContext();
+        var work = await db.Works.SingleAsync();
+        Assert.Equal(DateTime.MinValue, work.UpdatedAt);
+        Assert.True(work.UpdatedAtIsApproximate);
+    }
+
+    [Fact]
+    public async Task Stamps_the_tags_total_from_the_injected_clock_on_an_incremental_pass()
+    {
+        // Every other write in the scraper reads the injected clock; this one called
+        // DateTime.UtcNow, so no test could see it.
+        _host.Clock.Now = new DateTimeOffset(2024, 6, 1, 9, 30, 0, TimeSpan.Zero);
+
+        _host.Http.Responds = Pages(Page(1, [Blurb(1)], total: 4317));
+        var shipId = await FollowAsync();
+
+        await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(_host.Clock.Now.UtcDateTime, (await ReloadAsync(shipId)).LastKnownTotalWorksAt);
+    }
+
     [Fact]
     public async Task Asks_AO3_to_exclude_what_it_already_has()
     {
@@ -482,11 +608,17 @@ public class Ao3ShipIndexScraperTests : IDisposable
             </div>
             """);
 
+    /// <summary>
+    /// One blurb. <paramref name="undated"/> renders the shape AO3 has served on occasion and the
+    /// parser reports as DateTime.MinValue: no <c>updated_at</c> comment, and a visible date in
+    /// none of the formats it knows.
+    /// </summary>
     private static string Blurb(
         long id,
         DateTime? updatedAt = null,
         int kudos = 10,
-        string[]? freeforms = null)
+        string[]? freeforms = null,
+        bool undated = false)
     {
         var epoch = new DateTimeOffset(updatedAt ?? Jan(1)).ToUnixTimeSeconds();
         var tags = string.Join('\n', (freeforms ?? ["Fluff"])
@@ -505,8 +637,8 @@ public class Ao3ShipIndexScraperTests : IDisposable
                   <li><span class="category-femslash category" title="F/F"></span></li>
                   <li><span class="complete-yes iswip" title="Complete Work"></span></li>
                 </ul>
-                <!-- updated_at={epoch} -->
-                <p class="datetime">1 Jan 2023</p>
+                {(undated ? "" : $"<!-- updated_at={epoch} -->")}
+                <p class="datetime">{(undated ? "some time ago" : "1 Jan 2023")}</p>
               </div>
               <ul class="tags commas">
                 <li class="relationships"><a class="tag" href="/tags/lexa/works">{Lexa}</a></li>

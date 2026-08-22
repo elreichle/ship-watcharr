@@ -64,3 +64,33 @@ They were queued at the end of the list; they now run before T6. Three reasons, 
    findings meaningful.
 
 Nothing depends on them, so nothing else moves.
+
+## 2026-08-22 — what an undated blurb means to the walk, decided in T22
+
+T22 left the rule open: "decide what an undated blurb means to the stopping rule". Decided, and
+written into `Ao3ShipIndexScraper` as a comment beside the code:
+
+- **An undated work abstains.** It is ingested — it is a real work, and storing it with an unknown
+  revision time is a smaller loss than dropping it — but it casts no vote in the watermark stop and
+  cannot propose a new watermark. This is the reading the task suggested and the one the backfill
+  path already took.
+- **A page on which *every* blurb abstains stops the pass**, with `ScrapeStopReason.Error` so the
+  watermark is left where it was. Abstention on its own would otherwise open a new unbounded walk:
+  with nothing on a page saying where in the listing the run is, an incremental pass would read the
+  whole tag, every time — the exact cost the pass exists to avoid. Not part of T22's `delivers`, but
+  a direct consequence of the abstain rule, so it belongs in the same change.
+- **Unless it is the last page.** Added after `/code-review` found the case: a small tag on one page
+  whose dates the parser cannot read has no page after it, so there is no runaway walk to prevent,
+  and reporting an error there would leave the watermark null and log the same complaint on every
+  pass forever.
+
+Two further things settled in the same task rather than queued:
+
+- `WorkIngestor.Apply` now sets `UpdatedAtIsApproximate = true` when the date is unreadable. Before
+  T22 an undated blurb never reached the ingestor on the incremental path at all; now that it does,
+  a work first seen that way would have stored year 1 as an *exact* revision date. The parser is
+  careful to report an unreadable date as approximate; the row has to keep that.
+- `LibraryTestHost` now registers a settable `FixedClock` as the container's `TimeProvider`,
+  hand-rolled rather than pulled in from a testing package. It is what lets a test tell a timestamp
+  written through the injected clock apart from one written by calling `DateTime.UtcNow` — the
+  second half of T22, and a seam the rest of the loop can reuse.

@@ -355,7 +355,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   against `Truncate(…, 100)` — fix both.
 
 ## T22 — An unreadable blurb date must not end an incremental pass
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A page whose works are all newer than the watermark keeps the walk going even when one

@@ -126,6 +126,14 @@ public sealed class WorkIngestor : IWorkIngestor
             work.UpdatedAt = blurb.UpdatedAt;
             work.UpdatedAtIsApproximate = blurb.UpdatedAtIsApproximate;
         }
+        else
+        {
+            // Nothing to keep on a work first seen through an unreadable date: UpdatedAt stays at
+            // its default of year 1. Say so. The parser reports an unreadable date as approximate
+            // precisely so the row does not claim a revision time it never read, and leaving this
+            // false would have the row assert 0001-01-01 as exact.
+            work.UpdatedAtIsApproximate = true;
+        }
 
         work.IsAnonymous = blurb.IsAnonymous;
         work.IsRestricted = blurb.IsRestricted;

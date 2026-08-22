@@ -163,3 +163,35 @@ build. Not something a task should chase.
   ASCII; pseud names need not be. A pre-existing non-ASCII pseud on SQLite can therefore keep a
   normalized form the app spells differently, which costs a second row for that pseud the next time
   it is seen — not a failed save, and it does not compound.
+
+## 2026-08-22 — T22 An unreadable blurb date must not end an incremental pass — done
+
+- did: Split an incremental page into three groups instead of two. An undated blurb — the
+  `DateTime.MinValue` the parser reports when neither date form is readable — is no longer counted
+  as stale: it is ingested and then abstains, casting no vote in the watermark stop and proposing no
+  watermark. The stop now counts *dated* works at or below the watermark (`alreadyHad`) rather than
+  inferring them from `fresh.Count < listing.Works.Count`. Two guards around the new rule: a page on
+  which everything abstains stops the pass with `Error` (so the watermark stays put) rather than
+  walking the whole tag, but only when there is a next page — a last page nobody could date is a
+  small tag, not a runaway. The backfill path gained the matching `MinValue` filter on the watermark
+  proposal, which could previously have set a watermark of year 1. `RecordTotal` now reads `_time`
+  like every other write in the class.
+  From the `/code-review` pass, both fixed here because both are consequences of this change:
+  the last-page false alarm above, and `WorkIngestor.Apply` storing year 1 as an *exact* date for a
+  work first seen undated — it now marks such a row approximate, which is what the parser reports.
+- files: `Api/Services/Scraping/Ao3ShipIndexScraper.cs`, `Api/Services/Scraping/WorkIngestor.cs`,
+  `Tests/Ao3ShipIndexScraperTests.cs`, `Tests/LibraryTestHost.cs`
+- ran: `dotnet test --filter FullyQualifiedName~Incremental` → 6 passed; `dotnet test` → 338 passed;
+  `npm run build` + `npm run lint` → clean (the two pre-existing fast-refresh warnings only).
+  The four original tests were confirmed red against the unpatched scraper before the fix went back
+  in, so they pin the bug rather than the fix.
+- commit: f3d678d "Let an undated blurb abstain instead of ending the pass"
+- next: `LibraryTestHost` now has `Clock` (a settable `FixedClock` registered as the container's
+  `TimeProvider`) — every fixture's clock is frozen at construction time, which nothing in the suite
+  asserts a delta against, but a future test that wants elapsed time has to move `Clock.Now` itself.
+  Note the verification filter `FullyQualifiedName~Incremental` matched **zero** tests before this
+  task: no test name in the class contained the word. The six it matches now were named to make it
+  bite. Worth checking the same for T23, whose filter is `~Ao3ShipIndexScraper` — that one does
+  match the whole class.
+  T23 is the last of the three pulled-forward defects, and it is in the same method
+  (`ExecuteAsync`'s non-OK branch, ~line 168 now), so expect a merge-adjacent diff.

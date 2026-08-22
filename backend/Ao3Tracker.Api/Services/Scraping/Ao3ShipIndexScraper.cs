@@ -204,29 +204,82 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 break;
             }
 
-            var fresh = context.Mode == ScrapeRunMode.Incremental
-                ? listing.Works.Where(w => watermark is null || w.UpdatedAt > watermark).ToList()
+            var incremental = context.Mode == ScrapeRunMode.Incremental;
+
+            // Three groups on an incremental page, not two, because an undated blurb is neither
+            // new nor already-had.
+            //
+            // Ao3BlurbParser.ParseUpdatedAt reports a date it could read in neither form as
+            // DateTime.MinValue. That is not "very old", it is "no age at all", and treating it as
+            // stale used to end the pass on the spot *and* let the watermark advance to the newest
+            // work on the pages the run did reach — so the works behind the stop became
+            // unreachable, no later incremental pass looking back that far again.
+            //
+            // So an undated work abstains: it is ingested, because it is a real work and losing it
+            // is worse than storing it with an unknown revision time, but it casts no vote in the
+            // stopping rule and cannot move the watermark.
+            var undated = incremental
+                ? listing.Works.Where(w => w.UpdatedAt == DateTime.MinValue).ToList()
+                : [];
+
+            var fresh = incremental
+                ? listing.Works
+                    .Where(w => w.UpdatedAt > DateTime.MinValue && (watermark is null || w.UpdatedAt > watermark))
+                    .ToList()
                 : listing.Works;
 
-            if (fresh.Count > 0)
+            // Whatever is left over: dated, and no newer than the watermark. This is what stops the
+            // walk, counted rather than inferred from fresh.Count so that abstentions cannot be
+            // mistaken for works we already have.
+            var alreadyHad = incremental ? listing.Works.Count - fresh.Count - undated.Count : 0;
+
+            var toIngest = undated.Count == 0 ? fresh : [.. fresh, .. undated];
+
+            if (toIngest.Count > 0)
             {
-                var result = await _ingestor.IngestAsync(ship, fresh, ct);
+                var result = await _ingestor.IngestAsync(ship, toIngest, ct);
                 worksSeen += result.WorksSeen;
                 worksAdded += result.WorksAdded;
                 worksUpdated += result.WorksUpdated;
 
-                var pageNewest = fresh.Max(w => w.UpdatedAt);
-                if (newestSeen is null || pageNewest > newestSeen) newestSeen = pageNewest;
+                sawRestricted |= toIngest.Any(w => w.IsRestricted);
+            }
 
-                sawRestricted |= fresh.Any(w => w.IsRestricted);
+            // Only dated works propose a watermark. On a backfill `fresh` is the whole page, which
+            // can hold MinValue readings — hence the filter here rather than a Max over the lot.
+            var dated = incremental ? fresh : fresh.Where(w => w.UpdatedAt > DateTime.MinValue).ToList();
+            if (dated.Count > 0)
+            {
+                var pageNewest = dated.Max(w => w.UpdatedAt);
+                if (newestSeen is null || pageNewest > newestSeen) newestSeen = pageNewest;
             }
 
             // The watermark stop, and the reason an incremental pass is normally one request: the
             // listing is newest-first, so the first page that is not entirely new means everything
             // after it is older still.
-            if (context.Mode == ScrapeRunMode.Incremental && fresh.Count < listing.Works.Count)
+            if (incremental && alreadyHad > 0)
             {
                 stopReason = ScrapeStopReason.Watermark;
+                break;
+            }
+
+            // Every blurb on the page abstained, so nothing on it says where in the listing we are.
+            // Reading on would walk the whole tag on every incremental pass — the cost this pass
+            // exists to avoid — so stop, and stop with a reason that leaves the watermark where it
+            // was rather than pretending the walk finished.
+            //
+            // Only where there is more to walk. A last page whose dates are all unreadable is a
+            // small tag the parser is struggling with, not a runaway walk: the page after it does
+            // not exist, so there is no cost to prevent, and calling that an error would leave the
+            // watermark null and repeat the same complaint on every pass forever.
+            if (incremental && fresh.Count == 0 && undated.Count > 0 && listing.HasNextPage)
+            {
+                _logger.LogError(
+                    "No blurb on page {Page} for ship {ShipId} ({Tag}) carried a readable date, so the "
+                    + "incremental pass has nothing to stop on. The listing markup has probably changed.",
+                    page, ship.Id, ship.CanonicalTagName);
+
+                stopReason = ScrapeStopReason.Error;
                 break;
             }
 
@@ -303,12 +356,12 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         }
     }
 
-    private static void RecordTotal(Ship ship, Ao3ListingPage listing)
+    private void RecordTotal(Ship ship, Ao3ListingPage listing)
     {
         if (listing.TotalWorks is not { } total) return;
 
         ship.LastKnownTotalWorks = total;
-        ship.LastKnownTotalWorksAt = DateTime.UtcNow;
+        ship.LastKnownTotalWorksAt = _time.GetUtcNow().UtcDateTime;
     }
 
     /// <summary>
