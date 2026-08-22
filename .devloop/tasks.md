@@ -17,7 +17,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 ```
 
 ## T1 — Admin API for the instance AO3 credential
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: An admin can save, inspect and clear the deployment's single AO3 login over HTTP.
@@ -328,3 +328,42 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   `settings.json` — verify all three by recreating the container, not by reading the compose file.
   Finish by correcting the README's "Planned" list, its testing note, and anything else this loop
   made untrue.
+
+## T21 — Pseud lookup folds case the way the key does
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: Re-seeing an author whose username differs only in case from the stored row reuses that
+  row instead of trying to insert a second one.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Pseud`
+- notes: Found by `/code-review` during T1, in code that predates this loop.
+  `WorkIngestor.ResolvePseudsAsync` (~line 324) loads existing rows with
+  `usernames.Contains(p.Username)` — raw, and both providers compare that case-sensitively — but
+  keys the dictionary it builds with `Normalize(p.Username)`. A stored `Emma` and an incoming
+  `emma` therefore miss each other, a duplicate `Ao3Pseud` is added, and the page's
+  `SaveChangesAsync` fails on the unique index, losing the whole page's ingest. The tag path two
+  methods up already avoids this by filtering on the persisted `NameNormalized` column; do the same
+  here rather than fixing it with a client-side `ToUpperInvariant`, which would drag the table into
+  memory. That likely means a normalized username column and a migration on **both** providers — if
+  so, say why in `.devloop/DECISIONS.md`. Test it as an ingest of the same author twice with the
+  case changed between passes.
+
+## T22 — An unreadable blurb date must not end an incremental pass
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A page whose works are all newer than the watermark keeps the walk going even when one
+  blurb's date could not be parsed, and the total-works timestamp comes from the injected clock.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Incremental`
+- notes: Found by `/code-review` during T1, in code that predates this loop. Two things, same file
+  (`Services/Scraping/Ao3ShipIndexScraper.cs`), both about time:
+  (1) `Ao3BlurbParser.ParseUpdatedAt` deliberately returns `DateTime.MinValue` when neither date
+  form is readable. `MinValue > watermark` is false, so such a blurb is counted as stale, which
+  makes `fresh.Count < listing.Works.Count` true (~line 227) and stops the pass at `Watermark` on
+  the spot. Worse than a short run: `newestSeen` still advances, so the works on the pages never
+  reached are older than the next watermark and no later incremental pass will ever see them.
+  Decide what an undated blurb means to the stopping rule — ingesting it and not letting it vote is
+  the obvious reading — and say so in a comment. The backfill path already excludes `MinValue`
+  explicitly (~line 323), which is the precedent.
+  (2) `RecordTotal` (~line 311) stamps `ship.LastKnownTotalWorksAt = DateTime.UtcNow` while every
+  other write in the class uses the injected `_time`, so a fake clock cannot see it.

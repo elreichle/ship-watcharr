@@ -3,9 +3,12 @@ using System.Security.Claims;
 using Ao3Tracker.Api.Controllers;
 using Ao3Tracker.Api.Data;
 using Ao3Tracker.Api.Models;
+using Ao3Tracker.Api.Services.Credentials;
 using Ao3Tracker.Api.Services.Scraping;
 using Ao3Tracker.Api.Services.Storage;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -27,6 +30,9 @@ internal sealed class LibraryTestHost : IDisposable
     private readonly SqliteConnection _connection;
     private readonly ServiceProvider _provider;
     private readonly IServiceScope _request;
+
+    /// <summary>Scopes handed out one per simulated request; disposed with the fixture.</summary>
+    private readonly List<IServiceScope> _perRequestScopes = [];
 
     private readonly string _dataDirectory;
 
@@ -73,11 +79,26 @@ internal sealed class LibraryTestHost : IDisposable
         // provider itself: "can this instance talk to AO3 at all" is decided by that provider's own
         // validation rules, and a stub would let a test pass on a contact the app would reject.
         services.Configure<Ao3HttpClientOptions>(o => o.BaseUrl = BaseUrl);
-        services.AddSingleton(InstanceIdentity.LoadOrCreate(new StoragePaths(
+        var storagePaths = new StoragePaths(
             _dataDirectory,
             Path.Combine(_dataDirectory, "test.db"),
             Path.Combine(_dataDirectory, "settings.json"),
-            Path.Combine(_dataDirectory, "keys"))));
+            Path.Combine(_dataDirectory, "keys"));
+        services.AddSingleton(InstanceIdentity.LoadOrCreate(storagePaths));
+
+        // A real UserManager over the same database, because the admin endpoints decide access by
+        // reading the caller's row back through it — a stub would be asserting the test's own idea
+        // of who is an admin rather than the app's.
+        services.AddIdentityCore<ApplicationUser>().AddEntityFrameworkStores<AppDbContext>();
+
+        // Real Data Protection over keys in this fixture's temp directory, the way Program.cs
+        // configures it: the credential store's whole job is encryption at rest, so a fake
+        // protector would leave the interesting failure — ciphertext that cannot be read back —
+        // untested.
+        services.AddDataProtection()
+            .SetApplicationName("Ao3Tracker")
+            .PersistKeysToFileSystem(new DirectoryInfo(storagePaths.KeysDirectory));
+        services.AddScoped<IAo3InstanceCredentialStore, Ao3InstanceCredentialStore>();
         services.AddSingleton<IOperatorContactResolver>(new StubContacts(() => OperatorContact));
         services.AddScoped<Ao3UserAgentProvider>();
 
@@ -109,6 +130,7 @@ internal sealed class LibraryTestHost : IDisposable
 
     public void Dispose()
     {
+        foreach (var scope in _perRequestScopes) scope.Dispose();
         _request.Dispose();
         _provider.Dispose();
         _connection.Dispose();
@@ -181,7 +203,7 @@ internal sealed class LibraryTestHost : IDisposable
     public AppDbContext NewContext() => new SqliteAppDbContext(
         new DbContextOptionsBuilder<SqliteAppDbContext>().UseSqlite(_connection).Options);
 
-    public ApplicationUser SeedUser(string userName = "emma")
+    public ApplicationUser SeedUser(string userName = "emma", bool isAdmin = false)
     {
         using var db = NewContext();
 
@@ -189,6 +211,7 @@ internal sealed class LibraryTestHost : IDisposable
         {
             UserName = userName,
             NormalizedUserName = userName.ToUpperInvariant(),
+            IsAdmin = isAdmin,
         };
         db.Users.Add(user);
         db.SaveChanges();
@@ -212,15 +235,44 @@ internal sealed class LibraryTestHost : IDisposable
         _request.ServiceProvider.GetRequiredService<AppDbContext>()), user);
 
     /// <summary>
+    /// A scope of its own per call, unlike the library controllers above. The credential endpoints
+    /// are exercised several "requests" deep in one test, with the store written between them; a
+    /// shared context would answer a later request out of a change tracker the previous one warmed,
+    /// which no real request ever does.
+    /// </summary>
+    public AdminAo3CredentialController AdminAo3Credential(ApplicationUser user)
+    {
+        var scope = _provider.CreateScope();
+        _perRequestScopes.Add(scope);
+
+        return Build(new AdminAo3CredentialController(
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>(),
+            scope.ServiceProvider.GetRequiredService<IAo3InstanceCredentialStore>(),
+            scope.ServiceProvider.GetRequiredService<ILogger<AdminAo3CredentialController>>()),
+            user, scope.ServiceProvider);
+    }
+
+    /// <summary>
+    /// The credential store as the scraper sees it — a scope of its own, so a test reading a
+    /// password back is reading what was persisted rather than what a tracked entity remembers.
+    /// </summary>
+    public async Task<T> WithCredentialStoreAsync<T>(Func<IAo3InstanceCredentialStore, Task<T>> work)
+    {
+        using var scope = _provider.CreateScope();
+        return await work(scope.ServiceProvider.GetRequiredService<IAo3InstanceCredentialStore>());
+    }
+
+    /// <summary>
     /// Attaches the principal an auth cookie would carry. NameIdentifier is the claim Identity
     /// keeps the user id under, and the one both controllers read.
     /// </summary>
-    private T Build<T>(T controller, ApplicationUser user) where T : ControllerBase
+    private T Build<T>(T controller, ApplicationUser user, IServiceProvider? services = null)
+        where T : ControllerBase
     {
         var identity = new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, user.Id)], "Test");
         var http = new DefaultHttpContext
         {
-            RequestServices = _request.ServiceProvider,
+            RequestServices = services ?? _request.ServiceProvider,
             User = new ClaimsPrincipal(identity),
         };
 

@@ -35,3 +35,29 @@ public record ScrapingIdentityDto(
 public record UpdateScrapingIdentityRequest(
     /* Null or blank clears the override and reverts to the admin account's address. */
     string? OperatorContact);
+
+/// <summary>
+/// The state of the one AO3 login this deployment scrapes as. Status only: neither the password
+/// nor the session cookie is ever part of this, and there is no endpoint that reads either back.
+/// </summary>
+/// <param name="HasCredential">
+/// Whether a login is stored at all — which is also "is a password stored", since the row cannot
+/// exist without one. This is what gates scraping.
+/// </param>
+/// <param name="Ao3Username">The stored AO3 username, or null when no login is configured.</param>
+/// <param name="HasCachedSession">
+/// Whether a session cookie is currently cached. Purely informational: the session is a cache of
+/// the password, so its absence means a login is due, never that the credential is gone.
+/// </param>
+/// <param name="SessionEstablishedAt">When the cached session was obtained, if there is one.</param>
+/// <param name="SessionExpiresAt">When the cached session stops being usable, if AO3 said.</param>
+public record InstanceAo3CredentialDto(
+    bool HasCredential,
+    string? Ao3Username,
+    bool HasCachedSession,
+    DateTime? SessionEstablishedAt,
+    DateTime? SessionExpiresAt);
+
+public record SetInstanceAo3CredentialRequest(
+    [Required] string Ao3Username,
+    [Required] string Ao3Password);
