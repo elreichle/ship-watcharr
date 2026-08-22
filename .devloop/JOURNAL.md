@@ -214,7 +214,7 @@ build. Not something a task should chase.
 - ran: `dotnet test --filter FullyQualifiedName~Ao3ShipIndexScraper` → 32 passed;
   `dotnet test` → 342 passed; `npm run build` + `npm run lint` → clean (the two pre-existing
   fast-refresh warnings only). Two of the four new tests were confirmed red first.
-- commit: 5a429f7 "Stop asking AO3 again for a page it has already refused"
+- commit: ecde66a "Stop asking AO3 again for a page it has already refused"
 - next: **The task's premise was wrong and the measurement is the useful part.** T23 said the loop
   re-requests "until the budget runs out"; it does not — `budget.RecordFailure()` on that path
   opens the breaker after `MaxConsecutiveFailures`, and a page answering 500 was requested exactly
