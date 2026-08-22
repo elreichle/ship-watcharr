@@ -33,3 +33,17 @@ before being written down:
   `DateTime.UtcNow` instead of the injected `TimeProvider`.
 
 Both are `blocked-by: none` and sit after the planned work; neither blocks anything.
+
+## 2026-08-22 — T23 added, and more for T21, from T2's review
+
+The same `/code-review` pass over T2 reported two further defects in pre-loop scraper code, both
+verified against the source before being written down:
+
+- Folded into **T21**: `ApplyTags` looks tags up by their untruncated name while the dictionary is
+  keyed by the truncated one, so a tag over 200 characters is dropped and then reconciled away.
+- New **T23**: a non-OK page response `continue`s without advancing `page` or `pagesFetched`, so a
+  persistent 500 re-requests one URL until the run's budget is gone.
+
+Worth knowing for the rest of the loop: every review pass sees the whole branch diff, not only the
+task's own hunks, so these findings will keep coming back until T21–T23 are done. Re-reporting them
+is not a signal that a new task introduced them.

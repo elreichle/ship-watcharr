@@ -20,7 +20,19 @@ public record UpdateDatabaseSettingsRequest(
 /// <param name="ContactSource">Where it came from — "AdminSetting", "Configuration", "AdminAccount" or "None".</param>
 /// <param name="IsOverridden">Whether an explicit value is saved, as opposed to a resolved default.</param>
 /// <param name="DefaultContact">What it would fall back to if the override were cleared.</param>
-/// <param name="ScrapingEnabled">False when no usable contact exists; <paramref name="Problem"/> says why.</param>
+/// <param name="ScrapingEnabled">
+/// Whether scraping may run at all — every gate in <see cref="Services.Scraping.ScrapingGate"/>,
+/// not just this instance's identity. <paramref name="Problem"/> lists every reason it may not.
+/// </param>
+/// <param name="Problem">Every blocker at once, or null when scraping is running.</param>
+/// <param name="IdentityConfigured">
+/// Whether an honest User-Agent could be built. Narrower than <paramref name="ScrapingEnabled"/>:
+/// an instance can be perfectly identifiable and still be held for want of an AO3 login.
+/// </param>
+/// <param name="Ao3LoginConfigured">
+/// Whether an AO3 login is stored for the deployment. The other gate — see
+/// <see cref="InstanceAo3CredentialDto"/>.
+/// </param>
 public record ScrapingIdentityDto(
     string? UserAgent,
     string? OperatorContact,
@@ -30,7 +42,9 @@ public record ScrapingIdentityDto(
     bool ScrapingEnabled,
     string? Problem,
     string ProductToken,
-    string InstanceId);
+    string InstanceId,
+    bool IdentityConfigured,
+    bool Ao3LoginConfigured);
 
 public record UpdateScrapingIdentityRequest(
     /* Null or blank clears the override and reverts to the admin account's address. */

@@ -122,6 +122,11 @@ builder.Services.AddSingleton(sp => InstanceIdentity.LoadOrCreate(sp.GetRequired
 builder.Services.AddScoped<IOperatorContactResolver, OperatorContactResolver>();
 builder.Services.AddScoped<Ao3UserAgentProvider>();
 
+// The two gates on scraping — an honest User-Agent, and an AO3 login — answered together, so the
+// worker that holds jobs and the admin screen that explains why cannot disagree. Scoped for the
+// same reason as the two above: it re-reads settings and the credential row on every poll.
+builder.Services.AddScoped<ScrapingGate>();
+
 builder.Services
     .AddHttpClient<IRateLimitedHttpClient, RateLimitedAo3HttpClient>(client =>
     {

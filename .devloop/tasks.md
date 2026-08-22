@@ -36,7 +36,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   drops the cached session.
 
 ## T2 — Scraping holds when no AO3 login is stored
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: T1
 - delivers: With no instance credential, `ScrapeWorker` leaves due jobs unrun and logs why; the
@@ -347,6 +347,11 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   memory. That likely means a normalized username column and a migration on **both** providers — if
   so, say why in `.devloop/DECISIONS.md`. Test it as an ingest of the same author twice with the
   case changed between passes.
+  Second defect in the same method pair, found by the review of T2: `ApplyTags` looks a tag up by
+  `Normalize(t.Name)` on the **untruncated** blurb name, while `ResolveTagsAsync` keys the
+  dictionary by `Truncate(t.Name, 200)`. A tag longer than 200 characters therefore misses its own
+  row, is dropped from the work, and — through `Reconcile` — is deleted if it was there before.
+  Truncate once, in one place, and key everything off that.
 
 ## T22 — An unreadable blurb date must not end an incremental pass
 - status: todo
@@ -367,3 +372,21 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   explicitly (~line 323), which is the precedent.
   (2) `RecordTotal` (~line 311) stamps `ship.LastKnownTotalWorksAt = DateTime.UtcNow` while every
   other write in the class uses the injected `_time`, so a fake clock cannot see it.
+
+## T23 — A failing page must not be re-requested forever
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A page that answers with a non-OK status is either retried a bounded number of times or
+  left behind, and either way the walk stops instead of spending its whole budget on one URL.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ao3ShipIndexScraper`
+- notes: Found by `/code-review` during T2, in code that predates this loop.
+  `Ao3ShipIndexScraper.ExecuteAsync` (~line 170): the non-OK, non-404 branch logs, checks the budget
+  and `continue`s — but `page++` is at the bottom of the loop (~line 248), so the same URL is
+  requested again, and again, until the budget runs out. `pagesFetched` never increments either, so
+  the `MaxPagesPerRun` ceiling cannot fire. Worst on a persistent 500: a whole run's allowance spent
+  re-asking AO3 for a page it has already refused, which is exactly the load this project's
+  politeness rules exist to avoid. Decide the rule — bounded retries with the existing spacing, or
+  stop the run and record the status — and say which in a comment. The circuit breaker is the
+  neighbouring concern; check whether it already covers repeated non-OK responses before adding
+  anything new. Test it against the fake HTTP client answering 500 for one page.

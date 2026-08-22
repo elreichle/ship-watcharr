@@ -68,7 +68,9 @@ export function AdminScrapingPage() {
       </p>
 
       <h2>What AO3 currently sees</h2>
-      {identity.scrapingEnabled ? (
+      {/* Keyed off the identity gate, not scrapingEnabled: an instance held for want of an AO3
+          login still has a User-Agent, and this section is about what AO3 sees. */}
+      {identity.identityConfigured ? (
         <pre className="user-agent">{identity.userAgent}</pre>
       ) : (
         <p className="error pre-wrap">{identity.problem}</p>

@@ -272,10 +272,16 @@ export interface ScrapingIdentity {
   isOverridden: boolean;
   /** What the contact reverts to if the override is cleared. */
   defaultContact: string | null;
+  /** Whether scraping may run at all — both gates, not just this instance's identity. */
   scrapingEnabled: boolean;
+  /** Every reason scraping is held, or null when it is running. */
   problem: string | null;
   productToken: string;
   instanceId: string;
+  /** Whether an honest User-Agent can be built. Narrower than `scrapingEnabled`. */
+  identityConfigured: boolean;
+  /** Whether the deployment's AO3 login is stored. The other gate. */
+  ao3LoginConfigured: boolean;
 }
 
 export interface DatabaseStatus {

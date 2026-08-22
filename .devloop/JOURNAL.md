@@ -39,3 +39,31 @@ build. Not something a task should chase.
   entity through `SetCredentialAsync`, so EF saw no change to the session column and left the old
   cookie in the database. A real request never has that warm change tracker. Any future test that
   writes to the store out of band between two "requests" needs the per-request scope too.
+
+## 2026-08-22 — T2 Scraping holds when no AO3 login is stored — done
+
+- did: Added `ScrapingGate` — one scoped service answering both gates (an honest User-Agent, and a
+  stored instance AO3 login), always evaluating both so a half-configured instance is told
+  everything it is missing at once. `ScrapeWorker.RunDueJobsAsync` consults it every poll and
+  returns early when it is shut: no `ScrapeRun` written, no `NextRunAt` advanced, no breaker
+  touched, nothing fetched — the job stays due, so the next poll runs it the moment a login is
+  saved. Logged on transition only, as the contact gate already was.
+  `GET /api/admin/scraping/identity` now reports the same gate: `scrapingEnabled` means both gates
+  pass, `problem` carries every reason, and two new fields (`identityConfigured`,
+  `ao3LoginConfigured`) say which half is missing.
+- files: `Api/Services/Scraping/ScrapingGate.cs` (new), `Api/Services/Scraping/ScrapeWorker.cs`,
+  `Api/Controllers/AdminScrapingController.cs`, `Api/Dtos/AdminDtos.cs`, `Api/Program.cs`,
+  `frontend/src/api/types.ts`, `frontend/src/pages/AdminScrapingPage.tsx`,
+  `Tests/ScrapeWorkerGateTests.cs` (new), `Tests/LibraryTestHost.cs`
+- ran: `dotnet test --filter FullyQualifiedName~ScrapeWorker` → 7 passed; `dotnet test` → 326 passed;
+  `npm run build` + `npm run lint` → clean
+- commit: "Hold scraping until this deployment has an AO3 login to scrape as"
+- next: T3 has what it needs — `identityConfigured` / `ao3LoginConfigured` / `problem` on
+  `/api/admin/scraping/identity`. **But that endpoint is admin-only**, and T3's banner is for every
+  user, so T3 still needs a non-admin surface for "is a login configured": the Ships list already
+  carries `scraperAvailable` per row and is the obvious place to put it beside.
+  `RunDueJobsAsync` is now `internal` (the test project already has `InternalsVisibleTo`), and
+  `LibraryTestHost` gained `NewScrapeWorker()`, `SaveAo3LoginAsync()`, `EvaluateScrapingGateAsync()`
+  and an `AdminScraping(user)` controller builder over a real `IPersistedSettingsStore`.
+  `AdminScrapingPage` deliberately keys "what AO3 currently sees" off `identityConfigured` rather
+  than `scrapingEnabled` — a held instance still has a User-Agent.

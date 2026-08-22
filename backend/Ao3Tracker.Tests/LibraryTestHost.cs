@@ -5,6 +5,7 @@ using Ao3Tracker.Api.Data;
 using Ao3Tracker.Api.Models;
 using Ao3Tracker.Api.Services.Credentials;
 using Ao3Tracker.Api.Services.Scraping;
+using Ao3Tracker.Api.Services.Settings;
 using Ao3Tracker.Api.Services.Storage;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
@@ -14,6 +15,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Ao3Tracker.Tests;
 
@@ -86,6 +88,11 @@ internal sealed class LibraryTestHost : IDisposable
             Path.Combine(_dataDirectory, "keys"));
         services.AddSingleton(InstanceIdentity.LoadOrCreate(storagePaths));
 
+        // settings.json under the fixture's temp directory, so the admin endpoints that read and
+        // write it do so for real without touching the dev instance's data directory.
+        services.AddSingleton(storagePaths);
+        services.AddScoped<IPersistedSettingsStore, PersistedSettingsStore>();
+
         // A real UserManager over the same database, because the admin endpoints decide access by
         // reading the caller's row back through it — a stub would be asserting the test's own idea
         // of who is an admin rather than the app's.
@@ -99,6 +106,11 @@ internal sealed class LibraryTestHost : IDisposable
             .SetApplicationName("Ao3Tracker")
             .PersistKeysToFileSystem(new DirectoryInfo(storagePaths.KeysDirectory));
         services.AddScoped<IAo3InstanceCredentialStore, Ao3InstanceCredentialStore>();
+
+        // The real gate, over the real contact resolver and the real credential store: what these
+        // tests are about is which of the two missing things holds a job, and a stubbed gate would
+        // only ever assert the worker asked something.
+        services.AddScoped<ScrapingGate>();
         services.AddSingleton<IOperatorContactResolver>(new StubContacts(() => OperatorContact));
         services.AddScoped<Ao3UserAgentProvider>();
 
@@ -165,6 +177,32 @@ internal sealed class LibraryTestHost : IDisposable
             _provider.GetRequiredService<IServiceScopeFactory>(),
             _provider.GetRequiredService<ILogger<ShipVerificationWorker>>())
         .VerifyDueShipsAsync(CancellationToken.None);
+
+    /// <summary>
+    /// One poll of the scrape worker, without a host or a timer — the same call its loop makes.
+    /// Returned rather than constructed per call so a test can tick the *same* worker twice, which
+    /// is what "the next poll picks it up, no restart" means.
+    /// </summary>
+    public ScrapeWorker NewScrapeWorker() => new(
+        _provider.GetRequiredService<IServiceScopeFactory>(),
+        _provider.GetRequiredService<ILogger<ScrapeWorker>>(),
+        _provider.GetRequiredService<IOptions<Ao3HttpClientOptions>>(),
+        ScrapeWake);
+
+    /// <summary>Stores an instance AO3 login, the way the admin endpoint does.</summary>
+    public async Task SaveAo3LoginAsync(string username = "shipwatcharr", string password = "hunter2")
+    {
+        using var scope = _provider.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<IAo3InstanceCredentialStore>()
+            .SetCredentialAsync(username, password);
+    }
+
+    /// <summary>The gate as the worker reads it, in a scope of its own.</summary>
+    public async Task<ScrapingGateState> EvaluateScrapingGateAsync()
+    {
+        using var scope = _provider.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<ScrapingGate>().EvaluateAsync();
+    }
 
     /// <summary>
     /// One scrape of a ship, in a scope of its own the way the worker runs them. The budget is
@@ -249,6 +287,25 @@ internal sealed class LibraryTestHost : IDisposable
             scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>(),
             scope.ServiceProvider.GetRequiredService<IAo3InstanceCredentialStore>(),
             scope.ServiceProvider.GetRequiredService<ILogger<AdminAo3CredentialController>>()),
+            user, scope.ServiceProvider);
+    }
+
+    /// <summary>
+    /// A scope of its own per call, for the same reason as the credential endpoints above.
+    /// </summary>
+    public AdminScrapingController AdminScraping(ApplicationUser user)
+    {
+        var scope = _provider.CreateScope();
+        _perRequestScopes.Add(scope);
+
+        return Build(new AdminScrapingController(
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>(),
+            scope.ServiceProvider.GetRequiredService<IPersistedSettingsStore>(),
+            scope.ServiceProvider.GetRequiredService<IOperatorContactResolver>(),
+            scope.ServiceProvider.GetRequiredService<ScrapingGate>(),
+            scope.ServiceProvider.GetRequiredService<InstanceIdentity>(),
+            scope.ServiceProvider.GetRequiredService<IOptions<Ao3HttpClientOptions>>(),
+            scope.ServiceProvider.GetRequiredService<ILogger<AdminScrapingController>>()),
             user, scope.ServiceProvider);
     }
 

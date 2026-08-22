@@ -117,25 +117,29 @@ public class ScrapeWorker : BackgroundService
         }
     }
 
-    private async Task RunDueJobsAsync(CancellationToken ct)
+    internal async Task RunDueJobsAsync(CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        // Re-checked every poll rather than once at startup. A fresh install boots with no contact
-        // at all — one only appears once someone saves an email at Settings → Account or a contact
-        // at System → Scraping — so a one-shot check would latch scraping off and never notice
-        // that happening.
-        var userAgents = scope.ServiceProvider.GetRequiredService<Ao3UserAgentProvider>();
-        var (ok, userAgent, error) = await userAgents.TryGetUserAgentAsync(ct);
+        // Re-checked every poll rather than once at startup. A fresh install boots with neither an
+        // operator contact nor an AO3 login — both only appear once someone saves them in the
+        // settings UI — so a one-shot check would latch scraping off and never notice that
+        // happening.
+        var gate = scope.ServiceProvider.GetRequiredService<ScrapingGate>();
+        var state = await gate.EvaluateAsync(ct);
 
-        if (!ok)
+        if (!state.CanScrape)
         {
-            // Logged on transition only. This runs every minute, and a scraper that cannot
-            // identify itself is a steady state, not an event worth repeating 1,440 times a day.
+            // Logged on transition only. This runs every minute, and an instance that is not
+            // configured to scrape is a steady state, not an event worth repeating 1,440 times a
+            // day. Every reason at once, so fixing one does not merely reveal the next.
+            //
+            // Due jobs are left exactly as they are: no run recorded, no NextRunAt advanced, no
+            // breaker touched. They are held, not failed — nothing has been attempted.
             if (_scrapingEnabled != false)
             {
-                _logger.LogError("Scraping is disabled.\n\n{Error}", error);
+                _logger.LogError("Scraping is disabled.\n\n{Problem}", state.Problem);
                 _scrapingEnabled = false;
             }
             return;
@@ -145,7 +149,7 @@ public class ScrapeWorker : BackgroundService
         {
             // Logged verbatim so the operator can see exactly what this instance tells AO3 about
             // itself, rather than reconstructing it from three separate settings.
-            _logger.LogInformation("Scraping enabled. Identifying to AO3 as: {UserAgent}", userAgent);
+            _logger.LogInformation("Scraping enabled. Identifying to AO3 as: {UserAgent}", state.UserAgent);
             _scrapingEnabled = true;
         }
 
