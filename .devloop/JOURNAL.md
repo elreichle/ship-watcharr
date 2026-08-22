@@ -245,7 +245,7 @@ build. Not something a task should chase.
   `dotnet test` → 345 passed; `npm run build` + `npm run lint` → clean, the two pre-existing
   fast-refresh warnings only. All three new tests were confirmed red against the unpatched scraper
   first: the resumed backfill really did write Jan 3 as the watermark.
-- commit: 7b4a981 "Only let a pass that saw the newest works set the watermark"
+- commit: a0d65c5 "Only let a pass that saw the newest works set the watermark"
 - next: **The obvious fix would have reproduced the bug from the other side.** T24 suggested "only
   let a pass that began at page 1 propose a watermark", and that alone leaves any tag over ~4,000
   works with a null watermark *forever* — its first backfill run ends on `Cap`, which may not
