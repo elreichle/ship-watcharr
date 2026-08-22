@@ -86,4 +86,103 @@ public static class Ao3Labels
 
     public static IReadOnlyList<(string Value, string Label)> Warnings { get; } =
         [.. WarningLabels.Select(w => (w.Flag.ToString(), w.Label))];
+
+    // ---- reading AO3's wording back off a blurb ------------------------------------------------
+    //
+    // The inverse of Describe, built from the very same tables, which is the whole reason this
+    // lives here rather than in the parser: a label AO3 renames has to move in one place, or the
+    // reader and the writer of the same words drift apart.
+    //
+    // AO3 has renamed items in this vocabulary before and will again, so every alias it has used is
+    // accepted rather than only the current spelling. Historic pages stay parseable that way, and a
+    // rename costs one line here instead of a silently mis-parsed backfill.
+
+    private static readonly Dictionary<string, Ao3Rating> RatingsByLabel =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Not Rated"] = Ao3Rating.NotRated,
+            ["General Audiences"] = Ao3Rating.GeneralAudiences,
+            ["Teen And Up Audiences"] = Ao3Rating.TeenAndUpAudiences,
+            ["Mature"] = Ao3Rating.Mature,
+            ["Explicit"] = Ao3Rating.Explicit,
+        };
+
+    private static readonly Dictionary<string, Ao3Category> CategoriesByLabel =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["F/F"] = Ao3Category.FF,
+            ["F/M"] = Ao3Category.FM,
+            ["Gen"] = Ao3Category.Gen,
+            ["M/M"] = Ao3Category.MM,
+            ["Multi"] = Ao3Category.Multi,
+            ["Other"] = Ao3Category.Other,
+            ["No category"] = Ao3Category.NoCategory,
+        };
+
+    private static readonly Dictionary<string, Ao3Warning> WarningsByLabel =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["No Archive Warnings Apply"] = Ao3Warning.NoArchiveWarningsApply,
+            ["Creator Chose Not To Use Archive Warnings"] = Ao3Warning.ChooseNotToUseArchiveWarnings,
+
+            // AO3's own older wording, still rendered on some pages.
+            ["Choose Not To Use Archive Warnings"] = Ao3Warning.ChooseNotToUseArchiveWarnings,
+
+            ["Graphic Depictions Of Violence"] = Ao3Warning.GraphicDepictionsOfViolence,
+            ["Major Character Death"] = Ao3Warning.MajorCharacterDeath,
+            ["Rape/Non-Con"] = Ao3Warning.RapeNonCon,
+            ["Underage"] = Ao3Warning.Underage,
+
+            // Renamed in 2024; both spellings mean the same warning.
+            ["Underage Sex"] = Ao3Warning.Underage,
+        };
+
+    /// <summary>
+    /// Reads a rating from AO3's wording. <see cref="Ao3Rating.Unknown"/> for anything unrecognised
+    /// — a rating is a single value with no spare bit to flag, and Unknown already means "the
+    /// scraper never read one", which is exactly true here.
+    /// </summary>
+    public static Ao3Rating ParseRating(string? label) =>
+        label is not null && RatingsByLabel.TryGetValue(label.Trim(), out var rating)
+            ? rating
+            : Ao3Rating.Unknown;
+
+    /// <summary>
+    /// Reads the comma-separated category list AO3 puts in a blurb's category <c>title</c>.
+    /// Unrecognised tokens set <see cref="Ao3Category.Unknown"/> rather than throwing; see the
+    /// remarks on that member.
+    /// </summary>
+    public static Ao3Category ParseCategories(string? title) =>
+        ParseFlags(title, CategoriesByLabel, Ao3Category.None, Ao3Category.Unknown);
+
+    /// <summary>The same, for the warning <c>title</c>. See <see cref="ParseCategories"/>.</summary>
+    public static Ao3Warning ParseWarnings(string? title) =>
+        ParseFlags(title, WarningsByLabel, Ao3Warning.None, Ao3Warning.Unknown);
+
+    private static TFlags ParseFlags<TFlags>(
+        string? title,
+        Dictionary<string, TFlags> byLabel,
+        TFlags none,
+        TFlags unknown)
+        where TFlags : struct, Enum
+    {
+        if (string.IsNullOrWhiteSpace(title)) return none;
+
+        var result = Convert.ToInt64(none);
+
+        // Split on commas only. No AO3 label in either vocabulary contains one, while several
+        // contain characters a more eager split would break on — "Rape/Non-Con" and "F/M" both
+        // carry a slash, and the rating labels contain spaces.
+        const StringSplitOptions splitOptions =
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries;
+
+        foreach (var token in title.Split(',', splitOptions))
+        {
+            result |= byLabel.TryGetValue(token, out var flag)
+                ? Convert.ToInt64(flag)
+                : Convert.ToInt64(unknown);
+        }
+
+        return (TFlags)Enum.ToObject(typeof(TFlags), result);
+    }
 }

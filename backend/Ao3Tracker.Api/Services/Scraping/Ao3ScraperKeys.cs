@@ -10,11 +10,8 @@ namespace Ao3Tracker.Api.Services.Scraping;
 public static class Ao3ScraperKeys
 {
     /// <summary>
-    /// Walks a relationship tag's works index. Nothing registers under this key yet — the AO3
-    /// parser hasn't been written (see README, "Extending the scaffold") — so jobs created for it
-    /// are scheduled, log one "unknown scraper key" warning per due tick, and reschedule. That is
-    /// deliberate: the alternative is inventing a placeholder key that the real scraper would then
-    /// have to migrate away from.
+    /// Walks a relationship tag's works index. Claimed by <see cref="Ao3ShipIndexScraper"/>, which
+    /// implements the incremental and backfill passes; a full sweep is still to come.
     /// </summary>
     public const string ShipIndex = "ao3-ship-index";
 }

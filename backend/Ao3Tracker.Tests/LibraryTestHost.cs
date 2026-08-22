@@ -85,6 +85,13 @@ internal sealed class LibraryTestHost : IDisposable
         services.AddScoped<IShipVerifier, Ao3ShipVerifier>();
         services.AddSingleton(ScrapeWake);
 
+        // The real ingestor and the real ship-index scraper, over the same in-memory database as
+        // everything else here: what these tests are about is which rows a walk leaves behind, and a
+        // stubbed ingestor would assert only that the scraper called something.
+        services.AddSingleton(TimeProvider.System);
+        services.AddScoped<IWorkIngestor, WorkIngestor>();
+        services.AddScoped<Ao3ShipIndexScraper>();
+
         _provider = services.BuildServiceProvider();
 
         using (var setup = _provider.CreateScope())
@@ -136,6 +143,39 @@ internal sealed class LibraryTestHost : IDisposable
             _provider.GetRequiredService<IServiceScopeFactory>(),
             _provider.GetRequiredService<ILogger<ShipVerificationWorker>>())
         .VerifyDueShipsAsync(CancellationToken.None);
+
+    /// <summary>
+    /// One scrape of a ship, in a scope of its own the way the worker runs them. The budget is
+    /// overridable so a test can starve a walk without waiting out five hundred fake requests.
+    /// </summary>
+    public async Task<ScrapeOutcome> ScrapeAsync(
+        int shipId, ScrapeRunMode mode = ScrapeRunMode.Incremental, ScrapeBudget? budget = null)
+    {
+        using var scope = _provider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var ship = await db.Ships.FirstAsync(s => s.Id == shipId);
+        var job = await db.ScrapeJobs.FirstAsync(j => j.ShipId == shipId);
+
+        return await scope.ServiceProvider.GetRequiredService<Ao3ShipIndexScraper>().ExecuteAsync(
+            new ScrapeContext(job, ship, mode, budget ?? new ScrapeBudget(new Ao3HttpClientOptions())));
+    }
+
+    /// <summary>
+    /// Parses a listing and writes it, without a scrape around it. Lets a test exercise what
+    /// re-reading a work does to its rows, which the scraper's own stopping rules would otherwise
+    /// prevent it from ever reaching twice.
+    /// </summary>
+    public async Task<IngestResult> IngestAsync(int shipId, string html)
+    {
+        using var scope = _provider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var ship = await db.Ships.FirstAsync(s => s.Id == shipId);
+        var page = Ao3BlurbParser.ParseListing(html);
+
+        return await scope.ServiceProvider.GetRequiredService<IWorkIngestor>().IngestAsync(ship, page.Works);
+    }
 
     /// <summary>A context of its own, so persistence assertions are real round-trips.</summary>
     public AppDbContext NewContext() => new SqliteAppDbContext(

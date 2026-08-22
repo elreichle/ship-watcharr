@@ -9,10 +9,12 @@ today — but the seams are deliberately per-site rather than AO3-shaped, so a s
 `IAo3Scraper` sibling and a credential store, not a rewrite. See
 [Key seams for future work](#key-seams-for-future-work).
 
-**Status: scaffold.** The scraping pipeline is wired end-to-end — scheduling, budgets, rate
-limiting, persistence — but **no scraper is registered**, so nothing is ingested yet. Writing the
-AO3 parser is what comes next. Tag verification against AO3 is the one part that does make real
-requests today. See [Extending the scaffold](#extending-the-scaffold).
+**Status: early, but it ingests.** The scraping pipeline is wired end-to-end — scheduling, budgets,
+rate limiting, persistence — and the AO3 ship-index scraper now runs under it, so following a tag
+really does fill a library. Two passes exist: an incremental one bounded by the ship's watermark,
+and a resumable backfill into the back catalogue. A full sweep — the only pass allowed to conclude a
+work has *left* a tag — is still to come, so works that lose their relationship tag currently stay
+listed. See [Extending the scaffold](#extending-the-scaffold).
 
 ## What this is for
 
@@ -431,7 +433,13 @@ same double-underscore env var convention EF/ASP.NET Core uses, e.g. `Ao3HttpCli
 
 ## Extending the scaffold
 
-To add a real AO3 scraper:
+`Ao3ShipIndexScraper` is the worked example of everything below — it claims
+`Ao3ScraperKeys.ShipIndex`, and splits into three pieces on purpose: `Ao3BlurbParser` (HTML in,
+records out — no HTTP, no database, no clock), `WorkIngestor` (records in, rows out), and the
+scraper itself, which owns only the walking and the stopping rules. A second source should keep
+that split; it is what makes the parser testable against captured markup.
+
+To add another scraper:
 1. Implement `IAo3Scraper` in `Services/Scraping/`, using `IRateLimitedHttpClient` for all HTTP
    access — never a raw `HttpClient`, or the request goes out without rate limiting or the
    instance's User-Agent.
@@ -443,8 +451,9 @@ To add a real AO3 scraper:
 4. A `ScrapeJob` is created per ship the moment someone follows the tag, with its `ScraperKey`
    set to `Ao3ScraperKeys.ShipIndex` (`"ao3-ship-index"`). Return that same string from your
    scraper's `Key` and every job already sitting in the database starts running — no migration,
-   no re-following. Until then the worker logs one "unknown scraper key" warning per due tick and
-   reschedules. Registered keys are exposed at `GET /api/scrape-jobs/scrapers`.
+   no re-following. A key nothing claims makes the worker log one "unknown scraper key" warning
+   per due tick and reschedule a whole interval out, which looks exactly like a job that is
+   quietly doing nothing. Registered keys are exposed at `GET /api/scrape-jobs/scrapers`.
 
 ## Note on this scaffold's testing
 

@@ -131,8 +131,14 @@ builder.Services
     });
 
 // ---- Scrapers (add new IAo3Scraper implementations here; ScraperRegistry picks them up automatically) ----
-// None registered yet: the placeholder scraper was removed along with the placeholder schema,
-// and the real ship-index scraper arrives with the AO3 parser.
+// Scoped rather than singleton: a scraper holds the DbContext it writes through, and the worker
+// resolves one per job inside that job's own scope.
+// Registered explicitly rather than left to the constructors' defaults, so a test can substitute a
+// fake clock through the same container the app composes.
+builder.Services.AddSingleton(TimeProvider.System);
+
+builder.Services.AddScoped<IWorkIngestor, WorkIngestor>();
+builder.Services.AddScoped<IAo3Scraper, Ao3ShipIndexScraper>();
 builder.Services.AddScoped<ScraperRegistry>();
 
 // ---- Ship verification (confirms a followed tag exists on AO3, and folds synonyms into
