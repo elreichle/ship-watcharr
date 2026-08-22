@@ -100,3 +100,34 @@ build. Not something a task should chase.
   For T4: the per-user credential UI in `AccountSettingsPage.tsx` and the `Ao3CredentialStatus`
   type/client calls are now the *only* remaining per-user login surface — the instance one is fully
   built, so retiring them costs nothing.
+
+## 2026-08-22 — T4 Retire the per-user AO3 credential — done
+
+- did: Deleted the per-user login end to end — `AccountController` (the ao3-credential one),
+  `Ao3Credential`, `Ao3CredentialStore`/`IAo3CredentialStore`, the entity configuration, the
+  `ApplicationUser.Ao3Credential` navigation, the DbSet, the two DTOs, the Account settings section,
+  and the three client calls with their type. `Ao3Session` moved to
+  `IAo3InstanceCredentialStore.cs`, which was the one thing worth keeping out of that file.
+  Migration on both providers dropping `Ao3Credentials`. The account *email* controller is
+  untouched — separate concern, still feeding the operator contact.
+- files: deleted `Api/Controllers/AccountController.cs`, `Api/Models/Ao3Credential.cs`,
+  `Api/Services/Credentials/{Ao3CredentialStore,IAo3CredentialStore}.cs`; edited
+  `Api/Data/{AppDbContext.cs,Configurations/UserDataConfigurations.cs}`,
+  `Api/Models/ApplicationUser.cs`, `Api/Dtos/AccountDtos.cs`, `Api/Program.cs`,
+  `Api/Services/Credentials/{IAo3InstanceCredentialStore,Ao3InstanceCredentialStore}.cs`,
+  `Api/Models/Ao3InstanceCredential.cs`, `Tests/Ao3InstanceCredentialStoreTests.cs`,
+  `frontend/src/pages/AccountSettingsPage.tsx`, `frontend/src/api/{client,types}.ts`; added
+  `Api/Data/Migrations/{Sqlite,Postgres}/*_RetirePerUserAo3Credential.cs`
+- ran: `dotnet test` → 327 passed; `npm run build` + `npm run lint` → clean;
+  `grep -rn "Ao3Credential\b" backend/Ao3Tracker.Api frontend/src` → only `InstanceAo3Credential*`
+  names and migration history. Live check on a throwaway instance with an empty data directory:
+  it booted, applied `20260822182050_RetirePerUserAo3Credential`, and its SQLite file has no
+  `Ao3Credentials` table and does have `Ao3InstanceCredentials`.
+- commit: "Leave exactly one place to enter an AO3 login"
+- next: The carry-over test in `Ao3InstanceCredentialStoreTests` no longer goes through the deleted
+  store — it encrypts under the literal purpose string `"Ao3Tracker.Ao3Credentials.v1"` and reads it
+  back through the instance store, which pins the thing that actually matters: change that string
+  and every credential saved before the migration becomes unreadable.
+  The dev instance on 5110 runs the DLL this loop rebuilds, so its database has now had the table
+  dropped too — that is the intended product change, not an accident, but it is not reversible from
+  here.

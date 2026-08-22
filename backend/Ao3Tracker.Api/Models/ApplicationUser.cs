@@ -6,8 +6,6 @@ public class ApplicationUser : IdentityUser
 {
     public bool IsAdmin { get; set; }
 
-    public Ao3Credential? Ao3Credential { get; set; }
-
     /// <summary>
     /// Ships this user follows. Note there is no ScrapeJobs navigation any more — jobs belong to
     /// a <see cref="Ship"/>, since scraped data is shared across everyone watching it.

@@ -67,7 +67,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   follow it. Paint from Obsidian CSS variables only; no hardcoded colours.
 
 ## T4 — Retire the per-user AO3 credential
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: T3
 - delivers: Exactly one place in the product where an AO3 login can be entered. The per-user
@@ -351,7 +351,8 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   `Normalize(t.Name)` on the **untruncated** blurb name, while `ResolveTagsAsync` keys the
   dictionary by `Truncate(t.Name, 200)`. A tag longer than 200 characters therefore misses its own
   row, is dropped from the work, and — through `Reconcile` — is deleted if it was there before.
-  Truncate once, in one place, and key everything off that.
+  Truncate once, in one place, and key everything off that. `ApplyAuthors` has the same mismatch
+  against `Truncate(…, 100)` — fix both.
 
 ## T22 — An unreadable blurb date must not end an incremental pass
 - status: todo

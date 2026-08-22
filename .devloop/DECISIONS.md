@@ -47,3 +47,20 @@ verified against the source before being written down:
 Worth knowing for the rest of the loop: every review pass sees the whole branch diff, not only the
 task's own hunks, so these findings will keep coming back until T21–T23 are done. Re-reporting them
 is not a signal that a new task introduced them.
+
+## 2026-08-22 — T21, T22 and T23 pulled forward, to run next
+
+They were queued at the end of the list; they now run before T6. Three reasons, in order of weight:
+
+1. All three are live defects in shipped scraper code, and two lose data silently — a page whose
+   ingest fails on a duplicate pseud, and an incremental pass that stops early and then moves its
+   watermark past the works it never read. Every scrape between now and whenever the list reached
+   them would keep paying that.
+2. T23 is a politeness defect specifically: a persistent 500 makes this app re-request one URL
+   until its whole budget is gone. That is the exact behaviour the rate limiting and budgets exist
+   to prevent, and this project does not get to ship it while it advertises the opposite.
+3. Every per-task `/code-review` sees the whole branch diff and re-reports all three, at roughly
+   75k tokens a pass. Fixing them makes the remaining sixteen tasks' reviews cheaper and their
+   findings meaningful.
+
+Nothing depends on them, so nothing else moves.

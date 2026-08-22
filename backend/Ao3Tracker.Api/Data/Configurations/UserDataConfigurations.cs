@@ -4,21 +4,6 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Ao3Tracker.Api.Data.Configurations;
 
-public class Ao3CredentialConfiguration : IEntityTypeConfiguration<Ao3Credential>
-{
-    public void Configure(EntityTypeBuilder<Ao3Credential> entity)
-    {
-        entity.HasKey(c => c.Id);
-
-        entity.HasIndex(c => c.UserId).IsUnique();
-
-        entity.HasOne(c => c.User)
-            .WithOne(u => u.Ao3Credential)
-            .HasForeignKey<Ao3Credential>(c => c.UserId)
-            .OnDelete(DeleteBehavior.Cascade);
-    }
-}
-
 public class UserWorkStateConfiguration : IEntityTypeConfiguration<UserWorkState>
 {
     public void Configure(EntityTypeBuilder<UserWorkState> entity)

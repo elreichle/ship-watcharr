@@ -9,15 +9,14 @@ namespace Ao3Tracker.Api.Services.Credentials;
 /// Encrypts the instance's AO3 credential and session cookie at rest using ASP.NET Core Data
 /// Protection.
 ///
-/// The purpose string is deliberately the same one <see cref="Ao3CredentialStore"/> uses. A
-/// protector is scoped by its purpose, so sharing it is what lets an existing per-user password be
-/// carried over as ciphertext — copied, never decrypted, so no plaintext password is handled and
-/// nobody has to type it again. Changing this string would orphan every credential saved before the
-/// change.
+/// The purpose string is deliberately the one the retired per-user store used. A protector is
+/// scoped by its purpose, so keeping it is what let an existing per-user password be carried over
+/// as ciphertext — copied, never decrypted, so no plaintext password was handled and nobody had to
+/// type it again. Changing this string would orphan every credential saved before the change.
 /// </summary>
 public class Ao3InstanceCredentialStore : IAo3InstanceCredentialStore
 {
-    /// <summary>Shared with <see cref="Ao3CredentialStore"/> on purpose. See the class remarks.</summary>
+    /// <summary>Inherited from the retired per-user store on purpose. See the class remarks.</summary>
     internal const string Purpose = "Ao3Tracker.Ao3Credentials.v1";
 
     private readonly AppDbContext _db;

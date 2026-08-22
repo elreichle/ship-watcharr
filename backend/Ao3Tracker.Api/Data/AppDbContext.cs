@@ -23,7 +23,6 @@ public abstract class AppDbContext : IdentityDbContext<ApplicationUser>
     }
 
     // Per-user
-    public DbSet<Ao3Credential> Ao3Credentials => Set<Ao3Credential>();
     public DbSet<WatchedShip> WatchedShips => Set<WatchedShip>();
     public DbSet<UserWorkState> UserWorkStates => Set<UserWorkState>();
     public DbSet<Download> Downloads => Set<Download>();

@@ -13,13 +13,6 @@ export interface AccountEmail {
   isUsedAsOperatorContact: boolean;
 }
 
-export interface Ao3CredentialStatus {
-  hasCredential: boolean;
-  ao3Username: string | null;
-  hasActiveSession: boolean;
-  sessionExpiresAt: string | null;
-}
-
 /** One ship the signed-in user watches, joined to the shared scrape state behind it. */
 export interface WatchedShip {
   /** The shared ship, not the subscription row — this is what unwatch and the works filter take. */

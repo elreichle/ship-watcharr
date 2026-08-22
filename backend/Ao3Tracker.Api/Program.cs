@@ -105,7 +105,6 @@ builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(storagePaths.KeysDirectory));
 
 // ---- AO3 credential storage ----
-builder.Services.AddScoped<IAo3CredentialStore, Ao3CredentialStore>();
 builder.Services.AddScoped<IAo3InstanceCredentialStore, Ao3InstanceCredentialStore>();
 
 // ---- Rate-limited scraping HTTP client ----

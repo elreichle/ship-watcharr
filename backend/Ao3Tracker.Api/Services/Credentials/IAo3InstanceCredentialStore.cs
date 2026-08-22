@@ -1,12 +1,18 @@
 namespace Ao3Tracker.Api.Services.Credentials;
 
 /// <summary>
+/// A logged-in AO3 session: the cookie, when it was obtained, and when AO3 said it stops working.
+/// A cache of the credential, never a substitute for it — losing one costs a re-login.
+/// </summary>
+public record Ao3Session(string SessionCookie, DateTime EstablishedAt, DateTime? ExpiresAt);
+
+/// <summary>
 /// Reads/writes the one AO3 account this deployment scrapes as, and its cached session.
 /// Implementations own encryption at rest; callers never see ciphertext, and the raw password is
 /// never exposed again once stored.
 ///
-/// The same shape as <see cref="IAo3CredentialStore"/> minus the user id — which is the whole
-/// point. See <see cref="Models.Ao3InstanceCredential"/> for why the login is instance-level.
+/// The shape the retired per-user store had, minus the user id — which is the whole point. See
+/// <see cref="Models.Ao3InstanceCredential"/> for why the login is instance-level.
 /// </summary>
 public interface IAo3InstanceCredentialStore
 {

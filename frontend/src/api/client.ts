@@ -1,6 +1,5 @@
 import type {
   AccountEmail,
-  Ao3CredentialStatus,
   Ao3TagType,
   CurrentUser,
   DatabaseStatus,
@@ -111,16 +110,6 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ email: email?.trim() || null }),
     }),
-
-  getAo3Credential: () => request<Ao3CredentialStatus>('/account/ao3-credential'),
-
-  setAo3Credential: (ao3Username: string, ao3Password: string) =>
-    request<void>('/account/ao3-credential', {
-      method: 'PUT',
-      body: JSON.stringify({ ao3Username, ao3Password }),
-    }),
-
-  removeAo3Credential: () => request<void>('/account/ao3-credential', { method: 'DELETE' }),
 
   getWatchedShips: () => request<WatchedShipsResponse>('/ships', undefined, hasArray('ships')),
 

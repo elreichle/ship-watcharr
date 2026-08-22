@@ -17,47 +17,6 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
 
-            modelBuilder.Entity("Ao3Tracker.Api.Models.Ao3Credential", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Ao3Username")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("EncryptedPassword")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("EncryptedSessionCookie")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("SessionEstablishedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("SessionExpiresAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId")
-                        .IsUnique();
-
-                    b.ToTable("Ao3Credentials");
-                });
-
             modelBuilder.Entity("Ao3Tracker.Api.Models.Ao3InstanceCredential", b =>
                 {
                     b.Property<int>("Id")
@@ -1106,17 +1065,6 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
-            modelBuilder.Entity("Ao3Tracker.Api.Models.Ao3Credential", b =>
-                {
-                    b.HasOne("Ao3Tracker.Api.Models.ApplicationUser", "User")
-                        .WithOne("Ao3Credential")
-                        .HasForeignKey("Ao3Tracker.Api.Models.Ao3Credential", "UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("Ao3Tracker.Api.Models.Download", b =>
                 {
                     b.HasOne("Ao3Tracker.Api.Models.ApplicationUser", "User")
@@ -1419,8 +1367,6 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
 
             modelBuilder.Entity("Ao3Tracker.Api.Models.ApplicationUser", b =>
                 {
-                    b.Navigation("Ao3Credential");
-
                     b.Navigation("Downloads");
 
                     b.Navigation("SavedWorkFilters");
