@@ -29,18 +29,18 @@ public class ShipsController : ControllerBase
 
     private readonly AppDbContext _db;
     private readonly ScraperRegistry _scraperRegistry;
-    private readonly Ao3UserAgentProvider _userAgents;
+    private readonly ScrapingGate _gate;
     private readonly ScrapeWakeSignal _scrapeWake;
 
     public ShipsController(
         AppDbContext db,
         ScraperRegistry scraperRegistry,
-        Ao3UserAgentProvider userAgents,
+        ScrapingGate gate,
         ScrapeWakeSignal scrapeWake)
     {
         _db = db;
         _scraperRegistry = scraperRegistry;
-        _userAgents = userAgents;
+        _gate = gate;
         _scrapeWake = scrapeWake;
     }
 
@@ -52,11 +52,12 @@ public class ShipsController : ControllerBase
     {
         var ships = await LoadWatchedShipsAsync(null, ct);
 
-        // Asked of the same provider the verification worker consults, so the page cannot claim
-        // checks are running while the worker is sitting them out.
-        var (verificationEnabled, _, _) = await _userAgents.TryGetUserAgentAsync(ct);
+        // Asked of the same gate the workers consult, so the page cannot claim checks are running
+        // while the worker is sitting them out — and, for the login, cannot leave a user staring at
+        // an empty library with nothing on screen saying why.
+        var gate = await _gate.EvaluateAsync(ct);
 
-        return Ok(new WatchedShipsDto(ships, verificationEnabled));
+        return Ok(new WatchedShipsDto(ships, gate.IdentityConfigured, gate.Ao3LoginConfigured));
     }
 
     /// <summary>

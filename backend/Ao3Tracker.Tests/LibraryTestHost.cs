@@ -260,7 +260,7 @@ internal sealed class LibraryTestHost : IDisposable
     public ShipsController Ships(ApplicationUser user) => Build(new ShipsController(
         _request.ServiceProvider.GetRequiredService<AppDbContext>(),
         _request.ServiceProvider.GetRequiredService<ScraperRegistry>(),
-        _request.ServiceProvider.GetRequiredService<Ao3UserAgentProvider>(),
+        _request.ServiceProvider.GetRequiredService<ScrapingGate>(),
         _request.ServiceProvider.GetRequiredService<ScrapeWakeSignal>()), user);
 
     public WorksController Works(ApplicationUser user) => Build(new WorksController(

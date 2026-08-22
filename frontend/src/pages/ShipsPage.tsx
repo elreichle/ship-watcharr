@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
 import type { WatchedShip } from '../api/types';
 
 const BACKFILL_LABELS: Record<WatchedShip['backfillState'], string> = {
@@ -41,8 +42,12 @@ function describeStatus(ship: WatchedShip, verificationEnabled: boolean): Status
 }
 
 export function ShipsPage() {
+  const { user } = useAuth();
   const [ships, setShips] = useState<WatchedShip[] | null>(null);
   const [verificationEnabled, setVerificationEnabled] = useState(true);
+  // Assumed present until the server says otherwise, so a slow load never flashes a banner saying
+  // scraping is broken at someone whose instance is fine.
+  const [ao3LoginConfigured, setAo3LoginConfigured] = useState(true);
   const [tagName, setTagName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -52,6 +57,7 @@ export function ShipsPage() {
     api.getWatchedShips().then((response) => {
       setShips(response.ships);
       setVerificationEnabled(response.verificationEnabled);
+      setAo3LoginConfigured(response.ao3LoginConfigured);
     });
 
   useEffect(() => {
@@ -141,6 +147,21 @@ export function ShipsPage() {
         <p className="hint">You aren’t following any ships yet.</p>
       ) : (
         <>
+          {/* Every user, not only admins: whoever is looking at an empty library is owed the
+              reason, and a non-admin is told who can fix it rather than shown a form they cannot
+              use. Said as a missing *login* — the session cookie is a cache, and its absence
+              means nothing. */}
+          {!ao3LoginConfigured && (
+            <p className="callout callout-error">
+              <strong>Nothing is being fetched.</strong> The ships you follow are scheduled, but
+              this instance has no AO3 login saved, so every scrape is held. Your library stays
+              empty until one is saved.{' '}
+              {user?.isAdmin
+                ? 'Add it under System → Scraping.'
+                : 'Ask an admin of this instance to add one under System → Scraping.'}
+            </p>
+          )}
+
           {!verificationEnabled && (
             <p className="callout callout-warning">
               Tags can’t be checked right now: this instance has no operator contact, so it isn’t

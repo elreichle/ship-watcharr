@@ -67,3 +67,36 @@ build. Not something a task should chase.
   and an `AdminScraping(user)` controller builder over a real `IPersistedSettingsStore`.
   `AdminScrapingPage` deliberately keys "what AO3 currently sees" off `identityConfigured` rather
   than `scrapingEnabled` — a held instance still has a User-Agent.
+
+## 2026-08-22 — T3 AO3 login in the UI, and a loud banner when it is missing — done
+
+- did: System → Scraping grew an "AO3 login" section (username + password form, stored-account and
+  cached-session status, Replace/Remove), and a red callout at the top of that page when the login
+  is the only thing missing. The Ships page shows every user a red banner when
+  `ao3LoginConfigured` is false: their ships are scheduled, nothing is being fetched, and their
+  library stays empty until a login exists — admins are told to add it under System → Scraping,
+  everyone else to ask an admin. Worded as a missing *login*, never a missing session.
+  To feed a banner that non-admins must see, `GET /api/ships` now carries `ao3LoginConfigured`
+  beside the existing `verificationEnabled`; both come from `ScrapingGate`, so the Ships page and
+  the admin page cannot disagree with the worker. Added `.callout-error` (Obsidian
+  `--text-error`), no hardcoded colours anywhere.
+- files: `Api/Controllers/ShipsController.cs`, `Api/Dtos/ShipDtos.cs`,
+  `frontend/src/pages/AdminScrapingPage.tsx`, `frontend/src/pages/ShipsPage.tsx`,
+  `frontend/src/api/{client,types}.ts`, `frontend/src/index.css`,
+  `Tests/ShipsControllerTests.cs`, `Tests/LibraryTestHost.cs`
+- ran: `npm run build` + `npm run lint` → clean; `dotnet test` → 327 passed. Live check against a
+  throwaway instance (free port, scratch `Storage__DataDirectory`): register admin → `/api/ships`
+  reports `ao3LoginConfigured: false` → save login → `true` → delete → `false` again; a second,
+  non-admin account sees the same flag and gets 403 from the credential endpoint; and the running
+  worker logged "Scraping enabled…" on its next poll after the save, with no restart — the
+  no-restart claim confirmed live rather than only in a test.
+- commit: "Let an admin enter the AO3 login, and say loudly when there isn't one"
+- next: **Do not stop a throwaway instance with `pkill -f Ao3Tracker.Api.dll`** — that pattern
+  matches the systemd dev instance on 5110 (which runs the built DLL) and *not* a `dotnet run`
+  instance (which is the apphost `…/net10.0/Ao3Tracker.Api`). I killed Emma's dev instance that way;
+  systemd auto-restarted it within seconds, but capture `$!` and kill by PID instead. Also worth
+  knowing: `dotnet build`/`dotnet test` in this loop rewrite the DLL that service runs, so it picks
+  up loop changes whenever it restarts.
+  For T4: the per-user credential UI in `AccountSettingsPage.tsx` and the `Ao3CredentialStatus`
+  type/client calls are now the *only* remaining per-user login surface — the instance one is fully
+  built, so retiring them costs nothing.

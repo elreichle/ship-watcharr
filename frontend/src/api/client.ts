@@ -5,6 +5,7 @@ import type {
   CurrentUser,
   DatabaseStatus,
   FilterVocabulary,
+  InstanceAo3Credential,
   PagedResult,
   SavedFilter,
   SavedFilterAuthor,
@@ -192,6 +193,18 @@ export const api = {
     request<ScrapeRun[]>(`/scrape-jobs/${jobId}/runs`, undefined, Array.isArray),
 
   getScrapingIdentity: () => request<ScrapingIdentity>('/admin/scraping/identity'),
+
+  getInstanceAo3Credential: () =>
+    request<InstanceAo3Credential>('/admin/scraping/ao3-credential'),
+
+  setInstanceAo3Credential: (ao3Username: string, ao3Password: string) =>
+    request<InstanceAo3Credential>('/admin/scraping/ao3-credential', {
+      method: 'PUT',
+      body: JSON.stringify({ ao3Username, ao3Password }),
+    }),
+
+  removeInstanceAo3Credential: () =>
+    request<InstanceAo3Credential>('/admin/scraping/ao3-credential', { method: 'DELETE' }),
 
   updateScrapingIdentity: (operatorContact: string | null) =>
     request<ScrapingIdentity>('/admin/scraping/identity', {

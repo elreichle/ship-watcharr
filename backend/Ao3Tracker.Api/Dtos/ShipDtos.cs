@@ -43,7 +43,19 @@ public record WatchedShipDto(
 /// setting that fixes it is admin-only — so the flag is reported to everyone even though the
 /// underlying configuration is not.
 /// </param>
-public record WatchedShipsDto(IReadOnlyList<WatchedShipDto> Ships, bool VerificationEnabled);
+/// <param name="VerificationEnabled">
+/// Whether this instance may check tags against AO3 at all — the operator-contact gate. Tag
+/// verification needs nothing else.
+/// </param>
+/// <param name="Ao3LoginConfigured">
+/// Whether the deployment's AO3 login is stored. Readable by every user, not just admins: a
+/// non-admin whose library is empty is owed the reason, and this is the reason. Scraping is held
+/// while it is false — see <see cref="Services.Scraping.ScrapingGate"/>.
+/// </param>
+public record WatchedShipsDto(
+    IReadOnlyList<WatchedShipDto> Ships,
+    bool VerificationEnabled,
+    bool Ao3LoginConfigured);
 
 /// <summary>
 /// A tag to start watching, exactly as AO3 renders it — <c>Clarke Griffin/Lexa</c>.

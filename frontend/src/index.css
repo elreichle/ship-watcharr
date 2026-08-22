@@ -753,6 +753,12 @@
     border-left: 3px solid var(--text-warning);
   }
 
+  /* For a callout that states why something is not working at all, rather than a caution about
+     something that is. */
+  .callout-error {
+    border-left: 3px solid var(--text-error);
+  }
+
   /* Shown in place of whatever crashed. Padded like a page rather than a banner, because when the
      app-level boundary trips this is the only thing on screen. */
   .error-boundary {

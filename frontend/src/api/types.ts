@@ -52,6 +52,25 @@ export interface WatchedShipsResponse {
    * reason every ship would otherwise sit on "Checking…" with no explanation.
    */
   verificationEnabled: boolean;
+  /**
+   * False when no AO3 login is stored for this deployment. Scraping is held until one is, so this
+   * is the reason a library stays empty while every ship looks scheduled. Readable by every user,
+   * because every user can see the empty library.
+   */
+  ao3LoginConfigured: boolean;
+}
+
+/**
+ * The one AO3 login this deployment scrapes as. Status only — the password and the session cookie
+ * never leave the server, and no endpoint reads them back.
+ */
+export interface InstanceAo3Credential {
+  hasCredential: boolean;
+  ao3Username: string | null;
+  /** Whether a session cookie happens to be cached. It is a cache of the password, nothing more. */
+  hasCachedSession: boolean;
+  sessionEstablishedAt: string | null;
+  sessionExpiresAt: string | null;
 }
 
 /** One page of a larger result set, plus what a pager needs to render itself. */

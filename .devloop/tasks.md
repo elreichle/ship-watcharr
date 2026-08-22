@@ -51,7 +51,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   `GET /api/admin/scraping/identity` (or a sibling) so T3 can render it without guessing.
 
 ## T3 — AO3 login in the UI, and a loud banner when it is missing
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: T2
 - delivers: An admin can enter the AO3 login under System → Scraping, and every user sees a red

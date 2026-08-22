@@ -389,6 +389,20 @@ public class ShipsControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task Reports_whether_an_ao3_login_is_configured()
+    {
+        // What the Ships page's held-scraping banner reads. Every user gets it, admin or not: the
+        // empty library is visible to all of them, so the reason has to be too.
+        var emma = _host.SeedUser();
+
+        Assert.False(Envelope(await _host.Ships(emma).GetWatchedShips(default)).Ao3LoginConfigured);
+
+        await _host.SaveAo3LoginAsync();
+
+        Assert.True(Envelope(await _host.Ships(emma).GetWatchedShips(default)).Ao3LoginConfigured);
+    }
+
+    [Fact]
     public async Task Reports_an_available_scraper_once_one_is_registered()
     {
         using var host = new LibraryTestHost(new StubScraper(Ao3ScraperKeys.ShipIndex));
