@@ -191,3 +191,44 @@ matching nothing looks exactly like a pass.
 
 Sequenced fourth rather than last: the audit reads best while the T24–T27 fixes are fresh, and it
 should be auditing the rules as repaired, not as found.
+
+## 2026-08-22 — T24: which run may propose a watermark, and a rule that is wrong in both directions
+
+**Decided: a run may propose an incremental watermark only if it read page 1, and no new column
+carries a backfill's newest-seen across its resumes.** The listing is `revised_at desc`, so page 1
+is the only place the newest work in the tag can be observed. That is every incremental pass and the
+*first* run of a backfill; a backfill resuming at its cursor starts partway down the listing and its
+newest reading is an old date. The rejected alternative was a `BackfillMaxUpdatedAtSeen` column
+alongside the existing floor, written on every backfill run and read at completion. It was rejected
+because the run that reads page 1 already holds exactly the reading that column would store, and no
+resumed run can improve on it — schema for a value already known.
+
+**And: a backfill that read page 1 may leave a watermark however it stopped, unlike an incremental
+pass, which still needs a `Watermark` or `LastPage` stop.** The asymmetry is not a shortcut. An
+incremental pass that stops early leaves works between its watermark and the newest thing it read
+unvisited, and nothing looks that far back again. A backfill from page 1 is not exposed to that:
+nothing it failed to reach is newer than what it read, and its cursor holds the skipped pages for a
+later run.
+
+**The finding worth carrying forward: a rule that refuses to conclude can cost exactly what a rule
+that concludes too much costs.** Gating the watermark on "started at page 1" *alone* — the obvious
+reading of T24's `delivers` line — would have left every large tag's watermark null forever, because
+any tag needing several backfill runs ends its first run on the page cap, which is not a stop that
+may propose. A null watermark makes the incremental pass fetch the whole catalogue, walk to the
+200-page ceiling, stop on `Cap`, and do it again next tick: the same runaway T24 was filed to
+prevent, reached from the other side. Eight of the ten pre-loop defects found so far were filed as
+*a pass concluding something it had not seen enough to conclude*; this is the first evidence the
+class is two-sided.
+
+**T28 inherits that directly.** Its table needs a column for what happens when a rule declines to
+conclude — what stays null, and what the next pass does with the null. A row that records only what
+a rule may conclude would have rated the null-watermark fix as correct.
+
+**Recorded as a gap: T24 shipped without its `/code-review` pass.** The review agent terminated on
+the account's monthly spend limit (resets 3:10pm America/Chicago) after reading the diff and before
+reporting anything. The task still meets the loop's bar for `done` — its own verification, the full
+suite and the frontend build and lint were all run and read green in the iteration — but every other
+task in this loop has had a review over its diff, and the four passes over this particular file have
+found ten defects between them. The diff is three tests, a threaded parameter and a rewritten comment
+block in `Ao3ShipIndexScraper.FinishAsync`; it is worth a review over the commit when limits reset,
+and the next iteration should not assume it happened.

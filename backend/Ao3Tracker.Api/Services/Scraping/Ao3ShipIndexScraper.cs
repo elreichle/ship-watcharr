@@ -78,8 +78,8 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
         var startPage = context.Mode == ScrapeRunMode.Backfill ? Math.Max(1, ship.BackfillNextPage ?? 1) : 1;
 
-        // Captured before the walk. Advancing the watermark to the newest work seen is only safe on
-        // a run that reached its natural end — see CompleteIncremental.
+        // Captured before the walk, because the walk may move it. What is allowed to move it, and
+        // what a given run has seen enough of the listing to conclude, is decided in FinishAsync.
         var watermark = ship.IncrementalWatermarkUtc;
 
         var page = startPage;
@@ -330,7 +330,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             page++;
         }
 
-        await FinishAsync(context, ship, stopReason, newestSeen, sawRestricted, ct);
+        await FinishAsync(context, ship, stopReason, firstPage, newestSeen, sawRestricted, ct);
 
         return new ScrapeOutcome(
             pagesFetched, budget.RequestsMade, worksSeen, worksAdded, worksUpdated,
@@ -424,6 +424,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         ScrapeContext context,
         Ship ship,
         string stopReason,
+        int? firstPage,
         DateTime? newestSeen,
         bool sawRestricted,
         CancellationToken ct)
@@ -442,18 +443,42 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 ship.Id, ship.CanonicalTagName, ship.BackfillNextPage);
         }
 
-        // Advanced only when the pass ended for a reason that means "there was nothing more to
-        // read", never when it ran out of budget or hit an error. A watermark moved past unreached
-        // works would skip them permanently — no later incremental pass looks that far back again.
+        // Two conditions, and both are about what the run was in a position to *know*.
         //
-        // A completed backfill counts, and must: it starts at page 1 and so has seen the newest work
-        // in the tag, and leaving the watermark null afterwards would make the very next incremental
-        // pass walk the entire catalogue again. A backfill that merely *resumed* is covered by the
-        // same rule from the other side — it can only ever propose an older timestamp than the truth,
-        // and the comparison below refuses to move the watermark backwards.
-        var reachedTheEnd = stopReason is ScrapeStopReason.Watermark or ScrapeStopReason.LastPage;
+        // First: it must have read page 1. The listing is revised_at desc, so page 1 is where the
+        // newest work in the tag is, and only a run that read it can say what the newest revision
+        // time is. That is every incremental pass, and the *first* run of a backfill only — a
+        // backfill resuming at its cursor starts at page 57 and reads some of the oldest works in
+        // the tag, so its newest reading is an ancient date. Made the watermark, it would send
+        // every later incremental pass asking for everything revised since then: most of the tag,
+        // on every tick, walking to the page cap and stopping for a reason that does not let the
+        // watermark move, so the next pass does it again. Forever.
+        //
+        // (The alternative was a new column carrying a backfill's newest-seen across its resumes.
+        // Rejected as schema for something already known: the run that reads page 1 has exactly the
+        // reading that column would hold, and the resumed runs have nothing to add to it.)
+        var readTheNewestEnd = firstPage == 1;
 
-        if (reachedTheEnd && newestSeen is { } newest
+        // Second: where the run stopped — which matters for an incremental pass and not for a
+        // backfill.
+        //
+        // An incremental pass that stopped early leaves works between its watermark and the newest
+        // thing it read unvisited, and nothing looks that far back again, so only a stop meaning
+        // "there was nothing more to read" may move it — never a budget stop or an error.
+        //
+        // A backfill from page 1 is not exposed to that: nothing it failed to reach is newer than
+        // what it read, and the pages it skipped are held by its cursor for a later run. It may
+        // therefore leave a watermark however it stopped, and must — any tag big enough to need
+        // several runs ends its first one on the cap, and if that left no watermark the resumed
+        // runs may not set one either, so the ship would reach Complete with none at all.
+        var mayPropose = readTheNewestEnd
+            && (context.Mode == ScrapeRunMode.Backfill
+                || stopReason is ScrapeStopReason.Watermark or ScrapeStopReason.LastPage);
+
+        // Never backwards. Nothing above should now be able to propose an older timestamp than the
+        // one on record, but a watermark that moved back would re-read everything between the two
+        // on the next pass, so the guard stays as the cheap backstop for a rule proved wrong later.
+        if (mayPropose && newestSeen is { } newest
             && (ship.IncrementalWatermarkUtc is null || newest > ship.IncrementalWatermarkUtc))
         {
             ship.IncrementalWatermarkUtc = newest;

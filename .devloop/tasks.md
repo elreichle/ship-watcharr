@@ -10,17 +10,17 @@ a dependency cannot be met — needs a human).
 Tasks are **not** taken in file order. Take the first `todo` listed here whose `blocked-by` are all
 `done`; only when this list is exhausted does file order apply.
 
-1. T24 — a resumed backfill setting the watermark from its oldest pages
-2. T27 — one scope per job, and a failed save that escapes the `finally`
-3. T25, T26 — the remaining pre-loop scraper defects
-4. T28 — the audit of the walking and stopping rules, while that code is still fresh
-5. then file order, from T6
+1. T27 — one scope per job, and a failed save that escapes the `finally`
+2. T25, T26 — the remaining pre-loop scraper defects
+3. T28 — the audit of the walking and stopping rules, while that code is still fresh
+4. then file order, from T6
 
-Why this list exists at all: T24 and T27 both make this app re-request AO3 in a loop, which is the
-one thing its politeness rules exist to prevent, and both are live right now. The reasoning is in
-`DECISIONS.md` under the T23 review. Everything above was found by review of pre-loop scraper code,
-so none of it appears where the original plan put it — without this list, file order would send an
-iteration to T6 and leave the archive being hammered.
+Why this list exists at all: T27 makes this app re-request AO3 in a loop, which is the one thing its
+politeness rules exist to prevent, and it is live right now. T24, the same shape and the more
+expensive of the two, is done. The reasoning is in `DECISIONS.md` under the T23 review. Everything
+above was found by review of pre-loop scraper code, so none of it appears where the original plan
+put it — without this list, file order would send an iteration to T6 and leave the archive being
+hammered.
 
 Delete an entry once its task is `done`. When this section is empty, delete the section.
 
@@ -412,7 +412,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   anything new. Test it against the fake HTTP client answering 500 for one page.
 
 ## T24 — A resumed backfill must not set the watermark from its oldest pages
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: Only a pass that actually saw the newest end of a listing may propose an incremental

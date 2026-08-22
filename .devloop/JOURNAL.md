@@ -230,3 +230,37 @@ build. Not something a task should chase.
   Note the verification filters for the new tasks: `~Watermark`, `~Backfill`, `~Author`,
   `~ScrapeWorker`. T22 learned the hard way that a filter matching zero tests looks like a pass —
   check each one bites before trusting it.
+
+## 2026-08-22 — T24 A resumed backfill must not set the watermark from its oldest pages — done
+
+- did: `FinishAsync` now decides the watermark from two conditions instead of one. The run must have
+  read page 1 — the newest end of a `revised_at desc` listing, and the only place the tag's newest
+  revision time can be observed — which `firstPage`, now threaded in from the walk, reports. On top
+  of that, an incremental pass still needs a `Watermark` or `LastPage` stop, while a backfill that
+  read page 1 may leave a watermark however it stopped. The "never backwards" comparison stays as a
+  backstop, with a comment that no longer claims to be the thing protecting resumed backfills.
+  The task's premise was right and its suggested fix was half of one — see below.
+- files: `Api/Services/Scraping/Ao3ShipIndexScraper.cs`, `Tests/Ao3ShipIndexScraperTests.cs`
+- ran: `dotnet test --filter FullyQualifiedName~Watermark` → 7 passed (4 before this task);
+  `dotnet test` → 345 passed; `npm run build` + `npm run lint` → clean, the two pre-existing
+  fast-refresh warnings only. All three new tests were confirmed red against the unpatched scraper
+  first: the resumed backfill really did write Jan 3 as the watermark.
+- commit: 7b4a981 "Only let a pass that saw the newest works set the watermark"
+- next: **The obvious fix would have reproduced the bug from the other side.** T24 suggested "only
+  let a pass that began at page 1 propose a watermark", and that alone leaves any tag over ~4,000
+  works with a null watermark *forever* — its first backfill run ends on `Cap`, which may not
+  propose, and every later run starts above page 1, which also may not. A null watermark makes the
+  incremental pass ask for the whole catalogue, hit the 200-page ceiling, stop on `Cap`, and repeat
+  next tick. Hence the backfill relaxation, which is the half of the fix that is not in the task
+  notes. Generalised in `DECISIONS.md`: a rule that refuses to conclude can cost what a rule that
+  concludes too much costs, and **T28's audit table needs a column for what stays null**, or it will
+  tabulate one direction and call the file clean.
+  **T24 had no `/code-review` pass** — the agent died on the account's monthly spend limit (resets
+  3:10pm America/Chicago) before reporting. Every other task in this loop got one, and this file has
+  yielded ten defects across four review passes, so the commit is worth reviewing when limits allow.
+  I read the diff myself; that is not the same thing.
+  Filters checked to bite before trusting them, per T22's lesson: `~Watermark` matches 7, and T25's
+  `~Backfill` matches 6. T27's `~ScrapeWorker` and T26's `~Author` are still unchecked.
+  `ResumeBackfillAtAsync(shipId, page)` is new in the test file — it plants the ship state a capped
+  run leaves behind, which is the only way to test a resumed run's conclusions without paying for a
+  first run that would itself set the watermark.

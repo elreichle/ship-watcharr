@@ -394,6 +394,71 @@ public class Ao3ShipIndexScraperTests : IDisposable
         Assert.Equal(ShipBackfillState.Complete, (await ReloadAsync(shipId)).BackfillState);
     }
 
+    // ---- what a resumed backfill may conclude about the watermark -------------------------------------
+
+    [Fact]
+    public async Task Refuses_a_watermark_from_a_backfill_resumed_below_the_newest_page()
+    {
+        // The listing is revised_at desc, so a run resuming at page 2 has read only the older end
+        // of it. Its newest reading is the revision time of some fairly old work, and taking that
+        // for the watermark would send every later incremental pass asking for everything revised
+        // since then — most of the tag, on every tick.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1, updatedAt: Jan(9))], nextPage: true),
+            Page(2, [Blurb(2, updatedAt: Jan(3))], nextPage: true),
+            Page(3, [Blurb(3, updatedAt: Jan(2))]));
+
+        var shipId = await FollowAsync();
+        await ResumeBackfillAtAsync(shipId, page: 2);
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(2, outcome.FirstPage);
+        Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
+        Assert.Null((await ReloadAsync(shipId)).IncrementalWatermarkUtc);
+    }
+
+    [Fact]
+    public async Task Sets_a_watermark_from_page_1_even_when_the_run_stops_on_the_cap()
+    {
+        // The other half of the rule, and the reason it cannot simply be "only a completed pass
+        // may propose one". Any tag big enough to need several backfill runs ends its first run on
+        // the cap; if that run left no watermark, none of the resumed runs may set one either, and
+        // the ship would reach Complete with a null watermark — which makes the first incremental
+        // pass walk the whole catalogue and stop on the cap, forever.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1, updatedAt: Jan(9))], nextPage: true),
+            Page(2, [Blurb(2, updatedAt: Jan(3))]));
+
+        var shipId = await FollowAsync();
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill, OneRequest());
+
+        Assert.Equal(ScrapeStopReason.Cap, outcome.StopReason);
+        Assert.Equal(Jan(9), (await ReloadAsync(shipId)).IncrementalWatermarkUtc);
+    }
+
+    [Fact]
+    public async Task Leaves_a_multi_run_backfill_with_the_watermark_its_first_page_proposed()
+    {
+        // End to end over the two rules above: the watermark a big tag ends up with is the newest
+        // work on page 1, set by the first run, and the runs that finish the back catalogue later
+        // neither lower it nor clear it.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1, updatedAt: Jan(9))], nextPage: true),
+            Page(2, [Blurb(2, updatedAt: Jan(3))], nextPage: true),
+            Page(3, [Blurb(3, updatedAt: Jan(2))]));
+
+        var shipId = await FollowAsync();
+
+        await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill, OneRequest());
+        await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(ShipBackfillState.Complete, ship.BackfillState);
+        Assert.Equal(Jan(9), ship.IncrementalWatermarkUtc);
+    }
+
     // ---- re-reading a work already known ---------------------------------------------------------------
 
     [Fact]
@@ -630,6 +695,20 @@ public class Ao3ShipIndexScraperTests : IDisposable
     {
         await using var db = _host.NewContext();
         (await db.Ships.SingleAsync(s => s.Id == shipId)).IncrementalWatermarkUtc = watermark;
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Puts a ship where a previous run's cap would have left it: backfill under way, cursor part
+    /// of the way into the listing. The scraper reads this cursor to pick its starting page.
+    /// </summary>
+    private async Task ResumeBackfillAtAsync(int shipId, int page)
+    {
+        await using var db = _host.NewContext();
+        var ship = await db.Ships.SingleAsync(s => s.Id == shipId);
+        ship.BackfillState = ShipBackfillState.InProgress;
+        ship.BackfillStartedAt = Jan(1);
+        ship.BackfillNextPage = page;
         await db.SaveChangesAsync();
     }
 
