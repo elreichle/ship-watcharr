@@ -10,7 +10,7 @@ a dependency cannot be met — needs a human).
 Tasks are **not** taken in file order. Take the first `todo` listed here whose `blocked-by` are all
 `done`; only when this list is exhausted does file order apply.
 
-1. T42 — the incremental pass that ends in `Error` on page 2 and freezes its watermark
+1. T43 — the 404 that concludes `Complete` from evidence the retreat beside it refuses
 2. T28 — the audit of the walking and stopping rules, while that code is still fresh
 3. then file order, from T6
 
@@ -21,10 +21,13 @@ re-request AO3 in a loop, the one thing its politeness rules exist to prevent �
 T26 the pre-loop scraper defects this loop inherited are closed. What is left in this list is the
 loop's own work: one stopping rule, and the audit.
 
-T30 is done, so the audit's `blocked-by` is down to T42 — a rule about what a stop may conclude,
-which is exactly what T28 tabulates, and the third such rule a review has produced (T34, T37, T42).
-That is the argument for the audit stated three times over. T31, T32, T33, T35, T36, T38, T40 and
-T41 are real but slow-acting or latent and sit in file order, after the planned work.
+T42 is done and produced T43 in its review — a backfill concluding `Complete` from exactly the
+evidence the retreat two hundred lines below refuses to conclude from, reachable from one transient
+5xx. It leads because it is the strongest wrong conclusion in the system and it is reachable today.
+The audit's `blocked-by` is now T43 alone; every entry on it has been a rule about what a stop may
+conclude (T34, T37, T42, T43), which is the argument for the audit stated four times over. T31, T32,
+T33, T35, T36, T38, T40, T41 and T44 are real but slow-acting or latent and sit in file order, after
+the planned work.
 
 Delete an entry once its task is `done`. When this section is empty, delete the section.
 
@@ -266,7 +269,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 ## T15 — The full-sweep pass
 - status: todo
 - attempts: 0
-- blocked-by: T28, T29, T30, T38, T42
+- blocked-by: T28, T29, T30, T38, T43
 - delivers: A third pass over a ship's index that walks every page and, only afterwards, marks the
   `ShipWork` rows it did not see as having left the tag — so the library stops drifting from AO3.
 - verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~FullSweep`
@@ -524,7 +527,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 ## T28 — Audit the scraper's walking and stopping rules
 - status: todo
 - attempts: 0
-- blocked-by: T42
+- blocked-by: T43
 - delivers: `.devloop/scraper-audit.md` — one table row per rule that decides where a pass starts,
   where it stops, what it may conclude from stopping, and what it writes back to the ship. Each row
   names the rule, the code that implements it, which passes it applies to, what it concludes, and
@@ -822,7 +825,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   exactly that moment.
 
 ## T42 — An incremental pass must not stop with `Error` on a page it was told to expect
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A filtered incremental pass whose second page comes back empty stops in a way that lets
@@ -850,3 +853,53 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   **not** wait on it — the defect here is in the `page` condition, not in `HasListing`, and is
   demonstrable against the existing fake HTTP client. Do not let the fix depend on the unverified
   premise T39 exists to settle.
+
+## T43 — A 404 must not conclude what the retreat beside it refuses to conclude
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A backfill reaches `ShipBackfillState.Complete` on the same evidence whatever the
+  cursor's position, so a transient failure mid-retreat cannot retire a ship with its back
+  catalogue unread.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ao3ShipIndexScraper`
+  — 64 tests today, and the filter that covers this file.
+- notes: Found by `/code-review high` during T42, in T37's committed code, and demonstrated by the
+  reviewer against a running server rather than argued from the source. The 404 branch's first
+  guard is `lastPage == page - 1` (~line 209) → `LastPage` → `Complete`. That is the *same*
+  evidence `CursorMayBeStale` refuses to conclude from — page N-1 read, offering a Next link, page
+  N absent — and the two disagree only on whether this run happens to have read page N-1 itself.
+  `Leaves_a_stale_looking_cursor_alone_when_the_page_before_it_still_offers_a_next_link` pins
+  cursor=3 over pages 1(next)/2(next)/3→404 as `Error` + `InProgress` + stalled=1; the same server
+  with cursor=2 gives `LastPage` + `Complete`.
+  The route in is a retreat cut short, reproduced in two runs over pages 1(next)/2(next)/3→404:
+  run 1 with cursor 3 and a transient 500 on page 2 retreats and leaves `BackfillNextPage = 2`;
+  run 2 is healthy, reads page 2, asks page 3, gets the 404, and concludes `Complete` with page 3
+  onward never read. One transient 5xx during a retreat is the whole cost of entry.
+  The question to settle is the one T37 settled for the empty-200 branch and this branch was left
+  out of: a Next link on the page before is the listing saying the next page *should* exist, and a
+  404 for it contradicts that rather than confirming the end. Weigh that against what the guard was
+  written for — a genuine walk off the end of a listing, where page N-1's Next link is exactly what
+  a shrinking listing leaves behind. Whatever rule comes out has to answer for both, and it is a
+  rule about what a stop may conclude, so it belongs in T28's table either way.
+
+## T44 — The authenticated-total flag must come from the request that read the total
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: `Ship.LastKnownTotalWasAuthenticated` describes the request whose heading was stored,
+  not whether anything in the run was authenticated.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ao3ShipIndexScraper`
+- notes: Found by `/code-review high` during T42, in T30's committed code. T30 moved the flag from
+  the run's filter state to `wroteTotal`, which fixed *which run* may assign it and left *which
+  request* it describes untouched: `readWhileLoggedIn |= response.Authenticated` accumulates over
+  every page of the run, while `RecordTotal` writes `LastKnownTotalWorks` per page. An unfiltered
+  multi-page run whose page 1 comes from an anonymous cache entry and writes the total, and whose
+  page 2 is fetched live with a session but has no parseable heading, ends `wroteTotal = true` and
+  `readWhileLoggedIn = true` — stamping "counted while logged in" on a number demonstrably fetched
+  without one. Note `FromCache` responses preserve `Authenticated: false`, which is what makes the
+  mixed run reachable rather than hypothetical.
+  Latent until T5 teaches the client to authenticate — nothing sets `Authenticated` before then —
+  so this is cheap now and a live wrong answer the day T5 lands. The fix is to capture the flag
+  beside the write, in `RecordTotal`, rather than to OR it across the run; T30's own note that the
+  pair "travel together or the pair says something neither run did" is the argument, one scope
+  further in. Add it to T5's reading, since T5 is what makes it reachable.

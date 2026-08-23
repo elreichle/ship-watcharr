@@ -912,6 +912,143 @@ public class Ao3ShipIndexScraperTests : IDisposable
         Assert.Null(outcome.ErrorMessage);
     }
 
+    [Fact]
+    public async Task Lets_a_filtered_pass_end_on_an_empty_page_past_the_first()
+    {
+        // The `page > 1` evidence is an argument about an *unfiltered* listing — AO3 404s past the
+        // last page rather than serving an empty 200, so getting above page 1 means a page said
+        // there was more. Under a revised_at filter the Next link comes from a result count that
+        // can race the blurbs, and a single work leaving the window between the two requests serves
+        // a well-formed empty page 2. Held against it, the run stops with Error, which may not move
+        // the watermark — so the ship re-reads the same two pages on every tick, forever, having
+        // read the newest end of the listing in full each time.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1, updatedAt: Jan(9))], nextPage: true),
+            Page(2, []));
+
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(5));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
+        Assert.Null(outcome.ErrorMessage);
+
+        // The point of the stop reason: page 1 was read in full, so the watermark may move and the
+        // next tick asks for one page rather than these two again.
+        Assert.Equal(Jan(9), (await ReloadAsync(shipId)).IncrementalWatermarkUtc);
+    }
+
+    [Fact]
+    public async Task Still_refuses_an_empty_page_past_the_first_when_the_pass_was_not_filtered()
+    {
+        // The other side of the waiver. An incremental pass with no watermark asks for the whole
+        // tag, so the argument the waiver sets aside is back in force: AO3 does not serve an empty
+        // 200 past the last page of an unfiltered listing, and page 1's Next link is a count of the
+        // tag rather than of a filter's result set.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1, updatedAt: Jan(9))], nextPage: true),
+            Page(2, []));
+
+        var shipId = await FollowAsync();
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+    }
+
+    [Fact]
+    public async Task Refuses_an_empty_filtered_page_whose_heading_counts_more_than_the_run_was_served()
+    {
+        // The waiver's boundary, and the one case where taking the page for the end costs works
+        // rather than requests. A filtered heading counts the filter's result set, so a page 2
+        // saying 60 works matched over a run that has been served 20 is the listing stating there
+        // is more — and concluding LastPage there moves the watermark to page 1's newest, putting
+        // everything between it and the old watermark behind the filter permanently. Nothing looks
+        // that far back again until a full sweep exists.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1, updatedAt: Jan(20)), Blurb(2, updatedAt: Jan(15))], nextPage: true, total: 60),
+            Page(2, [], total: 60));
+
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(5));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        Assert.Contains("60", outcome.ErrorMessage);
+        Assert.Contains("served 2", outcome.ErrorMessage);
+
+        // The point of refusing: the watermark stays where it was, so the next tick asks again
+        // rather than skipping the works the run never reached.
+        Assert.Equal(Jan(5), (await ReloadAsync(shipId)).IncrementalWatermarkUtc);
+    }
+
+    [Fact]
+    public async Task Ends_a_filtered_pass_on_an_empty_page_whose_heading_agrees_it_was_served_everything()
+    {
+        // And the case the waiver exists for, told by the same heading. The race is a work leaving
+        // the filter's window between the two requests: page 1's Next link came off a count that
+        // included it, page 2 is served empty, and page 2's heading — recounted for this request —
+        // is down to what page 1 already held. Nothing on the page contradicts the end, so the run
+        // may conclude it and the watermark may move.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1, updatedAt: Jan(20)), Blurb(2, updatedAt: Jan(15))], nextPage: true, total: 3),
+            Page(2, [], total: 2));
+
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(5));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
+        Assert.Null(outcome.ErrorMessage);
+        Assert.Equal(Jan(20), (await ReloadAsync(shipId)).IncrementalWatermarkUtc);
+    }
+
+    [Fact]
+    public async Task Still_refuses_an_empty_filtered_page_that_offers_a_next_one()
+    {
+        // Waiving `page > 1` under a filter waives that evidence and no other. A page carrying no
+        // blurbs *and* a Next link contradicts itself on the same document, which is the parse
+        // failure the rule is for.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1, updatedAt: Jan(9))], nextPage: true),
+            Page(2, [], nextPage: true),
+            Page(3, [Blurb(2, updatedAt: Jan(8))]));
+
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(5));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        Assert.Contains("next one", outcome.ErrorMessage);
+        Assert.Equal(Jan(5), (await ReloadAsync(shipId)).IncrementalWatermarkUtc);
+    }
+
+    [Fact]
+    public async Task Still_refuses_a_filtered_page_that_carries_no_listing_at_all()
+    {
+        // And the load the waiver leaves entirely on HasListing: page 2 is not a results page. A
+        // filter cannot make a maintenance page into the end of a listing, and this is the only
+        // evidence left standing once `page > 1` is set aside.
+        _host.Http.Responds = url => url.Contains("page=2", StringComparison.Ordinal)
+            ? new ScrapeHttpResponse(
+                "<html><body><h1>Down for maintenance</h1></body></html>",
+                HttpStatusCode.OK, FromCache: false, FinalUrl: url)
+            : Ok(url, Page(1, [Blurb(1, updatedAt: Jan(9))], nextPage: true).Html);
+
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(5));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        Assert.Contains("no listing", outcome.ErrorMessage);
+        Assert.Equal(Jan(5), (await ReloadAsync(shipId)).IncrementalWatermarkUtc);
+    }
+
     // ---- what a resumed backfill may conclude about the watermark -------------------------------------
 
     [Fact]

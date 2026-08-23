@@ -103,6 +103,12 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
         var page = startPage;
         var pagesFetched = 0;
+
+        // Blurbs on the pages this run read, which is not `worksSeen` — that counts what reached the
+        // ingestor, and an incremental pass hands it only the works newer than the watermark. This
+        // is the run's own tally of what the listing served it, and the only thing a filtered
+        // listing's heading can honestly be compared against (see PlausiblyTheEndOfTheListing).
+        var blurbsRead = 0;
         var worksSeen = 0;
         var worksAdded = 0;
         var worksUpdated = 0;
@@ -273,7 +279,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             // then went on to earn. It also put a `FirstPageFetched` above `LastPageFetched` in the
             // run history — an inverted range an operator has no way to read.
             var unreadable = listing.Works.Count == 0
-                && !PlausiblyTheEndOfTheListing(listing, page, listingWasFiltered);
+                && !PlausiblyTheEndOfTheListing(listing, page, listingWasFiltered, blurbsRead);
 
             // The other route to a stale cursor, and the reason it is handled beside the 404 rather
             // than in that branch alone: which of the two AO3 serves for a page that no longer
@@ -282,7 +288,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             {
                 retreatBecause =
                     $"page {page.ToString(CultureInfo.InvariantCulture)} parsed to no works, and "
-                    + WhyNotTheEnd(listing, page, listingWasFiltered);
+                    + WhyNotTheEnd(listing, page, listingWasFiltered, blurbsRead);
                 RetreatFromStaleCursor(ship, page, retreatBecause);
                 retreatedFrom = page;
                 page--;
@@ -306,17 +312,19 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                     "Page {Page} for ship {ShipId} ({Tag}) parsed to no works from {Length} characters of "
                     + "HTML, and {Reason}. Treating this as a parse failure rather than the end of the listing.",
                     page, ship.Id, ship.CanonicalTagName, response.Content.Length,
-                    WhyNotTheEnd(listing, page, listingWasFiltered));
+                    WhyNotTheEnd(listing, page, listingWasFiltered, blurbsRead));
 
                 stopReason = ScrapeStopReason.Error;
                 errorMessage = retreatedFrom is { } from
                     ? JumpCursorBackFrom(
                         ship, from, retreatBecause!,
                         $"page {page.ToString(CultureInfo.InvariantCulture)} before it did not read either")
-                    : $"Page {page} parsed to no works, and {WhyNotTheEnd(listing, page, listingWasFiltered)}";
+                    : $"Page {page} parsed to no works, and {WhyNotTheEnd(listing, page, listingWasFiltered, blurbsRead)}";
 
                 break;
             }
+
+            blurbsRead += listing.Works.Count;
 
             readWhileLoggedIn |= response.Authenticated;
 
@@ -577,9 +585,30 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// <item>No listing container in the document. Whatever was served is not a results page — an
     /// empty body, a static maintenance page, something a proxy substituted. An empty *tag* still
     /// renders the container, so this tells the two apart rather than guessing from length.</item>
-    /// <item><c>page > 1</c>. AO3 404s past the last page rather than serving an empty 200, so the
-    /// walk only got above page 1 because a page advertised more — one this run read, or one an
-    /// earlier run read before leaving the cursor here.</item>
+    /// <item><c>page > 1</c> — on an unfiltered listing. AO3 404s past the last page rather than
+    /// serving an empty 200, so the walk only got above page 1 because a page advertised more — one
+    /// this run read, or one an earlier run read before leaving the cursor here.
+    ///
+    /// Under a <c>revised_at</c> bound that argument does not hold: the Next link comes off a result
+    /// count that can race the blurbs, so one work leaving the window between the two requests
+    /// answers page 2 with a well-formed empty listing. Held against it, a quiet incremental pass
+    /// stops with <see cref="ScrapeStopReason.Error"/> — which may not move the watermark — and the
+    /// ship re-reads the same two pages on every tick forever, having read the newest end of the
+    /// listing in full each time.
+    ///
+    /// So the filtered case asks the heading instead, which is the same question the unfiltered
+    /// case asks it one item below with a different denominator. A filtered heading counts the
+    /// filter's result set, and an incremental pass always starts at page 1, so
+    /// <paramref name="blurbsRead"/> — this run's own tally of blurbs served — is the number it is
+    /// comparable with. Counting more than the run was served is the listing saying there is more,
+    /// and this stops for the same reason the unfiltered walk does. Counting no more than that,
+    /// or carrying no readable heading at all, leaves nothing on the page contradicting the end —
+    /// and the race above shrinks that count, so the case this waiver exists for is the case where
+    /// the heading agrees.
+    ///
+    /// A backfill is never filtered (<see cref="RevisedAtBound"/> gates on
+    /// <see cref="ScrapeRunMode.Incremental"/>), so nothing the waiver reaches is a walk that could
+    /// conclude <see cref="ShipBackfillState.Complete"/>.</item>
     /// <item>A Next link: the page says itself that there is more after it.</item>
     /// <item>A heading counting works the blurbs do not contain. Only on an unfiltered listing: a
     /// <c>revised_at</c>-filtered request's heading counts the filter's result set, not the tag
@@ -590,11 +619,22 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// None of the four: an empty tag, as far as anything on the page can say, and the walk
     /// concludes.
     /// </summary>
-    private static bool PlausiblyTheEndOfTheListing(Ao3ListingPage listing, int page, bool listingWasFiltered) =>
+    private static bool PlausiblyTheEndOfTheListing(
+        Ao3ListingPage listing, int page, bool listingWasFiltered, int blurbsRead) =>
         listing.HasListing
-        && page == 1
+        && (page == 1 || (listingWasFiltered && !FilteredHeadingSaysMore(listing, blurbsRead)))
         && !listing.HasNextPage
         && !(listing.TotalWorks > 0 && !listingWasFiltered);
+
+    /// <summary>
+    /// Whether a filtered listing's heading counts more works than the run has been served.
+    ///
+    /// Read only where <see cref="PlausiblyTheEndOfTheListing"/> has waived <c>page > 1</c>, and
+    /// deliberately silent when the heading did not parse: no heading is no evidence, and the
+    /// container plus the absent Next link are what the conclusion rests on there.
+    /// </summary>
+    private static bool FilteredHeadingSaysMore(Ao3ListingPage listing, int blurbsRead) =>
+        listing.TotalWorks is { } matched && matched > blurbsRead;
 
     /// <summary>
     /// Which of <see cref="PlausiblyTheEndOfTheListing"/>'s conditions actually failed, phrased for
@@ -603,13 +643,21 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// "the listing says there are more" over a page carrying neither a heading nor a Next link
     /// tells that operator the opposite of what happened.
     /// </summary>
-    private static string WhyNotTheEnd(Ao3ListingPage listing, int page, bool listingWasFiltered)
+    private static string WhyNotTheEnd(Ao3ListingPage listing, int page, bool listingWasFiltered, int blurbsRead)
     {
         if (!listing.HasListing) return "the response carried no listing at all, so it is not a results page";
         if (listing.HasNextPage) return "the page still offers a next one";
         if (listing.TotalWorks > 0 && !listingWasFiltered)
             return $"the heading counts {listing.TotalWorks.Value.ToString(CultureInfo.InvariantCulture)} works in the tag";
 
+        if (listingWasFiltered && FilteredHeadingSaysMore(listing, blurbsRead))
+            return $"the heading counts {listing.TotalWorks!.Value.ToString(CultureInfo.InvariantCulture)} works "
+                + $"matching this run's date filter and the run has been served "
+                + $"{blurbsRead.ToString(CultureInfo.InvariantCulture)}";
+
+        // The unfiltered walk's remaining evidence. The filtered walk waives it and answers with the
+        // heading above instead, so a filtered page failing none of these conditions is the end of
+        // the listing and never asks why it is not.
         return $"page {page.ToString(CultureInfo.InvariantCulture)} was only reached because an earlier page offered a next one";
     }
 

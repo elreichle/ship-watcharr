@@ -678,3 +678,85 @@ stop may conclude, so it goes where T37 went.
 hand-edit of the state re-fails on the ship's first stalled run. T38 already owns the missing exit
 from `Failed` and already names `BeginBackfill` as the restart path that leaves the counter alone;
 this is the same fact from the other end and belongs in the same diff.
+
+## 2026-08-23 — T42: what a filtered listing's empty page may conclude, and what the heading is for
+
+`PlausiblyTheEndOfTheListing` required `page == 1`. The argument for it is about an **unfiltered**
+listing: AO3 404s past the last page rather than serving an empty 200, so a walk only gets above
+page 1 because a page advertised more. Under a `revised_at` bound that argument does not hold — the
+Next link comes off a result count that can race the blurbs, and one work leaving the window between
+two requests answers page 2 with a well-formed empty listing. The pass then stopped with `Error`,
+which is neither `Watermark` nor `LastPage`, so the watermark could not move and the ship re-read the
+same two pages on every tick forever, having read the newest end of the listing in full each time.
+The heading condition one line below was already gated on `listingWasFiltered` for exactly this
+reason; this one was not.
+
+**The waiver as first written was wrong, and the review caught it in this diff.** `page == 1 ||
+listingWasFiltered` leaves a filtered page past the first needing only a container and no Next link
+to be taken for the end — and because the heading is waived for filtered listings on the line below,
+a page reading "60 Works" over zero blurbs was accepted. `LastPage` satisfies `mayPropose`, so the
+watermark moved to page 1's newest and every work between the old watermark and that reading fell
+behind both the `revised_at` bound and the client-side cut, permanently, with no full sweep in
+existence to recover it. The defect being fixed cost two requests a tick and self-healed; the fix
+would have lost works silently. That is the wrong direction, and the one this loop has ruled on
+repeatedly — T24's "refuses to conclude" cost, paid again.
+
+**So the filtered case asks the heading instead of waiving it.** A filtered heading counts the
+filter's result set, which is useless as the *tag's* total (`RecordTotal` refuses it for that) and is
+exactly the right number for the *walk's* — and an incremental pass always starts at page 1, so the
+run's own tally of blurbs served is what it is comparable with. `FilteredHeadingSaysMore` is the
+same question the unfiltered condition beside it asks, with the denominator the filter demands. It
+is deliberately silent when no heading parses: no heading is no evidence, and the container plus the
+absent Next link are what the conclusion rests on there.
+
+The race the waiver exists for is the case where the heading **agrees**: a work leaving the window
+between the two requests shrinks the count page 2 is served under, down to what page 1 already held.
+The case that costs works is the case where it disagrees. One number tells them apart, which is why
+this rule is worth having rather than reverting to `Error` on both.
+
+`blurbsRead` is a new counter rather than a use of `worksSeen`, which counts what reached the
+ingestor — on an incremental pass, only the works newer than the watermark. The rule needs what the
+listing served, not what the run kept.
+
+**Confirmed rather than assumed, per T42's own instruction:** `listingWasFiltered` is
+`RevisedAtBound(mode, watermark) is not null` and `RevisedAtBound` gates on
+`ScrapeRunMode.Incremental`, so a backfill is never filtered and nothing the waiver reaches is a
+walk that could conclude `ShipBackfillState.Complete`. The five committed tests that pin T34's and
+T37's rules were run against a mutation dropping the page condition entirely: five fail, three of
+them backfill tests. The waiver's two halves were mutated separately — removing it fails the two
+tests that want the end concluded, removing the heading guard fails the one that wants it refused.
+
+**T42 did not wait on T39, and this is where the two now touch.** The waiver leaves `HasListing`
+carrying more weight on a filtered page than it carried before, and `HasListing` rests on the
+unverified premise T39 exists to settle. A test pins the maintenance-page case as `Error` under a
+filter, which is the behaviour either way; what T39 would settle is whether a genuinely empty
+filtered listing renders the container at all. Unchanged by this task, and one premise further into
+load-bearing.
+
+## 2026-08-23 — T42's review: one folded in, two queued as T43 and T44
+
+`/code-review high` reported five findings. One was this diff's own and is folded into it, above.
+Two are new tasks; two were already owned.
+
+**Queued as T43, and it leads the run order.** The 404 branch's `lastPage == page - 1` guard
+concludes `LastPage` → `Complete` from precisely the evidence `CursorMayBeStale` two hundred lines
+below refuses to conclude from: page N-1 read, offering a Next link, page N absent. The two disagree
+only on whether this run happens to have read page N-1 itself, and the reviewer demonstrated the
+crossing against a running server rather than arguing it from the source — one transient 5xx during
+a retreat leaves the cursor at N-1, and the next healthy run walks into the guard and retires the
+ship with page N onward unread. This is T37's question asked of the branch T37 did not rewrite, it
+is the strongest wrong conclusion the system can reach, and it is reachable today. It goes into
+T28's `blocked-by` and T15's, where every rule of this kind has gone.
+
+**Queued as T44.** T30 moved `LastKnownTotalWasAuthenticated` from the run's filter state to
+`wroteTotal`, settling which *run* may assign it and leaving which *request* it describes alone:
+`readWhileLoggedIn` ORs across every page while `RecordTotal` writes per page, so a run whose total
+came off an anonymous cached page 1 and whose page 2 was fetched live with a session stamps the flag
+`true` over a number fetched without one. Latent until T5 — nothing sets `Authenticated` before it —
+and a live wrong answer the day T5 lands. T30's own argument, one scope further in.
+
+**Already owned, not re-queued:** the unreadable page still counted as read on the non-retreat path
+is **T40**, filed from T26's review and unchanged since; `BackfillStalledRuns` not being reset when
+a backfill is written off is **T38**, whose other half was added from T30's review. Both were
+re-reported independently by this pass, which is worth recording — a finding arriving twice from two
+reviews is the loop's only signal about which queued tasks are actually costing something.
