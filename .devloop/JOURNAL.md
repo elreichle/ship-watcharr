@@ -308,3 +308,44 @@ build. Not something a task should chase.
   This was the fifth review pass over this scraper and the pre-loop defect count is now fifteen. The
   rate is not falling. Four of T27's five are the same shape: a value written back to the ship that
   nothing downstream can tell is wrong.
+
+## 2026-08-22 — T29 An incremental pass must not overwrite a ship's total with a filtered count — done
+
+- did: `RecordTotal` now takes the tag's total only from a listing that carried no
+  `work_search[revised_at]` bound. The bound moved into one function, `RevisedAtBound(mode,
+  watermark)`, that `BuildUrl` and the gate both read — gating on the *filter actually sent* rather
+  than on the mode, so a backfill or sweep growing a date window later cannot quietly re-break this.
+  **Folded in from the review**: `LastKnownTotalWasAuthenticated` is now written only where the
+  total is. Skipping the total on a filtered pass while still latching the flag would have let the
+  two come from different runs — a logged-out backfill's undercount wearing a later authenticated
+  pass's flag — and that divergence would have been *introduced by this diff*, so it was a one-line
+  consequence rather than a new task. T30 keeps the rest of itself.
+- files: `Api/Services/Scraping/Ao3ShipIndexScraper.cs`, `Tests/Ao3ShipIndexScraperTests.cs`
+- ran: `dotnet test --filter FullyQualifiedName~Total` → 8 passed (6 before this task);
+  `--filter ~Authenticated|~Total` → 11 passed; `dotnet test` → 354 passed;
+  `npm run build` + `npm run lint` → clean, the two pre-existing fast-refresh warnings only.
+  Both defect tests were confirmed red first.
+- commit: eeba5d2 "Read a ship's total only from a listing that asked for the whole tag"
+- next: **The fix trades a wrong number for a stale one, and T15 has to notice.** Only an unfiltered
+  pass writes the total now — a ship's first incremental pass, every backfill, and eventually every
+  sweep. A ship past its backfill keeps the same `LastKnownTotalWorks` indefinitely. That is the
+  right trade (a stale figure with an honest `LastKnownTotalWorksAt` beside it is checkable; a fresh
+  figure that is secretly the size of a date filter is not) but **T15 must read the timestamp, not
+  just the number**. Nothing outside the scraper reads either field yet, so no UI needed correcting.
+  **A test-fixture trick worth reusing.** `Blurb(restricted: true)` renders the lock symbol AO3 puts
+  in the heading. The negative test (a filtered pass must *not* set the flag) would pass vacuously if
+  that markup did not parse as restricted, so it is paired with
+  `Records_that_an_unfiltered_pass_read_the_total_while_logged_in`, which is green only if the symbol
+  really bites. Write the positive alongside any negative that depends on a fixture detail.
+  Filters checked to bite, per T22's lesson: `~Total` matched 6 before this task and 8 after;
+  `~Authenticated` (T30's) now matches 3, having matched 1 before. Still unchecked: T25 `~Backfill`
+  (6 at T24), T26 `~Author`, T31 `~TotalWorks`, T32 `~Monotonic`, T33 `~Ingest`, T34 `~Backfill`,
+  T35 `~Pseud`.
+  T29's review found **four** defects; one was this diff's and is folded in, three are queued as
+  T34–T36 and all were verified against the source. **T34 leads the run order** — any page parsing
+  to zero works stops with `LastPage`, and a backfill's `LastPage` means `Complete`, so one 200
+  maintenance page retires a ship from backfilling forever. It is the same species as T29 and T24,
+  and `listing.TotalWorks` already carries the signal that tells a parse failure from an empty tag.
+  Sixth review pass, eighteen pre-loop defects. **Three of this pass's four were outside the
+  scraper's walk** — a migration (T35) and the admin page (T36) — the first time a pass has found
+  more outside it than in. That reads as the walk's density falling rather than the tree's rising.
