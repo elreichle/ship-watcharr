@@ -478,7 +478,7 @@ build. Not something a task should chase.
   Every new test was confirmed red against the unpatched code: the three parser ones by running them
   before the change, the ingestor one by removing the guard, the two gift ones by restoring the old
   scan. No schema change, so no migrations.
-- commit: (see below)
+- commit: 0a8a318 "T26: Tell an unreadable byline apart from a work with no creators"
 - next: **The review's finding was the fix reintroducing the defect it was fixing.** Excluding the
   title from the "Anonymous" scan and stopping there looked complete; it left the gift clause in
   scope, and under the exact markup change this task defends against — AO3 dropping `rel="author"` —
