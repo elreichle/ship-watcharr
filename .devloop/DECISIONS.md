@@ -553,3 +553,44 @@ common case on a quiet ship, and `Error` is neither `Watermark` nor `LastPage`, 
 freezes and every scheduled run is recorded failed, forever. That is a worse failure than the one
 T34 fixed, reached by the same rule. It needs one real capture of a zero-result AO3 index, which
 this loop cannot fetch, so T39 is `blocked` on a fixture like T5, T10 and T13.
+
+## 2026-08-23 — T26: what a byline crediting nobody is entitled to conclude
+
+**Decided: "Anonymous", and nothing else, may conclude a work has no creators.** The parser had one
+value for two facts — `IsAnonymous: authors.Count == 0` — and the two facts are "AO3 credits this
+work to nobody" and "we could not read who AO3 credits it to". They arrive as the same markup: a
+heading with no `rel="author"` anchors. `Ao3WorkBlurb.IsAnonymous` is now `bool?`, null being the
+second, and `WorkIngestor` declines to write either the column or the author rows on null. That
+matters because `ApplyAuthors` *reconciles*: an empty set is not "no news", it is a deletion, so the
+old reading meant a change to AO3's heading shape would rewrite every re-seen work in the library as
+anonymous with zero creators — and, since nothing counted a warning, the run record would say the
+pass went fine. Same shape as the `UpdatedAt` rule two fields above it: an unreadable field leaves
+what a working pass wrote.
+
+**The asymmetry is deliberate and is the whole safety argument.** Mistaking a genuinely anonymous
+work for an unreadable byline costs a parse warning and a stale author row. Mistaking an unreadable
+byline for an anonymous work costs the credits of every work a pass touches. So every doubtful case
+resolves to null, and the positive conclusion needs the word.
+
+**Where the word may be read from is a second decision, and the review's finding.** The first
+version excluded only the title from the search, which left the gift clause in it — and AO3 renders
+a gift to someone who asked not to be named exactly like an anonymous creator. Under the very
+markup change this task defends against (AO3 dropping `rel="author"`), every gifted work would then
+have been read as anonymous and lost its authors: the defect, reintroduced through the fix. The scan
+now takes the heading's words in order, skips the text of any link that is not `rel="author"`, and
+**stops at the first standalone "for"**. Everything past that belongs to the recipient.
+
+**Partial readability is not unreadability.** A byline where one anchor of two parses yields the
+creator it read and reports a warning, rather than discarding both. A heading whose shape has moved
+fails wholesale; a single odd anchor is a single odd anchor.
+
+`Keeps_a_work_whose_title_is_unreadable` now expects two warnings where it expected one. That is the
+new rule reading correctly, not a concession: an empty `h4.heading` yields neither a title nor a
+byline, and both were always missing — only one of them used to say so.
+
+Queued from the same review, none of it in T26's diff: **T40** (T37's own fix for counting an
+unread page as read landed on the retreat path only), **T41** (the retreat's log line has six
+placeholders and five arguments), and a line added to **T38** naming `BeginBackfill` as the place
+`BackfillStalledRuns` is not cleared. The review also re-reported T39's unverified `HasListing`
+premise independently — second pass, same finding, still waiting on a human with a browser.
+

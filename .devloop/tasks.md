@@ -10,21 +10,21 @@ a dependency cannot be met — needs a human).
 Tasks are **not** taken in file order. Take the first `todo` listed here whose `blocked-by` are all
 `done`; only when this list is exhausted does file order apply.
 
-1. T26 — the last of the pre-loop scraper defects
-2. T30 — what is left of the authenticated-total flag, after T29 paired it with the total
-3. T28 — the audit of the walking and stopping rules, while that code is still fresh
-4. then file order, from T6
+1. T30 — what is left of the authenticated-total flag, after T29 paired it with the total
+2. T28 — the audit of the walking and stopping rules, while that code is still fresh
+3. then file order, from T6
 
 Why this list exists at all: every entry was found by review of pre-loop scraper code, so none of it
 appears where the original plan put it — without this list, file order would send an iteration to T6
 and leave the scraper's live defects in place. T23, T24 and T27 — the three that made this app
-re-request AO3 in a loop, the one thing its politeness rules exist to prevent — are done. The
-reasoning is in `DECISIONS.md` under the T23 and T27 reviews.
+re-request AO3 in a loop, the one thing its politeness rules exist to prevent — are done, and with
+T26 the pre-loop scraper defects this loop inherited are closed. What is left in this list is the
+loop's own work: the flag, and the audit.
 
 T30 stays in the audit's `blocked-by` — it and T29 both decide what a pass writes back to the ship,
 which is what T28 tabulates — but it is now the smaller half of itself, T29 having paired the flag
-with the total it describes. T31, T32, T33, T35, T36 and T38 are real but slow-acting or latent and
-sit in file order, after the planned work.
+with the total it describes. T31, T32, T33, T35, T36, T38, T40 and T41 are real but slow-acting or
+latent and sit in file order, after the planned work.
 
 Delete an entry once its task is `done`. When this section is empty, delete the section.
 
@@ -478,7 +478,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   backfill that can never *reach* `Complete`, where T34's was one that reached it wrongly).
 
 ## T26 — An unreadable byline must not erase authorship
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A blurb whose creators cannot be read leaves the work's existing authors alone and
@@ -524,7 +524,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 ## T28 — Audit the scraper's walking and stopping rules
 - status: todo
 - attempts: 0
-- blocked-by: T26, T30
+- blocked-by: T30
 - delivers: `.devloop/scraper-audit.md` — one table row per rule that decides where a pass starts,
   where it stops, what it may conclude from stopping, and what it writes back to the ship. Each row
   names the rule, the code that implements it, which passes it applies to, what it concludes, and
@@ -743,6 +743,10 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   there rather than only in the run history. Consider whether a ship that starts answering again
   should recover on its own instead; if so, say why in a comment, because a self-clearing give-up is
   a give-up that can loop.
+  T26's review adds the exact line: `BeginBackfill`'s `NotStarted` branch (`Ao3ShipIndexScraper.cs`
+  ~line 633) already resets `BackfillStartedAt` and the cursor and is the restart path this task
+  builds on, but it leaves `BackfillStalledRuns` alone — so a ship restarted at 12 gives up on its
+  first stalled run rather than its twelfth.
 
 ## T39 — Confirm what AO3 serves for a works index with no results
 - status: blocked
@@ -770,3 +774,37 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   is already gated on `listingWasFiltered` for exactly this reason, and `HasListing` is not.
   While the capture is out, settle the sibling question `Ao3ListingPage` also guesses at: whether
   AO3 pages a zero-result listing with `ol.index.group` rather than `ol.work.index.group`.
+
+## T40 — An unreadable page must not be counted as a page that was read
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A run's history counts the pages it actually read. A page that came back unreadable
+  advances no counter and names no boundary, on every path — not only the retreat.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~PagesFetched`
+  (**this filter matches zero tests today** — the task must name its new tests to match it, or
+  verification runs nothing; see T22's lesson)
+- notes: Found by `/code-review` during T26, in T37's committed code. `Ao3ShipIndexScraper.cs`
+  ~line 281 runs `pagesFetched++`, `parseWarnings +=`, `firstPage ??= page` and `lastPage = page`
+  *before* the `if (unreadable) break` three lines below, so a fresh backfill whose page 1 is a 200
+  maintenance page records `PagesFetched = 1, FirstPageFetched = 1, LastPageFetched = 1,
+  WorksSeen = 0` — a run claiming to have read a page it could not read. It also makes
+  `readTheNewestEnd = firstPage == 1` true off that page, harmless today only because `newestSeen`
+  is null there, which is the kind of accident T24 was. T37 fixed exactly this conflation on the
+  retreat path and the hunk's own comment says so; the non-retreat path was missed. Moving the four
+  lines below the break is the whole change — but check what else reads `lastPage`, because the
+  404 guard is `lastPage == page - 1` and that arithmetic must still hold.
+
+## T41 — A warning about a stalled backfill that cannot print its own page number
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A clean build, and a log line that says which page the walk is re-reading.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet build` reporting no CA2017, plus the suite.
+- notes: Found at T26's baseline check — it is the one compiler warning in the backend build.
+  `RetreatFromStaleCursor` (`Ao3ShipIndexScraper.cs` ~line 490) writes six placeholders
+  (`{ShipId} {Tag} {Page} {Because} {Previous} {Page}`) and passes five arguments; structured
+  logging binds positionally, so the repeated `{Page}` has nothing to bind to and the sentence that
+  explains the retreat trails off. Name the second occurrence something else and pass it, or reword.
+  Small, but it is the log line an operator reads when a backfill is stuck — the one T37 wrote for
+  exactly that moment.

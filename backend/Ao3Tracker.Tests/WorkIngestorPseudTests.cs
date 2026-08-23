@@ -107,6 +107,40 @@ public class WorkIngestorPseudTests : IDisposable
         Assert.Equal(1, await db.WorkAuthors.CountAsync(wa => wa.PseudId == pseud.Id));
     }
 
+    [Fact]
+    public async Task An_unreadable_byline_leaves_the_authors_an_earlier_pass_read()
+    {
+        // The defect this pins is the one that costs the most and shows the least: the ingestor
+        // reconciles authorship, so a heading AO3 has reshaped would take every creator in the
+        // library with it on the next incremental pass, and the run record would show nothing.
+        var shipId = await FollowAsync();
+
+        await _host.IngestAsync(shipId, Page(Blurb(1)));
+        await _host.IngestAsync(shipId, Page(Blurb(1, byline: """<span class="byline">somepseud</span>""")));
+
+        await using var db = _host.NewContext();
+        var pseud = Assert.Single(await db.Ao3Pseuds.ToListAsync());
+
+        Assert.Equal(1, await db.WorkAuthors.CountAsync(wa => wa.WorkId == 1 && wa.PseudId == pseud.Id));
+        Assert.False(await db.Works.Where(w => w.Id == 1).Select(w => w.IsAnonymous).SingleAsync());
+    }
+
+    [Fact]
+    public async Task A_work_that_becomes_anonymous_loses_the_authors_it_had()
+    {
+        // The other side of it. "Anonymous" is a byline that was read, and a creator really can be
+        // taken off a work — orphaning it into an anonymous collection does exactly that.
+        var shipId = await FollowAsync();
+
+        await _host.IngestAsync(shipId, Page(Blurb(1)));
+        await _host.IngestAsync(shipId, Page(Blurb(1, byline: "Anonymous")));
+
+        await using var db = _host.NewContext();
+
+        Assert.Empty(await db.WorkAuthors.Where(wa => wa.WorkId == 1).ToListAsync());
+        Assert.True(await db.Works.Where(w => w.Id == 1).Select(w => w.IsAnonymous).SingleAsync());
+    }
+
     private async Task<int> FollowAsync()
     {
         var result = await _host.Ships(_host.SeedUser()).WatchShip(new(Lexa), default);
@@ -124,7 +158,8 @@ public class WorkIngestorPseudTests : IDisposable
         long id,
         string username = "someuser",
         string pseud = "somepseud",
-        string[]? freeforms = null)
+        string[]? freeforms = null,
+        string? byline = null)
     {
         var tags = string.Join('\n', (freeforms ?? ["Fluff"])
             .Select(f => $"""<li class="freeforms"><a class="tag" href="/tags/{f}/works">{f}</a></li>"""));
@@ -134,7 +169,7 @@ public class WorkIngestorPseudTests : IDisposable
               <div class="header module">
                 <h4 class="heading">
                   <a href="/works/{id}">Work {id}</a>
-                  by <a rel="author" href="/users/{username}/pseuds/{pseud}">{pseud} ({username})</a>
+                  by {byline ?? $"""<a rel="author" href="/users/{username}/pseuds/{pseud}">{pseud} ({username})</a>"""}
                 </h4>
                 <!-- updated_at=1672531200 -->
                 <p class="datetime">1 Jan 2023</p>

@@ -85,7 +85,7 @@ public static class Ao3BlurbParser
 
         var (chapters, plannedChapters) = ParseChapters(blurb);
         var (updatedAt, isApproximate) = ParseUpdatedAt(blurb, ref warnings);
-        var authors = ParseAuthors(heading);
+        var (authors, isAnonymous) = ParseByline(heading, ref warnings);
 
         return new Ao3WorkBlurb(
             WorkId: workId.Value,
@@ -112,9 +112,7 @@ public static class Ao3BlurbParser
             UpdatedAt: updatedAt,
             UpdatedAtIsApproximate: isApproximate,
 
-            // No rel="author" anchors means nobody is credited by link, which is what an anonymous
-            // work looks like — AO3 renders "Anonymous" as plain text in place of the byline.
-            IsAnonymous: authors.Count == 0,
+            IsAnonymous: isAnonymous,
 
             IsRestricted: IsRestricted(blurb),
             Tags: ParseTags(blurb),
@@ -241,32 +239,108 @@ public static class Ao3BlurbParser
         || blurb.QuerySelector("h4.heading .restricted") is not null;
 
     /// <summary>
-    /// Creators, in byline order. Only <c>rel="author"</c> anchors count — AO3 renders gift
+    /// Creators in byline order, and whether the work is anonymous — null when the byline could not
+    /// be read at all. Only <c>rel="author"</c> anchors count as creators: AO3 renders gift
     /// recipients as links inside the very same heading, so a looser selector records them as
     /// co-authors. See <see cref="WorkAuthor"/>.
+    ///
+    /// The third state is the rule this method exists to state. "Nobody is credited" and "we could
+    /// not read who is credited" reach the parser as the same markup — a heading with no author
+    /// anchors — but they must not have the same effect: <c>WorkIngestor</c> reconciles authorship
+    /// against what the blurb says, so an empty set deletes every creator the work already had, and
+    /// a change to the heading's shape would rewrite a whole library as anonymous.
+    ///
+    /// AO3 does write the difference down: an anonymous work says "Anonymous" where the byline
+    /// goes. So that word, and nothing else, is what may conclude a work has no creators. A byline
+    /// crediting nobody and not saying it is unread — counted as a parse warning, and left for the
+    /// ingestor to decline to act on.
     /// </summary>
-    private static IReadOnlyList<Ao3BlurbAuthor> ParseAuthors(IElement? heading)
+    private static (IReadOnlyList<Ao3BlurbAuthor> Authors, bool? IsAnonymous) ParseByline(
+        IElement? heading, ref int warnings)
     {
-        if (heading is null) return [];
-
         var authors = new List<Ao3BlurbAuthor>();
-        var seen = new HashSet<(string, string)>();
 
-        foreach (var anchor in heading.QuerySelectorAll("a[rel~='author']"))
+        if (heading is not null)
         {
-            var display = anchor.TextContent.Trim();
-            var (username, pseud) = ParsePseudPath(anchor.GetAttribute("href"), display);
+            var seen = new HashSet<(string, string)>();
+            var unreadableAnchors = 0;
 
-            if (username is null || pseud is null) continue;
+            foreach (var anchor in heading.QuerySelectorAll("a[rel~='author']"))
+            {
+                var display = anchor.TextContent.Trim();
+                var (username, pseud) = ParsePseudPath(anchor.GetAttribute("href"), display);
 
-            // A creator listed twice in one byline would otherwise violate the (WorkId, PseudId)
-            // primary key on WorkAuthor and fail the whole page's save.
-            if (seen.Add((username, pseud)))
-                authors.Add(new Ao3BlurbAuthor(username, pseud, display.NullIfEmpty() ?? pseud));
+                if (username is null || pseud is null)
+                {
+                    unreadableAnchors++;
+                    continue;
+                }
+
+                // A creator listed twice in one byline would otherwise violate the (WorkId, PseudId)
+                // primary key on WorkAuthor and fail the whole page's save.
+                if (seen.Add((username, pseud)))
+                    authors.Add(new Ao3BlurbAuthor(username, pseud, display.NullIfEmpty() ?? pseud));
+            }
+
+            // A byline that named somebody was read, even if one of its anchors was shaped in a way
+            // this does not understand. Dropping that one creator is the smaller error; discarding
+            // the ones that were read to protect it is the larger.
+            if (authors.Count > 0)
+            {
+                if (unreadableAnchors > 0) warnings++;
+                return (authors, false);
+            }
+
+            // Consulted only once nothing has been credited, which is why an unreadable anchor
+            // reading "Anonymous" still counts: whether AO3 renders that word as plain text or as a
+            // link, a heading crediting nobody and saying it is an anonymous work either way.
+            if (SaysAnonymous(heading)) return (authors, true);
         }
 
-        return authors;
+        warnings++;
+        return (authors, null);
     }
+
+    /// <summary>
+    /// Whether the heading says "Anonymous" where the creators would go — and only there. Everything
+    /// this reads has to be the byline itself, because the word carries the authority to conclude a
+    /// work has no creators, and the heading holds other people's names too.
+    /// </summary>
+    private static bool SaysAnonymous(IElement heading)
+    {
+        foreach (var word in BylineWords(heading))
+        {
+            // AO3's gift clause — "… for someuser" — is not part of the byline, and a gift to
+            // someone who asked not to be named renders exactly like an anonymous creator. So the
+            // byline ends here, and nothing past it may speak for the work's authorship.
+            if (word.Equals("for", StringComparison.OrdinalIgnoreCase)) return false;
+            if (word.Equals("Anonymous", StringComparison.OrdinalIgnoreCase)) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The heading's words in order, minus the ones that belong to somebody other than the byline:
+    /// the work's own title (a work called "Anonymous" must not erase its own author), and the text
+    /// of any link that is not a creator — recipients, series, collections. Anchors carrying
+    /// <c>rel="author"</c> are kept, so the word counts whether AO3 renders it as plain text or as a
+    /// link. Punctuation is trimmed so that "Anonymous," reads as the word it is.
+    /// </summary>
+    private static IEnumerable<string> BylineWords(IElement heading) =>
+        heading.Descendants<IText>()
+            .Where(IsBylineText)
+            .SelectMany(text => text.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+            .Select(word => word.Trim(BylinePunctuation));
+
+    private static bool IsBylineText(IText text)
+    {
+        var anchor = text.ParentElement?.Closest("a");
+        return anchor is null || anchor.Matches("a[rel~='author']");
+    }
+
+    /// <summary>What separates the words of a byline from the words themselves.</summary>
+    private static readonly char[] BylinePunctuation = [',', '.', ':', ';', '(', ')', '[', ']', '"', '\''];
 
     /// <summary>
     /// Splits <c>/users/{username}/pseuds/{pseud}</c>. A bare <c>/users/{username}</c> is the

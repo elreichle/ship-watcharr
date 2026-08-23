@@ -154,6 +154,91 @@ public class Ao3BlurbParserTests
     }
 
     [Fact]
+    public void Counts_a_byline_it_cannot_read_as_a_parse_warning()
+    {
+        // The shortfall this file's summary describes, for the one field that never reported it.
+        // A heading naming nobody and not saying "Anonymous" is a heading whose shape has moved,
+        // and the run record is the only place that can say so.
+        var page = Ao3BlurbParser.ParseListing(Page(Blurb(byline: """<span class="byline">somepseud</span>""")));
+
+        Assert.Equal(1, page.ParseWarnings);
+
+        // Null, not "anonymous": the work is not claimed to have no creators, only to have none
+        // that were read. WorkIngestor declines to touch authorship on that.
+        Assert.Null(Assert.Single(page.Works).IsAnonymous);
+    }
+
+    [Fact]
+    public void Counts_an_author_link_it_cannot_parse_as_a_parse_warning()
+    {
+        // rel="author" present, but the href is not a pseud path. That is a byline, so the work is
+        // not anonymous; it is simply one we failed to read.
+        var page = Ao3BlurbParser.ParseListing(Page(Blurb(
+            byline: """<a rel="author" href="/creators/someuser">somepseud</a>""")));
+
+        Assert.Equal(1, page.ParseWarnings);
+        Assert.Null(Assert.Single(page.Works).IsAnonymous);
+    }
+
+    [Fact]
+    public void Reads_an_anonymous_byline_without_a_warning_even_when_the_work_is_a_gift()
+    {
+        // "Anonymous" is the whole of what distinguishes a work with no creators from a work whose
+        // creators we could not read, so it has to survive the rest of the heading's furniture.
+        var page = Ao3BlurbParser.ParseListing(Page(Blurb(
+            byline: """Anonymous for <a href="/users/giftee">giftee</a>""")));
+
+        Assert.Equal(0, page.ParseWarnings);
+
+        var work = Assert.Single(page.Works);
+        Assert.True(work.IsAnonymous);
+        Assert.Empty(work.Authors);
+    }
+
+    [Fact]
+    public void Does_not_read_a_work_titled_Anonymous_as_having_no_author()
+    {
+        // The title is the one part of the heading that is somebody else's words.
+        var page = Ao3BlurbParser.ParseListing(Page(Blurb(
+            title: "Anonymous", byline: """<span class="byline">somepseud</span>""")));
+
+        Assert.Equal(1, page.ParseWarnings);
+        Assert.Null(Assert.Single(page.Works).IsAnonymous);
+    }
+
+    [Theory]
+    [InlineData("""<span class="byline">somepseud</span> for Anonymous""")]
+    [InlineData("""<span class="byline">somepseud</span> for <a href="/users/Anonymous">Anonymous</a>""")]
+    public void Does_not_read_a_gift_to_Anonymous_as_a_work_with_no_author(string byline)
+    {
+        // The failure mode this closes is the one T26 exists to prevent, reached the long way round:
+        // if AO3 ever drops rel="author", every blurb arrives here crediting nobody, and a heading
+        // whose *recipient* is anonymous would then be read as an anonymous work — deleting the
+        // creators of exactly the works that were gifted.
+        var page = Ao3BlurbParser.ParseListing(Page(Blurb(byline: byline)));
+
+        Assert.Equal(1, page.ParseWarnings);
+        Assert.Null(Assert.Single(page.Works).IsAnonymous);
+    }
+
+    [Fact]
+    public void Keeps_the_authors_it_could_read_when_one_of_them_is_unreadable()
+    {
+        // One odd anchor is not a reshaped heading. The creators that were read are still real, and
+        // the shortfall is reported rather than paid for by discarding them.
+        var page = Ao3BlurbParser.ParseListing(Page(Blurb(byline: """
+            <a rel="author" href="/users/first/pseuds/first">first</a>,
+            <a rel="author" href="/creators/second">second</a>
+            """)));
+
+        var work = Assert.Single(page.Works);
+
+        Assert.Equal(["first"], work.Authors.Select(a => a.Username));
+        Assert.False(work.IsAnonymous);
+        Assert.Equal(1, page.ParseWarnings);
+    }
+
+    [Fact]
     public void Keeps_multiple_creators_in_byline_order()
     {
         var work = Assert.Single(Ao3BlurbParser.ParseListing(Page(Blurb(byline: """
@@ -286,7 +371,9 @@ public class Ao3BlurbParserTests
     public void Keeps_a_work_whose_title_is_unreadable()
     {
         // The work is still real and still in this ship's index, so it is worth recording as seen.
-        // Given a readable date, so the one warning counted below is unambiguously the title's.
+        // Given a readable date, so the two warnings counted below are exactly the two fields this
+        // heading fails to yield: the title, and the byline — an empty heading credits nobody and
+        // does not say "Anonymous", which is the definition of a byline that was not read.
         var page = Ao3BlurbParser.ParseListing(Page("""
             <li id="work_555" class="work blurb group">
               <h4 class="heading"></h4>
@@ -297,7 +384,8 @@ public class Ao3BlurbParserTests
         var work = Assert.Single(page.Works);
         Assert.Equal(555, work.WorkId);
         Assert.Equal("Unknown work 555", work.Title);
-        Assert.Equal(1, page.ParseWarnings);
+        Assert.Equal(2, page.ParseWarnings);
+        Assert.Null(work.IsAnonymous);
     }
 
     [Fact]
@@ -386,6 +474,7 @@ public class Ao3BlurbParserTests
     /// without restating the markup around it.
     /// </summary>
     private static string Blurb(
+        string title = "A Study in Lexa",
         string category = "F/F",
         string warnings = "No Archive Warnings Apply",
         string isWip = "Complete Work",
@@ -397,7 +486,7 @@ public class Ao3BlurbParserTests
         <li id="work_12345678" class="work blurb group">
           <div class="header module">
             <h4 class="heading">
-              <a href="/works/12345678">A Study in Lexa</a>
+              <a href="/works/12345678">{title}</a>
               {(restricted ? """<img class="symbol non-image" title="Restricted" src="/lock.png">""" : "")}
               by {byline}
             </h4>

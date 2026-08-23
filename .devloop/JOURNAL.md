@@ -461,3 +461,42 @@ build. Not something a task should chase.
   Run order after this: T26, then T30, then T28's audit — which now has three more rows waiting for
   it (what a 404 may conclude, what a stalled backfill's terminal state is, and the give-up rule
   above) and only two blockers left.
+
+## 2026-08-23 — T26 An unreadable byline must not erase authorship — done
+
+- did: Split one boolean into the two facts it was carrying. `Ao3WorkBlurb.IsAnonymous` is `bool?`:
+  false when the byline named someone, true when it says "Anonymous", null when it could not be read
+  — and `WorkIngestor` writes neither the column nor the author rows on null, because `ApplyAuthors`
+  reconciles and an empty set is a deletion, not silence. `ParseAuthors` became `ParseByline`, which
+  also counts the warning the parser's own contract promised and never raised. The word "Anonymous"
+  is read only from the byline: link text that is not `rel="author"` is skipped, and the scan stops
+  at the first "for", so a gift to an anonymous recipient cannot speak for the work's authorship.
+- files: `Api/Services/Scraping/{Ao3BlurbParser,Ao3WorkBlurb,WorkIngestor}.cs`,
+  `Tests/{Ao3BlurbParserTests,WorkIngestorPseudTests}.cs`, `.devloop/{tasks,DECISIONS}.md`
+- ran: `dotnet test --filter ~Author` → 17 passed (10 before this task); `dotnet test` → 379 passed
+  (370 before); `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only.
+  Every new test was confirmed red against the unpatched code: the three parser ones by running them
+  before the change, the ingestor one by removing the guard, the two gift ones by restoring the old
+  scan. No schema change, so no migrations.
+- commit: (see below)
+- next: **The review's finding was the fix reintroducing the defect it was fixing.** Excluding the
+  title from the "Anonymous" scan and stopping there looked complete; it left the gift clause in
+  scope, and under the exact markup change this task defends against — AO3 dropping `rel="author"` —
+  every *gifted* work would have parsed as anonymous and lost its creators. Generalising, and it
+  belongs in T28's table beside T37's note: **when a fix turns one signal into a conclusion, ask
+  what else in the same document can produce that signal.** A heading holds four people's names.
+  **Queued from this review, none of it in T26's diff:** T40 (T37's fix for counting an unread page
+  as read landed on the retreat path only — the non-retreat path still does it), T41 (the retreat's
+  log line: six placeholders, five arguments — the one compiler warning in the backend build, found
+  at this task's baseline check), and one line added to T38 naming `BeginBackfill` as where
+  `BackfillStalledRuns` is not cleared. **T39 was re-reported independently by this pass** — second
+  review, same unverified `HasListing` premise. It is still the one to read before touching the
+  scraper, and still blocked on a capture only Emma can fetch. Five of forty-one tasks now wait on
+  files: T5, T10, T13, T39.
+  Filter check, per T22: `~Author` 10 → 17 and covers every test this task wrote. T40's `~PagesFetched`
+  and T41's build check are named in those tasks as matching **zero** tests today, deliberately.
+  Still unverified and still suspect: T31's `~TotalWorks` and T32's `~Monotonic`, both still zero.
+  **Run order is now T30, then T28's audit** — and with T26 done, every pre-loop scraper defect this
+  loop inherited is closed. The eighth review pass found four things and three were the loop's own
+  code, continuing T37's observation: what the reviews find now is what this loop is writing.
+

@@ -135,7 +135,12 @@ public sealed class WorkIngestor : IWorkIngestor
             work.UpdatedAtIsApproximate = true;
         }
 
-        work.IsAnonymous = blurb.IsAnonymous;
+        // Null is "this blurb's byline could not be read", which is not a claim about the work's
+        // authorship at all — see Ao3BlurbParser.ParseByline. Leaving the column alone is the only
+        // honest reading: a heading AO3 has reshaped must cost a parse warning, not the credits of
+        // every work a pass re-sees.
+        if (blurb.IsAnonymous is { } isAnonymous) work.IsAnonymous = isAnonymous;
+
         work.IsRestricted = blurb.IsRestricted;
 
         // Appearing in a listing is proof the work exists, so it undoes a deletion recorded earlier.
@@ -177,6 +182,12 @@ public sealed class WorkIngestor : IWorkIngestor
 
     private void ApplyAuthors(Work work, Ao3WorkBlurb blurb, Dictionary<(string, string), Ao3Pseud> pseudsByKey)
     {
+        // The destructive half of the rule above: Reconcile deletes every row not in `desired`, so
+        // an unread byline's empty author list would erase the creators a working pass recorded.
+        // A work whose byline really did lose its creators reports that as IsAnonymous true, and
+        // reaches the reconcile below with the empty list it means.
+        if (blurb.IsAnonymous is null) return;
+
         var ordered = blurb.Authors
             .Select(a => pseudsByKey.GetValueOrDefault(PseudKey(a.Username, a.PseudName)))
             .Where(p => p is not null)

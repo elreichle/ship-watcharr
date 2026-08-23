@@ -24,6 +24,16 @@ public sealed record Ao3BlurbSeries(long Id, string Title, int? Part);
 /// set — see the remarks there. <see cref="Work.PublishedAt"/> has no counterpart here precisely
 /// because blurbs are the one place it is missing.
 /// </summary>
+/// <param name="IsAnonymous">
+/// True for a work AO3 credits to nobody, false for one whose byline named someone, and null when
+/// the byline could not be read — which is a statement about this parse, not about the work, and
+/// the reason <see cref="Authors"/> being empty may not be taken for authorship having been
+/// withdrawn. See <c>Ao3BlurbParser.ParseByline</c>.
+/// </param>
+/// <param name="Authors">
+/// The creators this blurb named. Empty whenever <see cref="IsAnonymous"/> is not false, and only
+/// authoritative when it is: an empty list beside a null flag means nothing was read.
+/// </param>
 public sealed record Ao3WorkBlurb(
     long WorkId,
     string Title,
@@ -44,7 +54,7 @@ public sealed record Ao3WorkBlurb(
     string? LanguageName,
     DateTime UpdatedAt,
     bool UpdatedAtIsApproximate,
-    bool IsAnonymous,
+    bool? IsAnonymous,
     bool IsRestricted,
     IReadOnlyList<Ao3BlurbTag> Tags,
     IReadOnlyList<Ao3BlurbAuthor> Authors,
