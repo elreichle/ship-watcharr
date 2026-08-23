@@ -349,3 +349,36 @@ build. Not something a task should chase.
   Sixth review pass, eighteen pre-loop defects. **Three of this pass's four were outside the
   scraper's walk** — a migration (T35) and the admin page (T36) — the first time a pass has found
   more outside it than in. That reads as the walk's density falling rather than the tree's rising.
+
+## 2026-08-22 — T34 A backfill must not call itself complete off a page that parsed to nothing — done
+
+- did: The `listing.Works.Count == 0` branch now concludes the listing has ended only when nothing
+  on the page contradicts it: page 1, no Next link, and no populated heading on an unfiltered
+  request. Any of the three says otherwise and the run stops with `Error`, leaving
+  `BackfillNextPage` where it is so the page is re-asked once per run at the scheduler's spacing.
+  The heading check is gated on `listingWasFiltered` — T29's flag — because a filtered listing's
+  heading counts the filter's result set, and a quiet incremental pass reading zero blurbs under
+  one is the healthy case, not a parse failure. **T25's half (2) is done here**: it was the same
+  block and the same question, and answering only T34's half would have meant writing a rule for a
+  later iteration to rewrite. T25 is re-scoped in `tasks.md` to its 404 half.
+- files: `Api/Services/Scraping/Ao3ShipIndexScraper.cs`, `Tests/Ao3ShipIndexScraperTests.cs`,
+  `.devloop/{tasks.md,DECISIONS.md}`
+- ran: `dotnet test --filter FullyQualifiedName~Backfill` → 9 passed (6 before this task);
+  `--filter ~Ao3ShipIndexScraper` → 44 passed; `dotnet test` → 359 passed;
+  `npm run build` + `npm run lint` → clean, the two pre-existing fast-refresh warnings only.
+  All three defect tests were confirmed red first, and the two guard tests green first — the
+  latter matters, because they are the ones that would have caught an over-broad rule.
+- commit: (see below)
+- next: **The rule that was rejected is the part worth carrying.** `ship.LastKnownTotalWorks` was
+  considered as a fourth signal, to close the one hole left open — a page 1 from which neither a
+  heading nor a blurb parsed still concludes "empty tag". It was rejected because T29 made that
+  figure deliberately stale on a ticking ship, so a tag whose works were genuinely all deleted
+  would become unconcludable: the "refuses to conclude" cost T24 recorded, paid for a narrower
+  hole than the three page-local signals already close. **That is a T28 row**, and the kind T28
+  says is most valuable — a rule that concludes because nothing on the page contradicts it.
+  **Filters checked to bite, per T22's lesson, and two of them do not.** `~Backfill` 6 → 9,
+  `~Author` (T26) 10, `~Ingest` (T33) 6, `~Pseud` (T35) 6. But **`~TotalWorks` (T31) and
+  `~Monotonic` (T32) match zero tests today** — those tasks must name their new tests to match, or
+  their verification will look like a pass while running nothing. T30's `~Authenticated` was 3 at
+  T29.
+  The run order's next entry is now T25 (re-scoped, smaller than it reads) and T26.

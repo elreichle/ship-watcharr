@@ -220,18 +220,66 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
             if (listing.Works.Count == 0)
             {
-                // A tag really can be empty, so this is still a legitimate end of the walk. It is
-                // also exactly what a markup change looks like, and the two are indistinguishable
-                // from here — so the first page yielding nothing is logged loudly enough to be
-                // findable, with the response size to tell "AO3 served us an error page" apart from
-                // "AO3 served us a listing we can no longer read".
-                if (pagesFetched == 1)
+                // A tag really can be empty, and a walk that runs out of works is how a backfill
+                // finishes — FinishAsync turns this stop into BackfillState.Complete. So this
+                // branch hands out the strongest conclusion in the pass, and a page that merely
+                // could not be *read* takes it just as readily as an empty tag does: a 200
+                // maintenance page or a listing markup change at page 57 of a 3,000-page backfill
+                // used to record the ship as fully backfilled, with the rest never read and nothing
+                // ever looking again. The 404 branch above was hardened against exactly that; this
+                // is the same conclusion reached by another route.
+                //
+                // Three pieces of evidence say the page is not the end of the listing, all of them
+                // already parsed:
+                //
+                //   page > 1          — the walk only got here because the page before advertised a
+                //                       Next link, or because a previous run's cursor pointed here
+                //                       after reading one that did. AO3 404s past the last page
+                //                       rather than serving an empty one, so a 200 with nothing on
+                //                       it above page 1 is anomalous by construction.
+                //   HasNextPage       — the page says itself that there is more after it.
+                //   TotalWorks > 0    — the heading and the blurbs come off the same HTML and
+                //                       contradict each other. Only on an unfiltered listing: a
+                //                       revised_at-filtered request's heading counts the filter's
+                //                       result set, not the tag (see RecordTotal), so a quiet
+                //                       incremental pass legitimately reads an empty page under a
+                //                       heading, and holding that against it would fail every tick.
+                //
+                // None of the three, on page 1: an empty tag, and the walk concludes. What is left
+                // unresolved — and it is the honest limit of what this page can say — is a page
+                // from which neither a heading nor a blurb parsed, requested as page 1. That is
+                // indistinguishable here from an empty tag, so it still concludes; the warning
+                // below carries the response length to make it findable.
+                var plausiblyTheEnd =
+                    page == 1
+                    && !listing.HasNextPage
+                    && !(listing.TotalWorks > 0 && !listingWasFiltered);
+
+                if (!plausiblyTheEnd)
                 {
-                    _logger.LogWarning(
+                    _logger.LogError(
                         "Page {Page} for ship {ShipId} ({Tag}) parsed to no works from {Length} characters "
-                        + "of HTML. Either the tag is empty or the listing markup has changed.",
-                        page, ship.Id, ship.CanonicalTagName, response.Content.Length);
+                        + "of HTML, but the listing says there are more ({Total} works in the tag, next page: "
+                        + "{HasNext}). Treating this as a parse failure rather than the end of the listing.",
+                        page, ship.Id, ship.CanonicalTagName, response.Content.Length,
+                        listing.TotalWorks, listing.HasNextPage);
+
+                    stopReason = ScrapeStopReason.Error;
+                    errorMessage =
+                        $"Page {page} parsed to no works, and the listing says there are more "
+                        + $"(total {listing.TotalWorks?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}, "
+                        + $"next page: {listing.HasNextPage})";
+                    break;
                 }
+
+                // An empty tag, as far as anything on the page can tell. Still logged: it is also
+                // what a markup change on a small tag looks like, and the response size tells "AO3
+                // served us an error page" apart from "AO3 served us a listing we can no longer
+                // read".
+                _logger.LogWarning(
+                    "Page {Page} for ship {ShipId} ({Tag}) parsed to no works from {Length} characters "
+                    + "of HTML. Either the tag is empty or the listing markup has changed.",
+                    page, ship.Id, ship.CanonicalTagName, response.Content.Length);
 
                 stopReason = ScrapeStopReason.LastPage;
                 break;

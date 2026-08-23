@@ -10,11 +10,10 @@ a dependency cannot be met — needs a human).
 Tasks are **not** taken in file order. Take the first `todo` listed here whose `blocked-by` are all
 `done`; only when this list is exhausted does file order apply.
 
-1. T34 — a backfill marks itself Complete off a page that parsed to nothing
-2. T25, T26 — the remaining pre-loop scraper defects
-3. T30 — what is left of the authenticated-total flag, after T29 paired it with the total
-4. T28 — the audit of the walking and stopping rules, while that code is still fresh
-5. then file order, from T6
+1. T25, T26 — the remaining pre-loop scraper defects. T25 is now its 404 half only; T34 took the other.
+2. T30 — what is left of the authenticated-total flag, after T29 paired it with the total
+3. T28 — the audit of the walking and stopping rules, while that code is still fresh
+4. then file order, from T6
 
 Why this list exists at all: every entry was found by review of pre-loop scraper code, so none of it
 appears where the original plan put it — without this list, file order would send an iteration to T6
@@ -22,8 +21,6 @@ and leave the scraper's live defects in place. T23, T24 and T27 — the three th
 re-request AO3 in a loop, the one thing its politeness rules exist to prevent — are done. The
 reasoning is in `DECISIONS.md` under the T23 and T27 reviews.
 
-T34 leads for the reason T29 did: it is a ship writing itself a conclusion nothing downstream can
-tell is wrong, and this one retires a ship from backfilling forever off a single unparseable page.
 T30 stays in the audit's `blocked-by` — it and T29 both decide what a pass writes back to the ship,
 which is what T28 tabulates — but it is now the smaller half of itself, T29 having paired the flag
 with the total it describes. T31, T32, T33, T35 and T36 are real but slow-acting or latent and sit
@@ -448,8 +445,9 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 - status: todo
 - attempts: 0
 - blocked-by: none
-- delivers: A resumed backfill can reach `Complete`, and a page that is not the end of the listing
-  can no longer be mistaken for one.
+- **Re-scoped by T34**, which took half (2). See the struck-through note below.
+- delivers: A resumed backfill whose first request 404s because the listing shrank reaches
+  `Complete`, instead of re-requesting the missing page on every scheduled run forever.
 - verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Backfill`
 - notes: Found by `/code-review` during T23, in code that predates this loop. Two halves of one
   question — which page ends a walk — both in `Ao3ShipIndexScraper.ExecuteAsync`:
@@ -459,13 +457,14 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   `pagesFetched == 0` and is recorded as `Error` instead of `LastPage` — so `BackfillState` never
   becomes `Complete`, the cursor never advances, and the ship re-requests the same missing page on
   every scheduled run indefinitely. The guard wants `page == 1`.
-  (2) A 200-OK page that parses to zero works mid-walk (~line 216) takes the `LastPage` branch,
-  which in `FinishAsync` marks the backfill `Complete` and stamps `BackfillCompletedAt` — and the
-  "either the tag is empty or the markup has changed" warning is emitted only when
-  `pagesFetched == 1`. The loop only reached page N because page N-1 advertised a Next link, so an
-  empty page there is anomalous by construction: a markup change or a soft-error page at page 57 of
-  a 3,000-page backfill records the ship as fully backfilled with the rest never read, silently.
-  Decide what an empty page mid-walk means and say so in a comment.
+  ~~(2) A 200-OK page that parses to zero works mid-walk takes the `LastPage` branch.~~
+  **Done by T34.** T34 and this half were the same `if (listing.Works.Count == 0)` block and the
+  same question, so answering one without the other would have meant writing a rule and rewriting
+  it an iteration later. The block now concludes the listing has ended only on page 1, with no Next
+  link and no populated unfiltered heading; anything else is an `Error` that leaves the cursor
+  where it is. See `DECISIONS.md` under T34. **What is left of T25 is half (1) only** — the 404
+  branch's `pagesFetched == 0`, which is a different branch and a different failure (a resumed
+  backfill that can never *reach* `Complete`, where T34's was one that reached it wrongly).
 
 ## T26 — An unreadable byline must not erase authorship
 - status: todo
@@ -627,7 +626,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   that the existing ingest tests stay green.
 
 ## T34 — A backfill must not call itself complete off a page that parsed to nothing
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A backfill whose page yields zero works while AO3's heading says the tag has thousands

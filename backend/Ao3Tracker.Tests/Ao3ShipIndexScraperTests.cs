@@ -470,6 +470,103 @@ public class Ao3ShipIndexScraperTests : IDisposable
         Assert.Equal(ShipBackfillState.Complete, (await ReloadAsync(shipId)).BackfillState);
     }
 
+    // ---- what a page with no readable works may conclude ----------------------------------------------
+
+    [Fact]
+    public async Task Refuses_to_call_a_backfill_complete_when_a_page_parses_to_no_works_under_a_populated_heading()
+    {
+        // The heading and the blurbs come off the same page and contradict each other: AO3 says the
+        // tag holds 4,317 works and not one of them could be read. That is a parse failure, and
+        // calling it the end of the listing retires the ship from backfilling having read nothing.
+        _host.Http.Responds = Pages(Page(1, [], total: 4317));
+        var shipId = await FollowAsync();
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        Assert.Contains("4317", outcome.ErrorMessage);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(ShipBackfillState.InProgress, ship.BackfillState);
+        Assert.Null(ship.BackfillCompletedAt);
+    }
+
+    [Fact]
+    public async Task Refuses_to_conclude_from_an_empty_page_reached_mid_walk()
+    {
+        // Page 1 advertised a Next link, so page 2 exists by AO3's own account. Nothing readable on
+        // it means the markup changed or a soft-error page was served, not that the tag ended.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1)], nextPage: true),
+            Page(2, []));
+
+        var shipId = await FollowAsync();
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(ShipBackfillState.InProgress, ship.BackfillState);
+
+        // The cursor still points at the page that failed, so the next run asks for it again —
+        // once, at the scheduler's spacing.
+        Assert.Equal(2, ship.BackfillNextPage);
+    }
+
+    [Fact]
+    public async Task Refuses_to_conclude_from_an_empty_page_a_resumed_backfill_started_on()
+    {
+        // The same anomaly through the route the old `pagesFetched == 1` guard could not see: this
+        // run's *first* request is page 3, because a previous run's cap left the cursor there. The
+        // page that advertised more was read by that earlier run.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1)], nextPage: true),
+            Page(2, [Blurb(2)], nextPage: true),
+            Page(3, []));
+
+        var shipId = await FollowAsync();
+        await ResumeBackfillAtAsync(shipId, page: 3);
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        Assert.Equal(ShipBackfillState.InProgress, (await ReloadAsync(shipId)).BackfillState);
+    }
+
+    [Fact]
+    public async Task Still_treats_an_empty_first_page_as_an_empty_tag()
+    {
+        // The other side of the rule. A tag with no works has one page, no heading count and no
+        // Next link, and a backfill of it really is complete — refusing to conclude here would
+        // leave the ship re-requesting an empty listing on every scheduled run forever.
+        _host.Http.Responds = Pages(Page(1, []));
+        var shipId = await FollowAsync();
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
+        Assert.Equal(ShipBackfillState.Complete, (await ReloadAsync(shipId)).BackfillState);
+    }
+
+    [Fact]
+    public async Task Reads_a_quiet_filtered_pass_with_a_populated_heading_as_nothing_new()
+    {
+        // A filtered listing's heading counts the filter's result set, not the tag — which is why
+        // RecordTotal ignores it — so it cannot be held against the blurbs to detect a parse
+        // failure. Were it, every quiet incremental pass on a tag whose heading still prints a
+        // count would be recorded as an error, on every tick.
+        _host.Http.Responds = Pages(Page(1, [], total: 4317));
+
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(5));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
+        Assert.Null(outcome.ErrorMessage);
+    }
+
     // ---- what a resumed backfill may conclude about the watermark -------------------------------------
 
     [Fact]

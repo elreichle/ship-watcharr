@@ -348,3 +348,40 @@ this code and the pre-loop defect total is now eighteen. Three of T29's four wer
 scraper's walk — the migration and the admin page — which is the first time a pass has found more
 outside it than in. Read as the walk's density falling rather than the codebase's; T28 is still the
 right next structural move, and it is now four tasks away rather than three.
+
+## 2026-08-22 — T34: what an empty page is entitled to conclude, and T25 re-scoped
+
+**Decided: a page with no readable works ends the walk only when everything on it agrees the tag
+ended.** Three pieces of evidence, all already parsed by `Ao3BlurbParser.ParseListing`, say it did
+not: the request was for a page above 1 (AO3 404s past the end rather than serving an empty 200, so
+the walk only got above page 1 because something advertised more — a Next link this run read, or one
+a previous run read before leaving the cursor here); the page carries a Next link of its own; or the
+heading counts works the blurbs do not contain. None of the three, on page 1, is an empty tag and
+concludes `LastPage` as before. Anything else is `ScrapeStopReason.Error`, which leaves
+`BackfillNextPage` where it is, so the page is re-requested once per run at the scheduler's spacing
+rather than being written off.
+
+**The heading is only evidence on an unfiltered listing.** T29 established that a
+`work_search[revised_at]` request's heading counts the filter's result set, not the tag — which is
+why `RecordTotal` ignores it. Held against the blurbs, that same heading would make *every* quiet
+incremental pass a parse failure on any tag whose filtered heading still prints a count: nothing new
+since the watermark is the healthy, common case for that pass, and it reads as zero blurbs. So the
+heading check reuses `listingWasFiltered`, the flag T29 introduced, and
+`Reads_a_quiet_filtered_pass_with_a_populated_heading_as_nothing_new` pins it.
+
+**Named rather than solved: a page 1 from which nothing at all parsed still concludes.** No heading,
+no blurbs, no Next link, requested as page 1 — a maintenance page and an empty tag are
+indistinguishable from that page alone, so the walk still calls it the end. `ship.LastKnownTotalWorks`
+was considered as a fourth signal and rejected: T29 made that figure deliberately stale on a ticking
+ship, and a tag whose works were genuinely all deleted would then never be concludable — the
+"refuses to conclude" cost recorded under T24, paid to close a narrower hole than the three signals
+already close. **This is a row for T28's table**, and the kind it says is most valuable: a rule that
+concludes because nothing on the page contradicts it.
+
+**T25 is re-scoped to its half (1).** Its half (2) — an empty page mid-walk taken for the end of the
+listing — is the same `if (listing.Works.Count == 0)` block and the same question as T34, so it is
+done here rather than left for a later iteration to rewrite the rule this one just wrote. What
+remains of T25 is the 404 branch's `pagesFetched == 0` guard, a different branch and the opposite
+failure: a resumed backfill that can never *reach* `Complete`, where T34's could reach it wrongly.
+Both halves of T25's `delivers` line were kept in scope by the re-scope; only the sentence about
+mistaking a page for the end has moved.
