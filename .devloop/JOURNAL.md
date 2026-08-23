@@ -404,3 +404,60 @@ build. Not something a task should chase.
   firing on every healthy incremental tick. A filter matching *nothing* looks suspicious; a filter
   matching *some* does not. Corrected to `~Ao3ShipIndexScraper` (47 tests).
   The run order's next entries are T37, then T25 (re-scoped, smaller than it reads), then T26.
+
+## 2026-08-23 — T37 A backfill stuck on a page that is neither readable nor gone — done
+
+- did: One rule where there were two contradictory ones. A backfill run's *first* request landing on
+  a cursor above page 1 and getting back either a 404 or a 200 with nothing readable is one
+  situation — a cursor pointing past a listing that shrank — and `CursorMayBeStale` recognises it
+  from both branches. Neither concludes any more: the run retreats one page and asks the listing,
+  which is the only authority on its own length and *can* answer. A Next link on that page means the
+  cursor's page is supposed to exist, so the run stops and the cursor stays; no Next link means the
+  listing ends there, and `LastPage` → `Complete` is reached on evidence. The bound is
+  `Ship.BackfillStalledRuns` (new column, both providers): runs the archive answered that got no
+  further, cleared by forward progress, and at 12 the backfill is `ShipBackfillState.Failed` — the
+  enum's fourth value, which nothing had ever set — so the ship falls back to its incremental pass
+  instead of spending two requests a run forever. The 404 guard is now `lastPage == page - 1`, which
+  **closes T25** entirely: nothing of it was left once the branch was rewritten.
+- files: `Api/Services/Scraping/Ao3ShipIndexScraper.cs`, `Api/Models/Ship.cs`,
+  `Api/Data/Migrations/{Sqlite,Postgres}/*BackfillStalledRuns*`, `Tests/Ao3ShipIndexScraperTests.cs`,
+  `.devloop/{tasks.md,DECISIONS.md}`
+- ran: `dotnet test --filter FullyQualifiedName~Ao3ShipIndexScraper` → 53 passed, then 55 after the
+  review fixes (47 before this task); `dotnet test` → 370 passed; `npm run build` + `npm run lint` →
+  clean, the two pre-existing fast-refresh warnings only. All six original tests were confirmed red
+  against the unpatched scraper in one run — 6 failed / 47 passed — which also confirmed the task
+  broke nothing that was already pinned.
+- commit: d3be48e "T37: Settle what a backfill cursor past a shrunken listing may conclude"
+- next: **The bound was the hard half, not the rule.** The retreat was the easy decision — T37's
+  notes named it — and it took twenty minutes. What took the rest was that a bound on retrying is
+  only honest if the *legitimate* cases finish inside it, and the first version's one-page-per-run
+  walk-back did not: a listing that lost dozens of pages would have exhausted the allowance and been
+  written off having never been broken. Hence the halving. **Generalising, and it belongs in T28's
+  table: a give-up threshold is a conclusion drawn from failure, and it inherits every objection
+  this loop has raised to those** — it needs the same "what is this entitled to conclude" scrutiny
+  as a stopping rule, and the question to ask it is which honest scenario it fires on first.
+  **`ShipBackfillState.Failed` is reachable for the first time and has no exit.** Queued as **T38**
+  and added to T15's `blocked-by`. Nothing in the product moves a ship out of `Failed`, so a
+  backfill written off during an outage stays written off. `BackfillNextPage` is deliberately left
+  where the walk gave up so a restart has somewhere honest to resume from, and resetting
+  `BackfillStalledRuns` has to be part of that restart or the ship gives up again immediately.
+  **T39 is the one to read before touching the scraper again**, and it is `blocked` on a fixture.
+  T34's `HasListing` decides an empty tag from a not-a-results-page on a premise about AO3's markup
+  that nothing verifies — and the test helper `Page(n, [])` emits the container unconditionally, so
+  the suite proves the premise by assuming it. If it is wrong, every quiet incremental pass on every
+  ship errors forever, which is worse than the defect T34 fixed. **Ask Emma for a capture**: any tag
+  under a far-future `work_search[revised_at]` bound produces it, and that is the exact shape a
+  quiet pass sends. T5, T10, T13 and now T39 are all waiting on files only a human can fetch — four
+  of thirty-nine tasks, and the count is growing.
+  Filters checked to bite, per T22's lesson: `~Ao3ShipIndexScraper` 47 → 55 and covers every test
+  this task wrote. Still unchecked and still suspect: T31 `~TotalWorks` and T32 `~Monotonic` matched
+  **zero** tests at T34 and nothing since has added any — those two tasks must name their new tests
+  to match or their verification will run nothing at all. T26's `~Author` (10) and T30's
+  `~Authenticated` (3) were checked at T34 and T29.
+  Seventh review pass, and the first whose findings were **all four in the diff under review** —
+  three of T37's own making, one in T34's commit from the pass before. The pre-loop defect count is
+  unchanged at eighteen. That is the walk finally running out of inherited defects; what it is
+  finding now is what this loop is writing.
+  Run order after this: T26, then T30, then T28's audit — which now has three more rows waiting for
+  it (what a 404 may conclude, what a stalled backfill's terminal state is, and the give-up rule
+  above) and only two blockers left.
