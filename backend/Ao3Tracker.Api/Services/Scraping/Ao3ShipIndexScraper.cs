@@ -203,21 +203,29 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
-                // Walking off the end of a listing is how a backfill finishes; AO3 404s rather than
-                // serving an empty page past the last one.
+                // A 404 concludes nothing about how long a listing is. The only page entitled to
+                // say a listing ended is a page that was *read* and offered no next link, and the
+                // walk has two ways of getting one: the forward walk's own `!listing.HasNextPage`
+                // stop below, and the retreat, which re-reads the page before a cursor and asks it.
                 //
-                // But only *past a page this run actually read*, which is what `lastPage` holds: the
-                // page before this one was read, it offered a next link, and there is nothing there.
-                // That is a listing that ended. A 404 anywhere else was reached on somebody's word
-                // other than a page this run has in hand, and concluding "complete" from it would
-                // mark a ship fully backfilled having read nothing — which is precisely what a wrong
-                // address did on the first live run.
-                if (lastPage == page - 1)
-                {
-                    stopReason = ScrapeStopReason.LastPage;
-                    break;
-                }
-
+                // This branch used to end the walk on `lastPage == page - 1` — the page before was
+                // read, and this one is not there. Note what the walk had to do to arrive at that:
+                // it only ever advances past a page that offered a next link, so `lastPage` being
+                // `page - 1` *means* a page this run read said page N exists. That is the same
+                // evidence CursorMayBeStale two hundred lines below refuses to conclude from —
+                // page N-1 read, offering a next link, page N absent — and the two disagreed only
+                // on whether this run happened to be the one that read page N-1. One transient 5xx
+                // during a retreat was the whole cost of crossing between them: a run left the
+                // cursor at N-1, and the next healthy run read N-1, asked N, took the 404 and
+                // retired the ship with page N onward never read.
+                //
+                // So this branch does not conclude either, and a listing that genuinely shrank out
+                // from under the walk is not lost by that — it is deferred one run. The cursor is
+                // already sitting on the 404'd page, so the next run's first request lands there,
+                // CursorMayBeStale recognises it, and the retreat re-reads page N-1 and takes the
+                // listing's own word: no next link there any more and the backfill completes on
+                // evidence; still a next link and the ship is stalled rather than retired, bounded
+                // by MaxStalledBackfillRuns.
                 if (CursorMayBeStale(context.Mode, page, pagesRequested, retreatedFrom))
                 {
                     retreatBecause = $"AO3 returned 404 for page {page.ToString(CultureInfo.InvariantCulture)}";
@@ -237,7 +245,10 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                     ? JumpCursorBackFrom(
                         ship, from, retreatBecause!,
                         $"page {page.ToString(CultureInfo.InvariantCulture)} before it returned 404 as well")
-                    : $"AO3 returned 404 for the first page requested, {url}";
+                    : lastPage == page - 1
+                        ? $"AO3 returned 404 for page {page.ToString(CultureInfo.InvariantCulture)}, which "
+                            + $"page {(page - 1).ToString(CultureInfo.InvariantCulture)} offered a next link to"
+                        : $"AO3 returned 404 for the first page requested, {url}";
 
                 break;
             }
@@ -513,6 +524,12 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// Once per run. Retreating twice would be a backwards walk inside one run, and the walk-back a
     /// listing that lost several pages needs is paid a page per run instead, bounded by
     /// <see cref="MaxStalledBackfillRuns"/>.
+    ///
+    /// This is also where a listing that shrank *mid-walk* is answered, one run later. A 404 the
+    /// walk runs into after reading the page before it no longer concludes anything either — the
+    /// walk only advances past a page offering a next link, so that 404 is the same contradiction
+    /// as this one and differs only in which run read page N-1. The run stops with the cursor on
+    /// the page that did not answer, which makes it this run's question next time.
     /// </summary>
     private static bool CursorMayBeStale(ScrapeRunMode mode, int page, int pagesRequested, int? retreatedFrom) =>
         mode == ScrapeRunMode.Backfill && pagesRequested == 1 && page > 1 && retreatedFrom is null;

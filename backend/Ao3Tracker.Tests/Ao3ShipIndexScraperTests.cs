@@ -531,9 +531,11 @@ public class Ao3ShipIndexScraperTests : IDisposable
     }
 
     [Fact]
-    public async Task Treats_a_404_past_the_last_page_as_the_end_of_the_walk()
+    public async Task Refuses_to_end_a_walk_on_a_404_the_page_before_it_said_would_answer()
     {
-        // AO3 404s rather than serving an empty page past the end of a listing.
+        // The walk only ever advances past a page that offered a next link, so a 404 arriving
+        // straight after a page this run read is a page the listing itself said exists. That is a
+        // contradiction, not the end of anything, and it used to be read as Complete.
         _host.Http.Responds = url => url.Contains("page=2")
             ? new ScrapeHttpResponse("", HttpStatusCode.NotFound, FromCache: false, FinalUrl: url)
             : Ok(url, Page(1, [Blurb(1)], nextPage: true).Html);
@@ -542,8 +544,103 @@ public class Ao3ShipIndexScraperTests : IDisposable
 
         var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
 
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(ShipBackfillState.InProgress, ship.BackfillState);
+
+        // Left on the page that did not answer, which is what hands the question to the retreat on
+        // the next run rather than asking the same thing twice inside this one.
+        Assert.Equal(2, ship.BackfillNextPage);
+        Assert.Equal(1, _host.Http.Requested.Count(url => url.Contains("page=2")));
+    }
+
+    [Fact]
+    public async Task Reads_the_same_conclusion_off_a_404_whichever_run_read_the_page_before_it()
+    {
+        // The crossing T43 was filed over, stated as a property. One server — pages 1 and 2 offering
+        // next links, page 3 absent — and the only difference is whether this run read page 2 or an
+        // earlier one did. A walk from page 1 used to call that Complete while a cursor resumed at
+        // page 3 called it Error, so a single transient failure mid-retreat decided whether a ship
+        // was retired with its back catalogue unread.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1)], nextPage: true),
+            Page(2, [Blurb(2)], nextPage: true));
+
+        var walked = await FollowAsync();
+        var walkedOutcome = await _host.ScrapeAsync(walked, ScrapeRunMode.Backfill);
+        var walkedShip = await ReloadAsync(walked);
+
+        var resumed = await FollowAsync("Nomi Marks/Amanita Caplan");
+        await ResumeBackfillAtAsync(resumed, page: 3);
+        var resumedOutcome = await _host.ScrapeAsync(resumed, ScrapeRunMode.Backfill);
+        var resumedShip = await ReloadAsync(resumed);
+
+        Assert.Equal(resumedOutcome.StopReason, walkedOutcome.StopReason);
+        Assert.Equal(resumedShip.BackfillState, walkedShip.BackfillState);
+        Assert.Equal(resumedShip.BackfillNextPage, walkedShip.BackfillNextPage);
+
+        Assert.Equal(ScrapeStopReason.Error, walkedOutcome.StopReason);
+        Assert.Equal(ShipBackfillState.InProgress, walkedShip.BackfillState);
+    }
+
+    [Fact]
+    public async Task Does_not_retire_a_ship_because_a_retreat_was_cut_short_by_a_passing_failure()
+    {
+        // The route in, run for run. Page 3 is absent and page 2 insists it is there, so the ship
+        // must end up stalled rather than complete — but the first run's retreat never gets its
+        // answer, because page 2 is having a bad moment, and it leaves the cursor at 2. The second
+        // run is healthy, reads page 2, and walks into the 404 from the other side.
+        _host.Http.Responds = url => url.Contains("page=2")
+            ? new ScrapeHttpResponse("", HttpStatusCode.InternalServerError, FromCache: false, FinalUrl: url)
+            : Pages(Page(1, [Blurb(1)], nextPage: true))(url);
+
+        var shipId = await FollowAsync();
+        await ResumeBackfillAtAsync(shipId, page: 3);
+
+        var first = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.Error, first.StopReason);
+        Assert.Equal(2, (await ReloadAsync(shipId)).BackfillNextPage);
+
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1)], nextPage: true),
+            Page(2, [Blurb(2)], nextPage: true));
+
+        var second = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.Error, second.StopReason);
+        Assert.Equal(ShipBackfillState.InProgress, (await ReloadAsync(shipId)).BackfillState);
+    }
+
+    [Fact]
+    public async Task Completes_on_the_next_run_when_the_listing_really_did_shrink_under_the_walk()
+    {
+        // What refusing to conclude costs, and it is one run rather than the completion. Works are
+        // deleted between the two requests of a walk, so page 2 — read moments ago offering a next
+        // link — is followed by a 404. This run stops; the next run's first request lands on that
+        // page, the retreat re-reads page 2, and the listing having dropped its next link is the
+        // listing's own word that it ends there.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1)], nextPage: true),
+            Page(2, [Blurb(2)], nextPage: true));
+
+        var shipId = await FollowAsync();
+
+        Assert.Equal(ScrapeStopReason.Error, (await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill)).StopReason);
+        Assert.Equal(3, (await ReloadAsync(shipId)).BackfillNextPage);
+
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1)], nextPage: true),
+            Page(2, [Blurb(2)]));
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
         Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
-        Assert.Equal(ShipBackfillState.Complete, (await ReloadAsync(shipId)).BackfillState);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(ShipBackfillState.Complete, ship.BackfillState);
+        Assert.Equal(0, ship.BackfillStalledRuns);
     }
 
     // ---- a cursor pointing past the end of a listing that shrank ---------------------------------

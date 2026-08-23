@@ -10,7 +10,7 @@ a dependency cannot be met — needs a human).
 Tasks are **not** taken in file order. Take the first `todo` listed here whose `blocked-by` are all
 `done`; only when this list is exhausted does file order apply.
 
-1. T43 — the 404 that concludes `Complete` from evidence the retreat beside it refuses
+1. T47 — the filtered end-of-listing waiver that fires on a page carrying no evidence at all
 2. T28 — the audit of the walking and stopping rules, while that code is still fresh
 3. then file order, from T6
 
@@ -21,13 +21,14 @@ re-request AO3 in a loop, the one thing its politeness rules exist to prevent �
 T26 the pre-loop scraper defects this loop inherited are closed. What is left in this list is the
 loop's own work: one stopping rule, and the audit.
 
-T42 is done and produced T43 in its review — a backfill concluding `Complete` from exactly the
-evidence the retreat two hundred lines below refuses to conclude from, reachable from one transient
-5xx. It leads because it is the strongest wrong conclusion in the system and it is reachable today.
-The audit's `blocked-by` is now T43 alone; every entry on it has been a rule about what a stop may
-conclude (T34, T37, T42, T43), which is the argument for the audit stated four times over. T31, T32,
-T33, T35, T36, T38, T40, T41 and T44 are real but slow-acting or latent and sit in file order, after
-the planned work.
+T43 is done and produced T47 in its review — T42's waiver concluding `LastPage` off a filtered page
+carrying no heading, no next link and no works, which moves the watermark past everything the next
+page would have held. It leads because it is the only *silent* wrong conclusion left in the walk:
+every other one this loop has queued announces itself in the run history, and this one loses works
+and reports success. The audit's `blocked-by` is now T47 alone; every entry on it has been a rule
+about what a stop may conclude (T34, T37, T42, T43, T47), which is the argument for the audit stated
+five times over. T31, T32, T33, T35, T36, T38, T40, T41, T44, T45, T46 and T48 are real but
+slow-acting or latent and sit in file order, after the planned work.
 
 Delete an entry once its task is `done`. When this section is empty, delete the section.
 
@@ -269,7 +270,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 ## T15 — The full-sweep pass
 - status: todo
 - attempts: 0
-- blocked-by: T28, T29, T30, T38, T43
+- blocked-by: T28, T29, T30, T38, T46, T47
 - delivers: A third pass over a ship's index that walks every page and, only afterwards, marks the
   `ShipWork` rows it did not see as having left the tag — so the library stops drifting from AO3.
 - verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~FullSweep`
@@ -527,7 +528,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 ## T28 — Audit the scraper's walking and stopping rules
 - status: todo
 - attempts: 0
-- blocked-by: T43
+- blocked-by: T47
 - delivers: `.devloop/scraper-audit.md` — one table row per rule that decides where a pass starts,
   where it stops, what it may conclude from stopping, and what it writes back to the ship. Each row
   names the rule, the code that implements it, which passes it applies to, what it concludes, and
@@ -855,7 +856,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   premise T39 exists to settle.
 
 ## T43 — A 404 must not conclude what the retreat beside it refuses to conclude
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A backfill reaches `ShipBackfillState.Complete` on the same evidence whatever the
@@ -903,3 +904,112 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   beside the write, in `RecordTotal`, rather than to OR it across the run; T30's own note that the
   pair "travel together or the pair says something neither run did" is the argument, one scope
   further in. Add it to T5's reading, since T5 is what makes it reachable.
+
+## T45 — An incremental pass that cannot get past page 1 has no bound
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A ship whose incremental pass stops with `Error` on the same page every tick stops
+  spending a request on it every tick, without that ever being written as a moved watermark.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ao3ShipIndexScraper`
+  — name the new tests so this filter matches them; it is 67 today.
+- notes: The consequence T43 accepted deliberately, and the only half of it left open. A backfill
+  that cannot get past its cursor is bounded — `BackfillStalledRuns` at `MaxStalledBackfillRuns`
+  writes the backfill off as `Failed` and the ship falls back to its incremental pass. An
+  incremental pass has no equivalent: it always restarts at page 1, has no cursor to carry a
+  question into the next run, and `Error` freezes `IncrementalWatermarkUtc`, so a page 1 that is
+  entirely fresh and offers a next link followed by a page 2 that will not answer sends the same two
+  requests on every tick forever. Demonstrated by `/code-review high` during T43 against a running
+  server: page 1 fresh with a next link, page 2 → 404, watermark stays null.
+  **Do not close this by concluding the end of the listing.** That is the trade T43 refused and T24
+  ruled on: the works on page 2 are older than everything on page 1, so a watermark moved past them
+  is a watermark no later incremental pass looks back behind. The cost being refused here is two
+  requests per scheduler interval on a 5-8s gate, which is the same shape T23 chose deliberately —
+  "retried once per run at the scheduler's spacing, rather than in a tight loop inside one" — and
+  every one of those runs is recorded failed with a message naming the page, so the failure is
+  visible rather than silent. What is missing is only the *bound*: something that notices a ship has
+  spent N ticks failing on the same page and does something other than ask again.
+  The design question, and the reason this is a task rather than a line in T43's diff: what a stuck
+  incremental pass should *do*. A counter on the ship mirroring `BackfillStalledRuns` needs a
+  terminal state, and "give up on new works" is not one this product can have. Widening the
+  `revised_at` bound, or dropping the filter for one run so the walk can reach page 2 by a different
+  address, are both worth weighing — and either is a schema change on both providers if it needs
+  remembering across runs. A give-up threshold is a conclusion drawn from failure and inherits every
+  objection this loop has raised to those (T37's note), so whatever comes out belongs in T28's table.
+
+## T46 — A backfill whose cursor sits at page 1 can never reach `Failed`
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A run the archive answered with a 404 counts against `BackfillStalledRuns` wherever the
+  cursor is, so a ship pointed at a tag that no longer exists stops backfilling instead of asking
+  forever.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Backfill`
+  — 13 today, and the filter that covers the stall counter.
+- notes: Found by `/code-review high` during T43, in T37's committed code.
+  `RecordBackfillProgress`'s `if (!askedStaleCursor && firstPage is null) return;` reads "the
+  archive told this run nothing", which is right for the budget, the breaker, a transport failure
+  and a refused status — and wrong for a 404, which is the archive answering definitively. With the
+  cursor at page 1 `CursorMayBeStale` is false (`page > 1` fails), so no retreat happens,
+  `firstPage` stays null, and the counter never moves. The ship stays `InProgress`, `ScrapeWorker`
+  goes on choosing `Backfill` for it, and it never falls back to an incremental pass — so unlike
+  every other stalled ship, this one collects nothing at all and never reaches `Failed` to say so.
+  Reachable for an already-verified ship whose tag is later renamed or deleted: `ShipVerifier`
+  returns early for anything not `Pending`, so nothing re-verifies it into `NotFoundOnAo3`, and the
+  belt-and-braces check at the top of `ExecuteAsync` never fires. Same family as T38 — a ship stuck
+  in a state the product cannot move it out of — and on T15's `blocked-by` for the same reason.
+  Weigh it against what that guard was written for: writing off a back catalogue because AO3 was
+  down for an afternoon. A 404 is not that, and telling the two apart is the whole task.
+
+## T47 — A filtered page carrying no evidence at all must not end the pass
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: `PlausiblyTheEndOfTheListing` waives `page > 1` for a filtered listing only on a page
+  that actually says something, so an incremental pass cannot move its watermark past works it
+  never saw.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ao3ShipIndexScraper`
+- notes: Found by `/code-review high` during T43, in T42's committed code, and demonstrated against
+  a running server rather than argued from the source. `FilteredHeadingSaysMore` returns false when
+  `TotalWorks` is null — deliberately, and T42's own doc comment says why: "no heading is no
+  evidence". But the waiver reads that false as permission. So a filtered page 2 with the listing
+  container, no next link, no works and **no heading** satisfies every condition and concludes
+  `LastPage`, which lets `FinishAsync` move the watermark to the run's newest reading — page 1's
+  newest, which is newer than everything page 2 would have held, the listing being `revised_at`
+  descending. The reviewer's run: watermark Jan 1, page 1 carrying works dated Jan 20 and Jan 15
+  with a next link, page 2 a well-formed empty listing with no heading → `LastPage`, and the
+  watermark jumps to Jan 20. `RevisedAtBound`'s one-day slack recovers only what sits within a day
+  of Jan 20, so on a ship catching up over a long gap — where page 1 spans weeks — everything that
+  was on page 2 is permanently unreachable by any incremental pass.
+  This is the only silent wrong conclusion left in the walk, which is why it leads the run order:
+  T45, T46, T38 and T40 all announce themselves in the run history, and this one reports success.
+  The rule to settle is what "no evidence" entitles a *stop* to, as against what it entitles a
+  waiver to — T42 answered the second question and this branch took the answer for the first.
+  Requiring a parsed heading before waiving `page > 1` is the obvious shape, but weigh it against
+  what T42 was filed over: a filtered page 2 that will not parse a heading and gets `Error` instead
+  is exactly the every-tick repeat T45 now owns, so the two tasks are the same trade seen from
+  either side and whichever runs second should read the other. Not proposing a watermark while
+  still stopping is the third option and probably the honest one. It is a rule about what a stop may
+  conclude, so it belongs in T28's table either way; T28's `blocked-by` is this task alone.
+
+## T48 — "Anonymous" in a title must not survive the markup change T26 defends against
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: `SaysAnonymous` reads the byline and not the heading it sits in, so no reshaping of
+  `h4.heading` can let a work's title delete its creators.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Author` — 17 today.
+- notes: Found by `/code-review high` during T43, in T26's committed code. `SaysAnonymous`
+  (`Ao3BlurbParser.cs` ~line 309) keeps the title out of the byline only because `IsBylineText`
+  drops text inside anchors that are not `rel="author"`, and the title happens to be such an anchor.
+  Under exactly the failure T26 exists to defend against — AO3 reshaping the heading so no
+  `rel="author"` anchors survive — the title's own words become byline words, and any work whose
+  title contains "Anonymous" before any "for" parses as `IsAnonymous: true`.
+  `WorkIngestor.ApplyAuthors` then reconciles it to an empty author set and deletes its creators,
+  which is the destructive outcome T26's three-state design exists to prevent: the fix holds only
+  while the markup it defends against has not changed.
+  `Does_not_read_a_work_titled_Anonymous_as_having_no_author` covers the linked-title case only.
+  The cheap guard the review suggests: ignore everything in the heading before the byline separator
+  rather than relying on the title being an anchor. This is T26's own lesson arriving a third time —
+  when a fix turns one signal into a conclusion, ask what else in the same document can produce that
+  signal — and the answer here is the same heading, four people's names and a title.

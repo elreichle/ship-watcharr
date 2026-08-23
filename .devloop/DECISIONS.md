@@ -760,3 +760,106 @@ is **T40**, filed from T26's review and unchanged since; `BackfillStalledRuns` n
 a backfill is written off is **T38**, whose other half was added from T30's review. Both were
 re-reported independently by this pass, which is worth recording — a finding arriving twice from two
 reviews is the loop's only signal about which queued tasks are actually costing something.
+
+## 2026-08-23 — T43: what a 404 may conclude, and the one branch T37 did not rewrite
+
+**Decided: a 404 concludes nothing about the length of a listing, on any page, in either mode.**
+
+The 404 branch ended a walk on `lastPage == page - 1` — the page before this one was read, and this
+one is not there. What made that look like the end of a listing was the phrasing: a 404 *past a page
+this run actually read*. What it actually says only becomes visible with the walk's advance rule
+beside it. The forward walk advances past a page only when that page offered a next link
+(`if (!listing.HasNextPage) { LastPage; break; }` sits directly above `page++`), so `lastPage` being
+`page - 1` **means** a page this run read said page N exists. That is the same evidence
+`CursorMayBeStale` two hundred lines below refuses to conclude from — page N-1 read, offering a next
+link, page N absent — and the two branches disagreed on it only over whether this run happened to be
+the one that read page N-1.
+
+The crossing between them costs one transient 5xx. A run with the cursor at N retreats, asks N-1,
+gets a 500, and stops leaving `BackfillNextPage = N-1`; the next run is healthy, reads N-1, asks N,
+takes the 404 and marks the ship `Complete` with page N onward never read. T37 pinned the first run's
+shape as `Error` + `InProgress` + stalled, and the second reached the strongest conclusion in the
+system off the same server. So this is T37's question asked of the branch T37 did not rewrite, and it
+gets T37's answer.
+
+**Refusing to conclude does not lose the genuine case; it defers it one run.** A listing really can
+shrink between two requests of a walk, and page N-1's next link is exactly what that leaves behind —
+which is the argument the guard was written for. But the run stops with the cursor already sitting on
+the page that did not answer, so the *next* run's first request lands there, `CursorMayBeStale`
+recognises it, and the retreat re-reads page N-1 and takes the listing's own word: no next link any
+more and the backfill completes on evidence; still a next link and the ship is stalled rather than
+retired, bounded by `MaxStalledBackfillRuns`. The price is one run and two requests, which is the
+same price T37 already accepted for this situation arriving one run earlier. `Completes_on_the_next_run_when_the_listing_really_did_shrink_under_the_walk` pins the deferral
+end to end, and `Reads_the_same_conclusion_off_a_404_whichever_run_read_the_page_before_it` pins the
+unification as a property over one server rather than as an instance of it.
+
+**The guard is not narrowed, it is removed.** Stating it correctly — a 404 may end a walk past a page
+that was read *and offered no next link* — makes it unreachable, because a page with no next link
+ends the walk where it stands and is never followed by a request at all. There was no version of this
+condition left to keep.
+
+**The removed test was the defect.** `Treats_a_404_past_the_last_page_as_the_end_of_the_walk` built
+page 1 *with* a next link and left page 2 missing, under a comment reading "AO3 404s rather than
+serving an empty page past the end of a listing" — a healthy end of listing has no next link on its
+last page, so the fixture and its stated premise were about different events. It is now
+`Refuses_to_end_a_walk_on_a_404_the_page_before_it_said_would_answer`.
+
+## 2026-08-23 — T43's review: one overruled and queued, three queued
+
+`/code-review high` over the T43 diff and the branch reported four findings. One is in this diff and
+is **not** folded in; three are in earlier commits and became tasks. Nothing was folded in, which is
+a first for this loop and wants stating plainly rather than glossed.
+
+**Overruled, and queued as T45 — the incremental pass has no cursor to carry the question.** The
+finding is correct and was demonstrated on a running server: `CursorMayBeStale` requires
+`ScrapeRunMode.Backfill`, an incremental pass always restarts at page 1, so the recovery this task
+substitutes for the conclusion does not exist for it. A page 1 that is entirely fresh and offers a
+next link followed by a page 2 that 404s now stops with `Error`, `Error` may not move the watermark,
+the watermark stays frozen so page 1 stays entirely fresh, and the pass sends the same two requests
+every tick forever. The review's suggested shape was to keep the old conclusion for
+`context.Mode != ScrapeRunMode.Backfill`.
+
+Declined, because that is the trade T24 and T42 have both already ruled on and it is the same ruling
+each time. The works on page 2 are older than everything on page 1, so a watermark moved past them is
+a watermark no later incremental pass looks back behind: concluding costs the works permanently and
+silently, refusing costs two requests per scheduler interval on a 5-8s gate. That cost is not an
+accident either — it is the shape T23 deliberately chose, "retried once per run at the scheduler's
+spacing, rather than in a tight loop inside one" — and every one of those runs is recorded failed
+with a message naming the page and what contradicted it, so an operator is told. The pass also goes
+on ingesting page 1 on every tick, so what is at stake is a gap, not a stopped library.
+
+What the finding is right about is that the *bound* is missing, and a backfill in the same position
+has one. That is T45, and it is a task rather than a line in this diff because closing it needs a
+decision this task has no business making: what a permanently stuck incremental pass should do
+instead of asking again, given that "give up on new works" is not a terminal state this product can
+have. Widening the `revised_at` bound and dropping the filter for one run are both live options and
+either may be a schema change on both providers. A give-up threshold is a conclusion drawn from
+failure and inherits every objection this loop has raised to those, so it belongs in T28's table.
+
+**Queued as T47, and it leads the run order — the filtered waiver fires on a page saying nothing.**
+In T42's committed code, one iteration old. `FilteredHeadingSaysMore` returns false when the heading
+did not parse, deliberately and with a comment saying "no heading is no evidence" — and T42's waiver
+reads that false as permission. A filtered page 2 carrying the listing container, no next link, no
+works and no heading therefore concludes `LastPage`, and the watermark moves to page 1's newest,
+past everything page 2 would have held. T42 answered "what may a waiver rest on" and this branch took
+the answer for "what may a stop conclude", which are not the same question. It leads because it is
+the only silent wrong conclusion left in the walk: T45, T46, T38 and T40 all announce themselves in
+the run history, and this one reports success. T28's `blocked-by` is now this task alone — the fifth
+consecutive time that list has held exactly one rule about what a stop may conclude.
+
+**Queued as T46 — a 404 on a run's first request never counts as a stalled run.** In T37's committed
+code. `RecordBackfillProgress` returns early on `!askedStaleCursor && firstPage is null`, meaning the
+archive told this run nothing — right for the budget, the breaker, a transport failure and a refused
+status, wrong for a 404, which is the archive answering. With the cursor at page 1 no retreat is
+possible (`CursorMayBeStale` needs `page > 1`) and no page is read, so the counter never moves, the
+ship stays `InProgress`, `ScrapeWorker` keeps choosing `Backfill`, and it never falls back to an
+incremental pass — the one stalled ship that collects nothing at all and never reaches `Failed` to
+say so. Reachable for a verified ship whose tag is later renamed or deleted, since `ShipVerifier`
+returns early for anything not `Pending`. Same family as T38, and on T15's `blocked-by` beside it.
+
+**Queued as T48 — `SaysAnonymous` relies on the title being an anchor.** In T26's committed code.
+The title is kept out of the byline only because `IsBylineText` drops text inside anchors that are
+not `rel="author"`, so under the exact markup change T26 exists to defend against a work titled
+"Anonymous…" parses as having no creators and `ApplyAuthors` deletes them. T26's own lesson arriving
+a third time: when a fix turns one signal into a conclusion, ask what else in the same document can
+produce that signal.
