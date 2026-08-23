@@ -216,66 +216,34 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             firstPage ??= page;
             lastPage = page;
 
+            // Before the heading is trusted for anything. A page that could not be read must not
+            // get to write the ship a number either: ParseTotalWorks falls back to the trailing
+            // digits of any h2.heading when it finds no "Works", so an AO3 soft-error page served
+            // as 200 with <h2 class="heading">Error 404</h2> would put LastKnownTotalWorks = 404
+            // over a real 4,317 and stamp it as freshly read — the same field, and the same
+            // mis-conclusion, that RecordTotal's filter guard exists to prevent.
+            if (listing.Works.Count == 0 && !PlausiblyTheEndOfTheListing(listing, page, listingWasFiltered))
+            {
+                _logger.LogError(
+                    "Page {Page} for ship {ShipId} ({Tag}) parsed to no works from {Length} characters of "
+                    + "HTML, and {Reason}. Treating this as a parse failure rather than the end of the listing.",
+                    page, ship.Id, ship.CanonicalTagName, response.Content.Length,
+                    WhyNotTheEnd(listing, page, listingWasFiltered));
+
+                stopReason = ScrapeStopReason.Error;
+                errorMessage =
+                    $"Page {page} parsed to no works, and {WhyNotTheEnd(listing, page, listingWasFiltered)}";
+                break;
+            }
+
             RecordTotal(ship, listing, listingWasFiltered);
 
             if (listing.Works.Count == 0)
             {
-                // A tag really can be empty, and a walk that runs out of works is how a backfill
-                // finishes — FinishAsync turns this stop into BackfillState.Complete. So this
-                // branch hands out the strongest conclusion in the pass, and a page that merely
-                // could not be *read* takes it just as readily as an empty tag does: a 200
-                // maintenance page or a listing markup change at page 57 of a 3,000-page backfill
-                // used to record the ship as fully backfilled, with the rest never read and nothing
-                // ever looking again. The 404 branch above was hardened against exactly that; this
-                // is the same conclusion reached by another route.
-                //
-                // Three pieces of evidence say the page is not the end of the listing, all of them
-                // already parsed:
-                //
-                //   page > 1          — the walk only got here because the page before advertised a
-                //                       Next link, or because a previous run's cursor pointed here
-                //                       after reading one that did. AO3 404s past the last page
-                //                       rather than serving an empty one, so a 200 with nothing on
-                //                       it above page 1 is anomalous by construction.
-                //   HasNextPage       — the page says itself that there is more after it.
-                //   TotalWorks > 0    — the heading and the blurbs come off the same HTML and
-                //                       contradict each other. Only on an unfiltered listing: a
-                //                       revised_at-filtered request's heading counts the filter's
-                //                       result set, not the tag (see RecordTotal), so a quiet
-                //                       incremental pass legitimately reads an empty page under a
-                //                       heading, and holding that against it would fail every tick.
-                //
-                // None of the three, on page 1: an empty tag, and the walk concludes. What is left
-                // unresolved — and it is the honest limit of what this page can say — is a page
-                // from which neither a heading nor a blurb parsed, requested as page 1. That is
-                // indistinguishable here from an empty tag, so it still concludes; the warning
-                // below carries the response length to make it findable.
-                var plausiblyTheEnd =
-                    page == 1
-                    && !listing.HasNextPage
-                    && !(listing.TotalWorks > 0 && !listingWasFiltered);
-
-                if (!plausiblyTheEnd)
-                {
-                    _logger.LogError(
-                        "Page {Page} for ship {ShipId} ({Tag}) parsed to no works from {Length} characters "
-                        + "of HTML, but the listing says there are more ({Total} works in the tag, next page: "
-                        + "{HasNext}). Treating this as a parse failure rather than the end of the listing.",
-                        page, ship.Id, ship.CanonicalTagName, response.Content.Length,
-                        listing.TotalWorks, listing.HasNextPage);
-
-                    stopReason = ScrapeStopReason.Error;
-                    errorMessage =
-                        $"Page {page} parsed to no works, and the listing says there are more "
-                        + $"(total {listing.TotalWorks?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}, "
-                        + $"next page: {listing.HasNextPage})";
-                    break;
-                }
-
-                // An empty tag, as far as anything on the page can tell. Still logged: it is also
-                // what a markup change on a small tag looks like, and the response size tells "AO3
-                // served us an error page" apart from "AO3 served us a listing we can no longer
-                // read".
+                // Nothing on the page contradicts an empty tag, so the walk concludes — which for a
+                // backfill means Complete. Still logged: it is also what a markup change on a small
+                // tag looks like, and the response size tells "AO3 served us an error page" apart
+                // from "AO3 served us a listing we can no longer read".
                 _logger.LogWarning(
                     "Page {Page} for ship {ShipId} ({Tag}) parsed to no works from {Length} characters "
                     + "of HTML. Either the tag is empty or the listing markup has changed.",
@@ -389,6 +357,62 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         return new ScrapeOutcome(
             pagesFetched, budget.RequestsMade, worksSeen, worksAdded, worksUpdated,
             parseWarnings, firstPage, lastPage, stopReason, errorMessage);
+    }
+
+    // ---- what a page with no readable works may conclude ---------------------------------------
+
+    /// <summary>
+    /// Whether a page that parsed to no works may be taken for the end of the listing.
+    ///
+    /// It matters because the caller turns that into <see cref="ScrapeStopReason.LastPage"/>, and
+    /// <see cref="FinishAsync"/> turns a backfill's <c>LastPage</c> into
+    /// <see cref="ShipBackfillState.Complete"/> — the strongest conclusion this pass can reach, and
+    /// one nothing later revisits. A page that merely could not be *read* used to take it as
+    /// readily as an empty tag did, so a 200 maintenance page or a listing markup change at page 57
+    /// of a 3,000-page backfill recorded the ship as fully backfilled with the rest never read. The
+    /// 404 branch was hardened against precisely that; this is the same conclusion reached by
+    /// another route.
+    ///
+    /// Four pieces of evidence say the listing did not end here, all of them already parsed:
+    ///
+    /// <list type="bullet">
+    /// <item>No listing container in the document. Whatever was served is not a results page — an
+    /// empty body, a static maintenance page, something a proxy substituted. An empty *tag* still
+    /// renders the container, so this tells the two apart rather than guessing from length.</item>
+    /// <item><c>page > 1</c>. AO3 404s past the last page rather than serving an empty 200, so the
+    /// walk only got above page 1 because a page advertised more — one this run read, or one an
+    /// earlier run read before leaving the cursor here.</item>
+    /// <item>A Next link: the page says itself that there is more after it.</item>
+    /// <item>A heading counting works the blurbs do not contain. Only on an unfiltered listing: a
+    /// <c>revised_at</c>-filtered request's heading counts the filter's result set, not the tag
+    /// (see <see cref="RecordTotal"/>), so a quiet incremental pass reading zero blurbs under a
+    /// heading is the healthy case and holding it against the page would fail every tick.</item>
+    /// </list>
+    ///
+    /// None of the four: an empty tag, as far as anything on the page can say, and the walk
+    /// concludes.
+    /// </summary>
+    private static bool PlausiblyTheEndOfTheListing(Ao3ListingPage listing, int page, bool listingWasFiltered) =>
+        listing.HasListing
+        && page == 1
+        && !listing.HasNextPage
+        && !(listing.TotalWorks > 0 && !listingWasFiltered);
+
+    /// <summary>
+    /// Which of <see cref="PlausiblyTheEndOfTheListing"/>'s conditions actually failed, phrased for
+    /// the run history — where an operator diagnosing a stuck backfill reads it. Named after the
+    /// evidence rather than written as one sentence covering all of it, because a message saying
+    /// "the listing says there are more" over a page carrying neither a heading nor a Next link
+    /// tells that operator the opposite of what happened.
+    /// </summary>
+    private static string WhyNotTheEnd(Ao3ListingPage listing, int page, bool listingWasFiltered)
+    {
+        if (!listing.HasListing) return "the response carried no listing at all, so it is not a results page";
+        if (listing.HasNextPage) return "the page still offers a next one";
+        if (listing.TotalWorks > 0 && !listingWasFiltered)
+            return $"the heading counts {listing.TotalWorks.Value.ToString(CultureInfo.InvariantCulture)} works in the tag";
+
+        return $"page {page.ToString(CultureInfo.InvariantCulture)} was only reached because an earlier page offered a next one";
     }
 
     // ---- URLs --------------------------------------------------------------------------------

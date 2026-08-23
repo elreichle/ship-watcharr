@@ -385,3 +385,53 @@ remains of T25 is the 404 branch's `pagesFetched == 0` guard, a different branch
 failure: a resumed backfill that can never *reach* `Complete`, where T34's could reach it wrongly.
 Both halves of T25's `delivers` line were kept in scope by the re-scope; only the sentence about
 mistaking a page for the end has moved.
+
+## 2026-08-22 — T34's review: three folded in, one queued as T37
+
+`/code-review` over T34's diff reported five findings. Three were consequences of the diff itself
+and are folded into it; one is a design contradiction that spans two branches and became T37; one
+was about the task's own verification line.
+
+**Folded in — a page declared unreadable must not have had its heading trusted first.**
+`RecordTotal` ran *before* the readability guard, so an unfiltered page that parsed to zero works
+wrote `LastKnownTotalWorks` from its heading and only then bailed. That matters because
+`ParseTotalWorks` falls back to the trailing digits of any `h2.heading` when it finds no "Works"
+(the same fallback T31 is filed against): an AO3 soft-error page served as 200 with
+`<h2 class="heading">Error 404</h2>` put **404** over a real 4,317 and stamped it as freshly read.
+The order is now guard, then record. This is the fourth time this loop has found the same shape —
+a value written back to the ship that nothing downstream can tell is wrong — and the first time the
+diff under review created the opportunity for it rather than inheriting it.
+
+**Folded in — the listing container is the signal the rejected fourth one should have been.** The
+T34 entry above records rejecting `ship.LastKnownTotalWorks` as a fourth piece of evidence, and
+names the residual hole: a page 1 with no heading, no blurbs and no Next link still concludes "empty
+tag", which is exactly the 200 maintenance page T34 was filed over. The review's answer is better
+than the one that was rejected and better than the response-length heuristic that was not
+considered: **an empty tag still renders `ol.work.index.group`; a maintenance page, a truncated body
+or a proxy's substitute does not.** `Ao3ListingPage` gained `HasListing`, and a document without the
+container can no longer be the end of anything. Worth recording that the test fake's own default
+response is `("", OK)` — that shape was one stray test away from asserting `Complete`.
+
+**Folded in — the run-history message now names the condition that actually tripped.** It read "the
+listing says there are more" for every failing condition, including the one case where the listing
+said nothing of the kind: a page reached only because an earlier page offered a next link carries
+neither heading nor Next link, so the message contradicted the evidence printed beside it.
+`SchedulesPage.tsx` renders that string verbatim to an operator diagnosing a stuck backfill.
+
+**Queued as T37 — the 404 branch and the empty-200 branch now conclude opposite things about one
+situation.** A resumed backfill's cursor points at page N+1; the tag shrinks; N+1 no longer exists.
+If AO3 404s, T25 plans to call that the end of the listing and complete the backfill. If AO3 answers
+200 with an empty listing, T34's rule calls it a parse failure and the ship re-requests that page on
+every scheduled run forever. Both are defensible alone; they cannot both be right about the same
+event, and neither bounds the retrying. **This is the two-sidedness recorded under T24 arriving a
+third time**, and it is now the clearest argument yet for T28: two branches of one method, written
+four iterations apart, each locally reasonable and jointly incoherent, is precisely what a table of
+"which pass may conclude what, and what happens when it declines to" is for. T25's notes now refuse
+to let its `page == 1` fix be written without settling T37 first, and T37 is in T28's `blocked-by`.
+
+**And the verification line: a filter can also run *part* of a task.** T34 declared
+`--filter ~Backfill`, which matched 2 of its 8 tests — and neither of the two guarding against the
+new rule firing on a healthy pass, which are the ones whose regression would be worst. T22 filed the
+lesson that a filter matching nothing looks like a pass; this is its second form, and the more
+dangerous one, because it does not look empty. Corrected to `~Ao3ShipIndexScraper`. Checked while
+the tooling was out: `~TotalWorks` (T31) and `~Monotonic` (T32) match **zero** tests today.

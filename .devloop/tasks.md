@@ -10,10 +10,12 @@ a dependency cannot be met — needs a human).
 Tasks are **not** taken in file order. Take the first `todo` listed here whose `blocked-by` are all
 `done`; only when this list is exhausted does file order apply.
 
-1. T25, T26 — the remaining pre-loop scraper defects. T25 is now its 404 half only; T34 took the other.
-2. T30 — what is left of the authenticated-total flag, after T29 paired it with the total
-3. T28 — the audit of the walking and stopping rules, while that code is still fresh
-4. then file order, from T6
+1. T37, then T25 — settle what a cursor pointing past a shrunken listing concludes, then fix the
+   404 branch under that rule. T25 is now its 404 half only; T34 took the other.
+2. T26 — the last of the pre-loop scraper defects
+3. T30 — what is left of the authenticated-total flag, after T29 paired it with the total
+4. T28 — the audit of the walking and stopping rules, while that code is still fresh
+5. then file order, from T6
 
 Why this list exists at all: every entry was found by review of pre-loop scraper code, so none of it
 appears where the original plan put it — without this list, file order would send an iteration to T6
@@ -457,6 +459,11 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   `pagesFetched == 0` and is recorded as `Error` instead of `LastPage` — so `BackfillState` never
   becomes `Complete`, the cursor never advances, and the ship re-requests the same missing page on
   every scheduled run indefinitely. The guard wants `page == 1`.
+  **Do not write this fix without reading T37 first.** T34's review found that `page == 1` on the
+  404 branch and T34's rule on the empty-200 branch conclude *opposite* things about the same
+  real-world situation — a cursor left pointing past an end the listing has since shrunk to. One
+  would call it the end of the listing, the other a parse failure. T37 is where that is settled;
+  this task must not quietly pick a side for the 404 branch alone.
   ~~(2) A 200-OK page that parses to zero works mid-walk takes the `LastPage` branch.~~
   **Done by T34.** T34 and this half were the same `if (listing.Works.Count == 0)` block and the
   same question, so answering one without the other would have meant writing a rule and rewriting
@@ -513,7 +520,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 ## T28 — Audit the scraper's walking and stopping rules
 - status: todo
 - attempts: 0
-- blocked-by: T24, T25, T26, T27, T29, T30, T34
+- blocked-by: T24, T25, T26, T27, T29, T30, T34, T37
 - delivers: `.devloop/scraper-audit.md` — one table row per rule that decides where a pass starts,
   where it stops, what it may conclude from stopping, and what it writes back to the ship. Each row
   names the rule, the code that implements it, which passes it applies to, what it concludes, and
@@ -631,7 +638,11 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 - blocked-by: none
 - delivers: A backfill whose page yields zero works while AO3's heading says the tag has thousands
   stops as an error, not as the end of the listing — so the ship is not retired from backfilling.
-- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Backfill`
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ao3ShipIndexScraper`
+  — **corrected from `~Backfill`**, which matched only 2 of this task's 8 tests and neither of the
+  two guarding against the rule firing on a healthy pass. Found by the review; the lesson T22 filed
+  is that a filter can look like a pass while running nothing, and this is its second form: a filter
+  that runs *some* of the task and misses the tests that matter most.
 - notes: Found by `/code-review` during T29, in pre-loop code, and verified against the source.
   `Ao3ShipIndexScraper.ExecuteAsync` (~line 221) sets `stopReason = LastPage` for any page parsing
   to zero works, and `FinishAsync` (~line 467) turns a backfill's `LastPage` into
@@ -680,3 +691,30 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   `identity.identityConfigured`, so it is suppressed in exactly that case. Either render only the
   identity blocker in that section, or drop the `identityConfigured &&` guard on the callout —
   the second is smaller and makes both sections honest. Obsidian CSS variables only.
+
+## T37 — A backfill stuck on a page that is neither readable nor gone
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: One rule covering both ways a resumed backfill's cursor can point past the end of a
+  shrunken listing, and a bound on how many runs a ship may spend re-asking for the same page.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ao3ShipIndexScraper`
+- notes: Found by `/code-review` during T34, over T34's own diff, and it is the two-sidedness
+  `DECISIONS.md` recorded under T24 arriving for the third time. The situation: a run stops with
+  `BackfillNextPage = N+1` because page N offered a next link; before the next run, works are
+  deleted or hidden and the listing shrinks so page N+1 no longer exists. AO3's answer decides
+  which branch handles it, and the two branches now disagree:
+  (1) a **404** — T25 plans to read this as the end of the listing, so the backfill completes;
+  (2) a **200 with an empty listing** — T34 reads this as a parse failure, so the run errors,
+  `BackfillNextPage` never advances, and the ship re-requests that page on every scheduled run
+  forever, never reaching `Complete`.
+  Both readings are defensible in isolation and they cannot both be right about one situation.
+  Neither branch bounds the retrying, which is the part that costs AO3 something. Options worth
+  weighing: a consecutive-failure count on the ship that converts repeated identical failures into
+  a completed-with-gaps state; stepping the cursor back to re-read page N and letting *its* next
+  link settle whether N+1 should exist (the listing itself is the authority, and this asks it);
+  or leaving the backfill stuck deliberately and making T15's full sweep the thing that resolves it.
+  Say which and why in `.devloop/DECISIONS.md` — and note that T15 already depends on this area
+  through T28.
+  **Add to T28's `blocked-by`** when taken, or resolve it before T28 runs: it is a rule about what a
+  stop is entitled to conclude, which is exactly what that audit tabulates.

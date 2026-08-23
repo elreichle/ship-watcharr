@@ -31,7 +31,7 @@ public static class Ao3BlurbParser
     public static Ao3ListingPage ParseListing(string? html)
     {
         if (string.IsNullOrWhiteSpace(html))
-            return new Ao3ListingPage([], TotalWorks: null, HasNextPage: false, ParseWarnings: 0);
+            return new Ao3ListingPage([], TotalWorks: null, HasNextPage: false, ParseWarnings: 0, HasListing: false);
 
         var document = Parser.ParseDocument(html);
         var warnings = 0;
@@ -43,7 +43,8 @@ public static class Ao3BlurbParser
             if (blurb is not null) works.Add(blurb);
         }
 
-        return new Ao3ListingPage(works, ParseTotalWorks(document), HasNextPage(document), warnings);
+        return new Ao3ListingPage(
+            works, ParseTotalWorks(document), HasNextPage(document), warnings, FindListing(document) is not null);
     }
 
     /// <summary>
@@ -51,12 +52,12 @@ public static class Ao3BlurbParser
     /// whole document because AO3 renders the same <c>li.blurb</c> shape in the sidebar and in
     /// related-works modules; a document-wide selector would ingest those as if they were results.
     /// </summary>
+    private static IElement? FindListing(IDocument document) =>
+        document.QuerySelector("ol.work.index.group") ?? document.QuerySelector("ol.index.group");
+
     private static IEnumerable<IElement> SelectBlurbs(IDocument document)
     {
-        var listing = document.QuerySelector("ol.work.index.group")
-            ?? document.QuerySelector("ol.index.group");
-
-        var scope = (IParentNode?)listing ?? document;
+        var scope = (IParentNode?)FindListing(document) ?? document;
         return scope.QuerySelectorAll("li.blurb").Where(li => li.Id?.StartsWith("work_", StringComparison.Ordinal) == true);
     }
 

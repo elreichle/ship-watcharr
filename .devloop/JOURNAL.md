@@ -364,7 +364,8 @@ build. Not something a task should chase.
 - files: `Api/Services/Scraping/Ao3ShipIndexScraper.cs`, `Tests/Ao3ShipIndexScraperTests.cs`,
   `.devloop/{tasks.md,DECISIONS.md}`
 - ran: `dotnet test --filter FullyQualifiedName~Backfill` → 9 passed (6 before this task);
-  `--filter ~Ao3ShipIndexScraper` → 44 passed; `dotnet test` → 359 passed;
+  `--filter ~Ao3ShipIndexScraper` → 44 passed, then 47 after the review fixes; `dotnet test` → 359
+  passed, then 362; 
   `npm run build` + `npm run lint` → clean, the two pre-existing fast-refresh warnings only.
   All three defect tests were confirmed red first, and the two guard tests green first — the
   latter matters, because they are the ones that would have caught an over-broad rule.
@@ -381,4 +382,25 @@ build. Not something a task should chase.
   `~Monotonic` (T32) match zero tests today** — those tasks must name their new tests to match, or
   their verification will look like a pass while running nothing. T30's `~Authenticated` was 3 at
   T29.
-  The run order's next entry is now T25 (re-scoped, smaller than it reads) and T26.
+  **The review landed after the commit and found three things the diff itself created** — folded in
+  as `9e0a1c2`, tests confirmed red first, so T34 is two commits. (1) `RecordTotal` ran *before* the
+  readability guard, so a soft-error page's `<h2>Error 404</h2>` wrote `LastKnownTotalWorks = 404`
+  over a real 4,317 — `ParseTotalWorks` takes trailing digits when it finds no "Works", which is
+  T31's defect reached through this diff. (2) The residual hole named above turned out to have a
+  clean signal after all, and a better one than the `LastKnownTotalWorks` that was rejected: an
+  empty tag renders `ol.work.index.group`, a maintenance page does not. `Ao3ListingPage.HasListing`
+  is new. The fake HTTP client's default response is `("", OK)` — that shape was one stray test from
+  asserting `Complete`. (3) The error message claimed "the listing says there are more" even where
+  the only failing condition was `page > 1`, and that string is rendered verbatim to an operator on
+  `SchedulesPage`.
+  **The fourth finding is T37, and it is the most important thing this iteration produced.** T25's
+  planned `page == 1` fix for the 404 branch and T34's rule for the empty-200 branch conclude
+  *opposite* things about one real situation — a cursor pointing past a listing that has since
+  shrunk. Two branches of one method, written four iterations apart, each locally reasonable and
+  jointly incoherent. T25 is now blocked from picking a side on its own, and T37 is in T28's
+  `blocked-by`: this is the strongest case yet for that audit existing.
+  **A second form of T22's lesson, worth more than the first.** This task's declared verification
+  filter `~Backfill` ran 2 of its 8 tests — and neither of the two that guard against the new rule
+  firing on every healthy incremental tick. A filter matching *nothing* looks suspicious; a filter
+  matching *some* does not. Corrected to `~Ao3ShipIndexScraper` (47 tests).
+  The run order's next entries are T37, then T25 (re-scoped, smaller than it reads), then T26.

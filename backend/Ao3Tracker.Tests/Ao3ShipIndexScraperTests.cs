@@ -535,6 +535,68 @@ public class Ao3ShipIndexScraperTests : IDisposable
     }
 
     [Fact]
+    public async Task Refuses_to_conclude_from_a_response_that_carries_no_listing_at_all()
+    {
+        // The motivating case, and the one no page-local count can catch: a 200 whose body is not a
+        // results page. An empty tag still renders AO3's listing container; a maintenance page, a
+        // truncated body or a proxy's substitute does not, which is what tells the two apart.
+        // Note the fake HTTP client's own default response is exactly this shape.
+        _host.Http.Responds = _ => new ScrapeHttpResponse(
+            "<html><body><h1>Down for maintenance</h1></body></html>",
+            HttpStatusCode.OK, FromCache: false, FinalUrl: "https://example.test/");
+
+        var shipId = await FollowAsync();
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        Assert.Contains("no listing", outcome.ErrorMessage);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(ShipBackfillState.InProgress, ship.BackfillState);
+        Assert.Null(ship.BackfillCompletedAt);
+    }
+
+    [Fact]
+    public async Task Does_not_let_a_page_it_could_not_read_write_the_tags_total()
+    {
+        // ParseTotalWorks falls back to the trailing digits of any h2.heading when it finds no
+        // "Works", so a soft-error page served as 200 offers "404" as the tag's size. RecordTotal
+        // runs after the readability guard for this reason: the field is what a full sweep checks
+        // itself against before concluding works have left the tag.
+        _host.Http.Responds = _ => new ScrapeHttpResponse(
+            "<html><body><div id='main'><h2 class='heading'>Error 404</h2></div></body></html>",
+            HttpStatusCode.OK, FromCache: false, FinalUrl: "https://example.test/");
+
+        var shipId = await FollowAsync();
+        await SetTotalAsync(shipId, 4317, Jan(1));
+
+        await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(4317, ship.LastKnownTotalWorks);
+        Assert.Equal(Jan(1), ship.LastKnownTotalWorksAt);
+    }
+
+    [Fact]
+    public async Task Says_which_evidence_made_a_page_unreadable_rather_than_one_sentence_for_all_of_them()
+    {
+        // The run history is where an operator diagnoses a stuck backfill. A page reached only
+        // because an earlier one offered a next link carries neither a heading nor a next link of
+        // its own, so reporting it as "the listing says there are more" states the opposite of the
+        // evidence printed beside it.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1)], nextPage: true),
+            Page(2, []));
+
+        var shipId = await FollowAsync();
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Contains("page 2 was only reached because an earlier page offered a next one", outcome.ErrorMessage);
+    }
+
+    [Fact]
     public async Task Still_treats_an_empty_first_page_as_an_empty_tag()
     {
         // The other side of the rule. A tag with no works has one page, no heading count and no

@@ -63,8 +63,17 @@ public sealed record Ao3WorkBlurb(
 /// Blurbs that could not be read, plus fields that were missing from ones that could. Surfaced on
 /// the run rather than thrown: one malformed blurb must not discard the other nineteen on the page.
 /// </param>
+/// <param name="HasListing">
+/// Whether the document contained AO3's listing container at all — the <c>ol.work.index.group</c>
+/// the blurbs hang off. False means what was served is not a results page: an empty body, a static
+/// maintenance page, anything a proxy substituted. That is different from an empty listing, which
+/// has the container and nothing in it, and the difference is what lets a walk tell "this tag has
+/// no works" apart from "this is not the tag". Without it the two are indistinguishable and the
+/// stronger conclusion wins by default.
+/// </param>
 public sealed record Ao3ListingPage(
     IReadOnlyList<Ao3WorkBlurb> Works,
     int? TotalWorks,
     bool HasNextPage,
-    int ParseWarnings);
+    int ParseWarnings,
+    bool HasListing);
