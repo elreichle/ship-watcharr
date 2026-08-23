@@ -368,7 +368,7 @@ build. Not something a task should chase.
   `npm run build` + `npm run lint` → clean, the two pre-existing fast-refresh warnings only.
   All three defect tests were confirmed red first, and the two guard tests green first — the
   latter matters, because they are the ones that would have caught an over-broad rule.
-- commit: (see below)
+- commit: 1c9915c "T34: Refuse to call a backfill complete off a page that read as nothing"
 - next: **The rule that was rejected is the part worth carrying.** `ship.LastKnownTotalWorks` was
   considered as a fourth signal, to close the one hole left open — a page 1 from which neither a
   heading nor a blurb parsed still concludes "empty tag". It was rejected because T29 made that
