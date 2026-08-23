@@ -603,3 +603,63 @@ build. Not something a task should chase.
   T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.
   **Run order is now T43, then T28's audit** — whose `blocked-by` is down to that one task again,
   for the fourth time, each time a rule about what a stop may conclude.
+
+## 2026-08-23 — T43 A 404 must not conclude what the retreat beside it refuses to conclude — done
+
+- did: Removed the 404 branch's `lastPage == page - 1` → `LastPage` conclusion outright. The
+  condition only looks like "past the end of the listing" until you read it beside the advance rule
+  fifteen lines below: the forward walk moves past a page only when that page offered a next link,
+  so `lastPage == page - 1` *means* a page this run read said page N exists — the same evidence
+  `CursorMayBeStale` refuses to conclude from, differing only in which run read page N-1. Stated
+  correctly ("a 404 past a page that was read *and offered no next link*") the guard is unreachable,
+  because a page with no next link ends the walk where it stands and is never followed by a request.
+  The genuine shrink is deferred, not lost: the run stops with the cursor on the page that did not
+  answer, so the next run's first request lands there and T37's retreat asks the listing.
+- files: `Api/Services/Scraping/Ao3ShipIndexScraper.cs`, `Tests/Ao3ShipIndexScraperTests.cs`,
+  `.devloop/{tasks.md,DECISIONS.md}`
+- ran: `dotnet test --filter FullyQualifiedName~Ao3ShipIndexScraper` → 67 passed (64 before this
+  task, one test replaced and four added); `dotnet test` → 391 passed (388 before); `npm run build`
+  + `npm run lint` → clean, the two known fast-refresh warnings only. All four new tests confirmed
+  red by mutation — putting the old guard back fails exactly those four and nothing else, which is
+  also the confirmation that the removal broke nothing already pinned. Re-ran both suites after the
+  review agent reported having briefly reverted and restored the test file: 67 / 391, unchanged. No
+  schema change, no migrations.
+- commit: 4e4ab01 "T43: Stop reading a 404 as the end of a listing the page before said continues"
+- next: **The test I deleted was the defect, written down.**
+  `Treats_a_404_past_the_last_page_as_the_end_of_the_walk` built page 1 *with* a next link and left
+  page 2 missing, under a comment reading "AO3 404s rather than serving an empty page past the end of
+  a listing" — but a healthy last page has no next link, so the fixture and the premise it cited were
+  about different events, and the suite had been proving the wrong one green since before this loop
+  started. **Generalising, and it belongs in T28's table: when a rule looks sound, check whether its
+  own test constructs the situation the comment claims, or a different one that happens to reach the
+  same branch.** T39 is the same species one method away — a premise the helper satisfies by
+  construction — which is now the fourth independent arrival of that shape.
+  **The review found the consequence I had already accepted, and I overruled it — the first
+  iteration to fold in nothing.** Refusing to conclude leaves an *incremental* pass with no recovery,
+  because `CursorMayBeStale` is backfill-only and an incremental pass restarts at page 1: page 1
+  fresh with a next link, page 2 404ing, gives the same two requests every tick forever with the
+  watermark frozen. The review's shape was to keep the old conclusion for incremental; declined,
+  because that is T24's and T42's ruling twice over — concluding costs page 2's works permanently
+  and silently, refusing costs two requests per scheduler interval and files a failed run naming the
+  page. The pass also keeps ingesting page 1 every tick, so it is a gap and not a stopped library.
+  **What the finding is right about is the missing bound**, which a backfill has and this does not.
+  That is **T45**, and deliberately not a line in this diff: closing it needs a decision about what a
+  stuck incremental pass should *do*, and "give up on new works" is not a terminal state this
+  product can have.
+  **Queued from this review, and T47 leads the run order.** It is in T42's code from one iteration
+  ago: the filtered waiver reads `FilteredHeadingSaysMore`'s "no heading is no evidence" false as
+  permission, so a filtered page 2 with a container, no next link, no works and no heading concludes
+  `LastPage` and moves the watermark past everything it would have held. It leads because it is the
+  only conclusion left in the walk that is **silent** — T45, T46, T38 and T40 all announce
+  themselves in the run history; this one reports success. Also **T46** (a 404 on a run's first
+  request never counts as a stalled run, so a backfill cursored at page 1 stays `InProgress`
+  forever, never falls back, never reaches `Failed`; T37's code, T38's family, on T15's `blocked-by`)
+  and **T48** (`SaysAnonymous` keeps the title out of the byline only because the title is an anchor,
+  so T26's fix stops holding under the very markup change it defends against).
+  Filters checked to bite, per T22's lesson: `~Ao3ShipIndexScraper` 64 → 67 and covers all four new
+  tests; `~Backfill` 13, named as T46's filter and confirmed non-zero. Still zero and still suspect:
+  T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.
+  **T28's `blocked-by` is one task again — the fifth time running, and the fifth time it is a rule
+  about what a stop may conclude** (T34, T37, T42, T43, T47). Five iterations have now each closed
+  one and queued the next, which is the argument for doing the audit rather than the sixth of these.
+  Run order after this: T47, then T28.
