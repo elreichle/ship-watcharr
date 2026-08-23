@@ -551,3 +551,55 @@ build. Not something a task should chase.
   Corrected in `tasks.md` to `~Ao3ShipIndexScraper`; it now matches 6 either way. Still zero and
   still suspect: T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.
   **Run order is now T42, then T28's audit** — whose `blocked-by` is down to that one task.
+
+## 2026-08-23 — T42 An incremental pass must not stop with `Error` on a page it was told to expect — done
+
+- did: `PlausiblyTheEndOfTheListing`'s `page == 1` is now `page == 1 || (listingWasFiltered && the
+  heading does not say there is more)`. The `page > 1` argument — AO3 404s past the last page — is
+  about an unfiltered listing; under a `revised_at` bound the Next link comes off a count that can
+  race the blurbs, so a work leaving the window between two requests answers page 2 with a
+  well-formed empty listing, and the run stopped with `Error`, which may not move the watermark.
+  The filtered case asks the heading instead of waiving it: a filtered heading counts the filter's
+  result set, an incremental pass always starts at page 1, so `blurbsRead` — a new counter, the
+  run's own tally of what the listing served, not `worksSeen`'s tally of what reached the ingestor —
+  is the number it is comparable with.
+- files: `Api/Services/Scraping/Ao3ShipIndexScraper.cs`, `Tests/Ao3ShipIndexScraperTests.cs`,
+  `.devloop/{tasks,DECISIONS}.md`
+- ran: `dotnet test --filter FullyQualifiedName~Ao3ShipIndexScraper` → 64 passed (58 before this
+  task); `dotnet test` → 388 passed (382 before); `npm run build` + `npm run lint` → clean, the two
+  known fast-refresh warnings only. The defect test was confirmed red first. Both halves of the new
+  condition were mutated separately: removing the waiver fails the two tests that want the end
+  concluded, removing the heading guard fails the one that wants it refused. Dropping the page
+  condition entirely fails five, three of them T34/T37 backfill tests — which is the confirmation
+  T42 asked for rather than the assumption it warned against. No schema change, no migrations.
+- commit: 47b5582 "T42: Let a filtered incremental pass end on an empty page past the first"
+- next: **The first version of this fix was the review's finding, and it was worse than the defect.**
+  `page == 1 || listingWasFiltered` leaves a filtered page needing only a container and no Next link
+  to be taken for the end — and the heading is waived for filtered listings one line below, so a
+  page reading "60 Works" over zero blurbs was accepted, `LastPage` satisfied `mayPropose`, and the
+  watermark moved past works nothing looks back for. **Generalising, and it belongs in T28's table
+  beside T30's and T37's notes: when a rule is waived because its argument does not hold, ask what
+  that rule was carrying, not only whether it was sound.** `page > 1` was carrying "the listing says
+  there is more", and the filtered listing says that with a number rather than a Next link. The
+  defect cost two requests a tick and self-healed; the first fix lost works silently, which is the
+  direction T24 already ruled on.
+  **Queued from this review: T43, and it leads the run order.** The 404 branch's `lastPage ==
+  page - 1` guard concludes `Complete` from exactly the evidence `CursorMayBeStale` refuses to
+  conclude from, and the reviewer demonstrated the crossing against a running server: one transient
+  5xx during a retreat leaves the cursor at N-1, and the next healthy run walks into the guard and
+  retires the ship with page N onward unread. T37's question, asked of the branch T37 did not
+  rewrite. Also **T44** — `readWhileLoggedIn` ORs across the run while `RecordTotal` writes per
+  page, so T30's flag can still describe a request other than the one that wrote the total; latent
+  until T5 and wrong the day T5 lands.
+  **T40 and T38 were both re-reported by this pass** and neither is new. A finding arriving twice
+  from two independent reviews is the only signal this loop gets about which queued tasks are
+  actually costing something — T39 has now arrived three times, T40 twice, T38 twice.
+  **T39 is one premise further into load-bearing** because of this task: the waiver leaves
+  `HasListing` carrying more weight on a filtered page than it carried before, and `HasListing`
+  rests on the AO3-markup claim T39 exists to settle. Still `blocked` on a capture only Emma can
+  fetch, along with T5, T10 and T13 — five of forty-four tasks now wait on files.
+  Filters checked to bite, per T22's lesson: `~Ao3ShipIndexScraper` 58 → 64 and covers all six new
+  tests; `~Backfill` 13, still green, which is the guard on this diff. Still zero and still suspect:
+  T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.
+  **Run order is now T43, then T28's audit** — whose `blocked-by` is down to that one task again,
+  for the fourth time, each time a rule about what a stop may conclude.
