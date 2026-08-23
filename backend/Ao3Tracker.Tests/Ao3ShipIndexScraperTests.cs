@@ -320,7 +320,11 @@ public class Ao3ShipIndexScraperTests : IDisposable
         // logged-out — restricted works invisible, so undercounted — wearing an authenticated run's
         // flag. That is the exact mis-conclusion the field exists to prevent, and it is what a full
         // sweep reads before deciding works have left the tag.
-        _host.Http.Responds = Pages(Page(1, [Blurb(1, updatedAt: Jan(9), restricted: true)], total: 2));
+        //
+        // The run is genuinely logged in — the transport says so — which is what keeps this test
+        // from passing vacuously: remove the gate and the flag goes true.
+        _host.Http.Responds = url =>
+            Ok(url, Page(1, [Blurb(1, updatedAt: Jan(9))], total: 2).Html) with { Authenticated = true };
 
         var shipId = await FollowAsync();
         await SetTotalAsync(shipId, 4317, readAt: Jan(1));
@@ -334,11 +338,83 @@ public class Ao3ShipIndexScraperTests : IDisposable
     }
 
     [Fact]
-    public async Task Records_that_an_unfiltered_pass_read_the_total_while_logged_in()
+    public async Task Does_not_let_a_restricted_blurb_claim_the_total_was_Authenticated()
     {
-        // The other side of it: an unfiltered pass writes the total, so the flag describing that
-        // total is its to set.
+        // A restricted work is documented as invisible to a logged-out request, so one on the page
+        // looks like proof the run was logged in. It is not the kind of proof this flag may take:
+        // the question is what the run *sent*, the transport is what knows, and here it says no
+        // session. Believing the page instead stamps "counted while logged in" on a total fetched
+        // without a session — on the strength of a markup premise nothing in this repo verifies,
+        // which is T39's open question about a neighbouring one.
+        //
+        // The contradiction is worth a log line, and gets one. It is not worth a conclusion.
         _host.Http.Responds = Pages(Page(1, [Blurb(1, restricted: true)], total: 4317));
+
+        var shipId = await FollowAsync();
+
+        await _host.ScrapeAsync(shipId);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(4317, ship.LastKnownTotalWorks);
+        Assert.False(ship.LastKnownTotalWasAuthenticated);
+    }
+
+    [Fact]
+    public async Task Clears_the_Authenticated_flag_when_a_later_run_reads_the_total_anonymously()
+    {
+        // The latch this task exists to open. A logged-in run once read the total and stamped it;
+        // the session lapses; this run reads a fresh, lower total anonymously — restricted works
+        // invisible to it, so the figure is short by exactly the number the flag would tell a sweep
+        // to allow for. Leaving the flag true describes the wrong run's visibility, which is the
+        // mis-conclusion the field exists to prevent. The flag belongs to the total beside it, so a
+        // run that replaces the total replaces the flag.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1)], total: 4000));
+
+        var shipId = await FollowAsync();
+        await SetTotalAsync(shipId, 4317, readAt: Jan(1), authenticated: true);
+
+        await _host.ScrapeAsync(shipId);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(4000, ship.LastKnownTotalWorks);
+        Assert.False(ship.LastKnownTotalWasAuthenticated);
+    }
+
+    [Fact]
+    public async Task Does_not_stamp_a_total_it_never_wrote_as_Authenticated()
+    {
+        // The other half of "the flag describes the total it sits beside", and the case the filter
+        // gate alone does not cover: this pass is unfiltered, so it is entitled to write a total —
+        // but its page carries no readable heading, so it writes none. The stored total is still
+        // the *previous* run's, and a restricted work on this page says nothing about how that one
+        // was read.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1, restricted: true)], total: null));
+
+        var shipId = await FollowAsync();
+        await SetTotalAsync(shipId, 4317, readAt: Jan(1), authenticated: false);
+
+        await _host.ScrapeAsync(shipId);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(4317, ship.LastKnownTotalWorks);
+        Assert.Equal(Jan(1), ship.LastKnownTotalWorksAt);
+        Assert.False(ship.LastKnownTotalWasAuthenticated);
+    }
+
+    [Fact]
+    public async Task Reads_the_transport_for_whether_the_total_was_Authenticated()
+    {
+        // A restricted work proves a run was logged in; the absence of one proves nothing, because
+        // a tag may simply hold none. So the flag cannot be read off the blurbs alone without
+        // claiming "anonymous" of every authenticated pass over an unrestricted tag — a false
+        // *false*, which is the harmful direction: it tells a sweep the stored total was counted at
+        // its own visibility level when the total is in fact the higher, logged-in count. The
+        // transport is the one thing that knows, and it says so on the response the heading came
+        // from.
+        _host.Http.Responds = url => Ok(url, Page(1, [Blurb(1)], total: 4317).Html) with
+        {
+            Authenticated = true,
+        };
 
         var shipId = await FollowAsync();
 
@@ -1144,12 +1220,13 @@ public class Ao3ShipIndexScraperTests : IDisposable
     /// Puts a total on the ship as an earlier unfiltered pass would have left it, so a later pass
     /// overwriting it is visible as a change rather than as a first write.
     /// </summary>
-    private async Task SetTotalAsync(int shipId, int total, DateTime readAt)
+    private async Task SetTotalAsync(int shipId, int total, DateTime readAt, bool authenticated = false)
     {
         await using var db = _host.NewContext();
         var ship = await db.Ships.SingleAsync(s => s.Id == shipId);
         ship.LastKnownTotalWorks = total;
         ship.LastKnownTotalWorksAt = readAt;
+        ship.LastKnownTotalWasAuthenticated = authenticated;
         await db.SaveChangesAsync();
     }
 

@@ -10,7 +10,7 @@ a dependency cannot be met — needs a human).
 Tasks are **not** taken in file order. Take the first `todo` listed here whose `blocked-by` are all
 `done`; only when this list is exhausted does file order apply.
 
-1. T30 — what is left of the authenticated-total flag, after T29 paired it with the total
+1. T42 — the incremental pass that ends in `Error` on page 2 and freezes its watermark
 2. T28 — the audit of the walking and stopping rules, while that code is still fresh
 3. then file order, from T6
 
@@ -19,12 +19,12 @@ appears where the original plan put it — without this list, file order would s
 and leave the scraper's live defects in place. T23, T24 and T27 — the three that made this app
 re-request AO3 in a loop, the one thing its politeness rules exist to prevent — are done, and with
 T26 the pre-loop scraper defects this loop inherited are closed. What is left in this list is the
-loop's own work: the flag, and the audit.
+loop's own work: one stopping rule, and the audit.
 
-T30 stays in the audit's `blocked-by` — it and T29 both decide what a pass writes back to the ship,
-which is what T28 tabulates — but it is now the smaller half of itself, T29 having paired the flag
-with the total it describes. T31, T32, T33, T35, T36, T38, T40 and T41 are real but slow-acting or
-latent and sit in file order, after the planned work.
+T30 is done, so the audit's `blocked-by` is down to T42 — a rule about what a stop may conclude,
+which is exactly what T28 tabulates, and the third such rule a review has produced (T34, T37, T42).
+That is the argument for the audit stated three times over. T31, T32, T33, T35, T36, T38, T40 and
+T41 are real but slow-acting or latent and sit in file order, after the planned work.
 
 Delete an entry once its task is `done`. When this section is empty, delete the section.
 
@@ -266,7 +266,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 ## T15 — The full-sweep pass
 - status: todo
 - attempts: 0
-- blocked-by: T28, T29, T30, T38
+- blocked-by: T28, T29, T30, T38, T42
 - delivers: A third pass over a ship's index that walks every page and, only afterwards, marks the
   `ShipWork` rows it did not see as having left the tag — so the library stops drifting from AO3.
 - verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~FullSweep`
@@ -524,7 +524,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 ## T28 — Audit the scraper's walking and stopping rules
 - status: todo
 - attempts: 0
-- blocked-by: T30
+- blocked-by: T42
 - delivers: `.devloop/scraper-audit.md` — one table row per rule that decides where a pass starts,
   where it stops, what it may conclude from stopping, and what it writes back to the ship. Each row
   names the rule, the code that implements it, which passes it applies to, what it concludes, and
@@ -572,7 +572,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   bites before trusting it (see T22).
 
 ## T30 — `LastKnownTotalWasAuthenticated` must describe the total it sits beside
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: The flag says whether *this* ship's stored total was read while logged in, and can go
@@ -584,7 +584,11 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   `Does_not_claim_a_filtered_pass_authenticated_the_total_it_did_not_write`. What is left here is
   the two things that pairing does not fix, both still live and both described below: the one-way
   latch, and `sawRestricted` being computed over newly ingested works only.
-- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Authenticated`
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ao3ShipIndexScraper`
+  — **corrected from `~Authenticated`**, which matched 2 tests, one of them in an unrelated
+  controller, and missed `Records_that_an_unfiltered_pass_read_the_total_while_logged_in` — this
+  field's own positive test. The third form of T22's lesson: a filter can name the subject and still
+  miss the tests about it, because the tests are named for the behaviour, not the field.
 - notes: Found by `/code-review` during T27, in pre-loop code, and verified.
   `Ao3ShipIndexScraper.FinishAsync` (~line 487) does `if (sawRestricted) ship.LastKnownTotalWasAuthenticated = true;`
   — a one-way latch. A logged-in run sets it; the session lapses; a later anonymous run overwrites
@@ -747,6 +751,14 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   ~line 633) already resets `BackfillStartedAt` and the cursor and is the restart path this task
   builds on, but it leaves `BackfillStalledRuns` alone — so a ship restarted at 12 gives up on its
   first stalled run rather than its twelfth.
+  T30's review adds the same fact from the other end, and it is what makes the missing exit airtight
+  rather than merely inconvenient: **both** sites that reset `BackfillStalledRuns` sit on paths a
+  `Failed` ship no longer reaches (`ScrapeWorker` only backfills `NotStarted`/`InProgress`), and
+  entering `Failed` does not reset it either. So the counter is frozen at its give-up value for as
+  long as the state lasts, and an operator who edits `BackfillState` in the database without also
+  zeroing the counter gets a ship that gives up again on its very next run. Whatever this task's
+  re-arm path is, resetting the counter is not an extra nicety in it — it is the half that makes it
+  work.
 
 ## T39 — Confirm what AO3 serves for a works index with no results
 - status: blocked
@@ -808,3 +820,33 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   explains the retreat trails off. Name the second occurrence something else and pass it, or reword.
   Small, but it is the log line an operator reads when a backfill is stuck — the one T37 wrote for
   exactly that moment.
+
+## T42 — An incremental pass must not stop with `Error` on a page it was told to expect
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A filtered incremental pass whose second page comes back empty stops in a way that lets
+  its watermark move, so a ship cannot be frozen re-reading the same two pages on every tick.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ao3ShipIndexScraper`
+  — the filter that covers this file (58 tests today); `~Incremental` matched 6 at T22 and does not
+  cover the stopping rules.
+- notes: Found by `/code-review` during T30, in T34's committed code, and verified against the
+  source. `PlausiblyTheEndOfTheListing` (~line 578) requires `page == 1`, so on an incremental pass
+  any page past the first that parses to zero works is `unreadable` and the run stops with
+  `ScrapeStopReason.Error`. `Error` is neither `Watermark` nor `LastPage`, so `mayPropose` is false
+  and `IncrementalWatermarkUtc` does not move — even though page 1, the newest end, was read in
+  full. The next scheduled run repeats both requests and ends the same way, indefinitely.
+  Reachable whenever page 1 is entirely fresh and offers a Next link and page 2 then answers with a
+  well-formed empty listing: a `revised_at`-filtered listing's Next link comes from a result count
+  that can race the blurbs, and a single work leaving the window or being deleted between the two
+  requests does it. The `page > 1` reasoning is sound about an **unfiltered** listing — AO3 404s past
+  the last page — and the heading condition one line below it is already gated on
+  `listingWasFiltered` for exactly this reason. This is that same gate, missing from the condition
+  next to it. Waiving `page > 1` when `listingWasFiltered` is the small fix; check first whether it
+  weakens the backfill guard T34 and T37 built, which is the same method (a backfill is unfiltered,
+  so it should not be reachable — confirm rather than assume).
+  Note what this shares with T39, which is `blocked` on a capture: both are about what a zero-blurb
+  page means under a `revised_at` filter, and T39's fixture would inform this one. This task does
+  **not** wait on it — the defect here is in the `page` condition, not in `HasListing`, and is
+  demonstrable against the existing fake HTTP client. Do not let the fix depend on the unverified
+  premise T39 exists to settle.

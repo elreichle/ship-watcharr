@@ -594,3 +594,87 @@ placeholders and five arguments), and a line added to **T38** naming `BeginBackf
 `BackfillStalledRuns` is not cleared. The review also re-reported T39's unverified `HasListing`
 premise independently — second pass, same finding, still waiting on a human with a browser.
 
+
+## 2026-08-23 — T30: who owns the authenticated-total flag, and what may answer "anonymous"
+
+**The flag is assigned by the run that writes the total, and by no other run.** `wroteTotal` — a
+`bool` `RecordTotal` now returns — replaced `!listingWasFiltered` as the gate. Those are not the
+same question: a filtered pass writes no total *and* is unfiltered-false, but an **unfiltered** pass
+whose `h2.heading` will not parse also writes no total, and under the old gate it still stamped the
+flag. The number on the ship then belonged to one run and the flag beside it to another, which is
+the same divergence T29 folded in a fix for, reached through the heading rather than through the
+filter. Ownership expressed as "did *I* write this number" cannot come apart from the number.
+
+**And it is an assignment, not a latch.** That was T30's stated half: a logged-in run set the flag,
+the session lapsed, and a later anonymous run overwrote `LastKnownTotalWorks` with a count short by
+however many restricted works the tag holds while the flag still claimed the total came from a
+logged-in session. A run that replaces the total now replaces the flag, downwards included.
+
+**Deciding "anonymous" needed a source the blurbs cannot be.** Assigning `flag = sawRestricted`
+would have closed the latch and opened something worse. Seeing a restricted work proves a run was
+logged in; *not* seeing one proves nothing — a tag may hold none, or hold them on pages this run did
+not read. So `sawRestricted` alone writes `false` over a genuinely authenticated pass, and that
+false *false* is the harmful direction: it tells T15's sweep the stored total was counted at the
+sweep's own visibility, when the total is really the higher logged-in count, and the sweep concludes
+the difference has left the tag. Exactly the mis-conclusion the field exists to prevent, arrived at
+from the other side.
+
+So `ScrapeHttpResponse` gained **`bool Authenticated`** — whether the request that produced this
+content carried a session cookie — and the flag is `response.Authenticated || sawRestricted`, one
+run-level `readWhileLoggedIn`. It is on the *response*, not on `ScrapeContext`, because it describes
+the content: a cached page is the page the caching request was given, so a logged-in run reading a
+cached anonymous copy is reading anonymous content, and the field travelling with the body says so
+for free. It is a constant `false` until T5, which is correct rather than a stub — nothing logs in
+yet — and that is also why the false-negative window is empty at both ends: before T5 every run
+really is anonymous, and after it the transport answers directly.
+
+**The second half of T30 turned out to be no longer observable, and was fixed anyway.**
+`sawRestricted` was computed over `toIngest`, the works handed to the ingestor, which T30 called out
+as missing a page whose restricted works were all already held. That is only reachable on a pass
+with a watermark — and since T29, such a pass is filtered, writes no total, and cannot touch the
+flag. On an unfiltered pass `toIngest` *is* `listing.Works`: with no watermark every dated work is
+fresh and the undated ones are appended. So the defect is presently dead. It is now computed over
+`listing.Works` regardless, because "the two sets are equal" is an accident of where the watermark
+filter is applied and not a rule anything states — the same species of accidental correctness T24
+was, and the comment says so. No test pins it: there is no behaviour to pin.
+
+## 2026-08-23 — T30's review: one folded in, one queued as T42, one added to T38
+
+**Folded in: the flag reads the transport and nothing else.** The first version wrote
+`readWhileLoggedIn |= response.Authenticated || listing.Works.Any(w => w.IsRestricted)`, keeping the
+pre-loop premise that a restricted work is invisible to a logged-out request and therefore proves a
+session. The review's objection is right and is the one this loop keeps arriving at: the disjunct's
+only reachable effect is to **overrule the transport's "no" with a guess read off the page**. Before
+T5 the client never authenticates, so the disjunct can only ever fire against a `false` the client
+is certain of; after T5 it is redundant except in exactly that contradiction. And the premise it
+rests on is an unverified claim about AO3's markup — the same species as the `HasListing` premise
+T39 exists to settle, in the same file, found twice by two different reviews.
+
+So the flag is `response.Authenticated`, and a restricted work on a response the client did not
+authenticate is **logged as a contradiction rather than resolved as one**. If the premise is wrong,
+that line is where it announces itself; if the client is wrong, likewise. Neither is a thing a walk
+should conclude for itself, which is the standard the rest of this file is now held to.
+
+Two tests changed shape with the rule. `Records_that_an_unfiltered_pass_read_the_total_while_logged_in`
+took its authentication from a restricted blurb, so it became the counter-example:
+`Does_not_let_a_restricted_blurb_claim_the_total_was_Authenticated`. And T29's
+`Does_not_claim_a_filtered_pass_authenticated_the_total_it_did_not_write` took its authentication
+from one too — which would have made it pass vacuously under the new rule — so it now gets it from
+the transport. Both were confirmed to bite by restoring the disjunct and dropping the `wroteTotal`
+gate: three of the six tests under the corrected filter fail on that mutation.
+
+**Queued as T42, and added to T28's `blocked-by`.** `PlausiblyTheEndOfTheListing` requires
+`page == 1`, so on an **incremental** pass any page past the first that parses to zero works is
+classified unreadable and stops the run with `Error` — which is neither `Watermark` nor `LastPage`,
+so the watermark cannot move and the next tick reads the same pages to the same end, forever. The
+`page > 1` evidence is sound about an unfiltered listing (AO3 404s past the end) and unsound about a
+`revised_at`-filtered one, whose Next link is driven by a count that can race the blurbs. The
+neighbouring heading check is already gated on `listingWasFiltered` for precisely this reason and
+this one is not — the same omission T34 fixed one condition to the right. It is a rule about what a
+stop may conclude, so it goes where T37 went.
+
+**Added to T38**, not a new task: entering `ShipBackfillState.Failed` does not reset
+`BackfillStalledRuns`, and both reset sites are unreachable once the state is `Failed`. So even a
+hand-edit of the state re-fails on the ship's first stalled run. T38 already owns the missing exit
+from `Failed` and already names `BeginBackfill` as the restart path that leaves the counter alone;
+this is the same fact from the other end and belongs in the same diff.

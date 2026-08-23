@@ -137,7 +137,12 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
                     content,
                     response.StatusCode,
                     FromCache: false,
-                    FinalUrl: response.RequestMessage?.RequestUri?.ToString());
+                    FinalUrl: response.RequestMessage?.RequestUri?.ToString(),
+
+                    // Nothing attaches a session cookie yet, so every page this client fetches is
+                    // the logged-out view of it and saying otherwise would be a lie a full sweep
+                    // acts on. T5 is where the request gains a session and this gains a source.
+                    Authenticated: false);
             }
 
             // Retry-After is AO3 telling us exactly what it wants; honor it verbatim and do not

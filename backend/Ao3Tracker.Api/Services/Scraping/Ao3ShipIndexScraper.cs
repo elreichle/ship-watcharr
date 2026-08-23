@@ -123,7 +123,18 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         int? retreatedFrom = null;
         string? retreatBecause = null;
         DateTime? newestSeen = null;
-        var sawRestricted = false;
+
+        // Whether this run read the listing while logged in, which is what the flag beside the
+        // total records. Taken from the transport and from nothing else: the question is what this
+        // run *sent*, and the client is the only thing that knows. False for every run until T5
+        // teaches it to log in, which is the true answer rather than a placeholder.
+        var readWhileLoggedIn = false;
+
+        // Whether any page of this run put a number in Ship.LastKnownTotalWorks. Not the same
+        // question as "was the listing unfiltered": an unfiltered pass whose heading would not
+        // parse is entitled to write a total and writes none, and the flag it must then leave alone
+        // belongs to whichever earlier run did write one.
+        var wroteTotal = false;
 
         string stopReason;
 
@@ -307,7 +318,30 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 break;
             }
 
-            RecordTotal(ship, listing, listingWasFiltered);
+            readWhileLoggedIn |= response.Authenticated;
+
+            // A restricted work is documented as invisible to a logged-out request, so one arriving
+            // on a response the client says it did not authenticate means one of those two beliefs
+            // is wrong. Reported, never acted on: letting the page overrule the transport about what
+            // this run sent would write the flag `true` over a total demonstrably fetched without a
+            // session — the exact claim the field exists to make trustworthy — on the strength of a
+            // markup premise nothing in this repo has verified. That premise is T39's business, and
+            // this line is how it would first announce itself.
+            //
+            // Read over every work on the page rather than the ones handed to the ingestor: the two
+            // sets are equal on an unfiltered pass today, but only as an accident of where the
+            // watermark filter is applied, and the question here is what the run was shown.
+            if (!response.Authenticated && listing.Works.Any(w => w.IsRestricted))
+            {
+                _logger.LogWarning(
+                    "Page {Page} for ship {ShipId} ({Tag}) carried a restricted work, which AO3 is not "
+                    + "expected to show a request without a session — and this request carried none. "
+                    + "The listing's total is being recorded as read anonymously; if that is wrong, it "
+                    + "is the restricted-work premise that is wrong.",
+                    page, ship.Id, ship.CanonicalTagName);
+            }
+
+            wroteTotal |= RecordTotal(ship, listing, listingWasFiltered);
 
             if (listing.Works.Count == 0)
             {
@@ -361,8 +395,6 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 worksSeen += result.WorksSeen;
                 worksAdded += result.WorksAdded;
                 worksUpdated += result.WorksUpdated;
-
-                sawRestricted |= toIngest.Any(w => w.IsRestricted);
             }
 
             // Only dated works propose a watermark. On a backfill `fresh` is the whole page, which
@@ -442,7 +474,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         }
 
         await FinishAsync(
-            context, ship, stopReason, startPage, firstPage, newestSeen, sawRestricted, listingWasFiltered,
+            context, ship, stopReason, startPage, firstPage, newestSeen, wroteTotal, readWhileLoggedIn,
             askedStaleCursor: retreatedFrom is not null, ct);
 
         return new ScrapeOutcome(
@@ -654,13 +686,16 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// changing — a backfill of a ship that has a watermark still asks for the whole listing, and
     /// its heading still counts the tag.
     /// </summary>
-    private void RecordTotal(Ship ship, Ao3ListingPage listing, bool listingWasFiltered)
+    /// <returns>Whether the total on the ship is now this page's, which is what decides the
+    /// ownership of <see cref="Ship.LastKnownTotalWasAuthenticated"/> beside it.</returns>
+    private bool RecordTotal(Ship ship, Ao3ListingPage listing, bool listingWasFiltered)
     {
-        if (listingWasFiltered) return;
-        if (listing.TotalWorks is not { } total) return;
+        if (listingWasFiltered) return false;
+        if (listing.TotalWorks is not { } total) return false;
 
         ship.LastKnownTotalWorks = total;
         ship.LastKnownTotalWorksAt = _time.GetUtcNow().UtcDateTime;
+        return true;
     }
 
     /// <summary>
@@ -756,8 +791,8 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         int startPage,
         int? firstPage,
         DateTime? newestSeen,
-        bool sawRestricted,
-        bool listingWasFiltered,
+        bool wroteTotal,
+        bool readWhileLoggedIn,
         bool askedStaleCursor,
         CancellationToken ct)
     {
@@ -809,18 +844,18 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             ship.IncrementalWatermarkUtc = newest;
         }
 
-        // Set only where RecordTotal writes, and for the same reason. Ship documents this as
-        // whether the run that produced *the stored total* was logged in, so a filtered pass — which
-        // produces no total — must not set it: doing so leaves a total counted logged-out, with
-        // restricted works invisible and the count therefore short, wearing an authenticated run's
-        // flag. That is the mis-conclusion the field exists to prevent, and T15's sweep is what
-        // would act on it.
+        // Assigned by whichever run wrote the total, and by no other. Ship documents this as
+        // whether the run that produced *the stored total* was logged in, so the two travel
+        // together or the pair says something neither run did: a filtered pass, or an unfiltered
+        // one whose heading would not parse, leaves the flag to the run whose number is still on
+        // the ship.
         //
-        // Two things here are still wrong and are T30's, not this pass's: the flag is a one-way
-        // latch that no later anonymous run can clear, and `sawRestricted` is computed over newly
-        // ingested works only, so a page whose restricted works were all already held does not set
-        // it even on a genuinely authenticated run.
-        if (!listingWasFiltered && sawRestricted) ship.LastKnownTotalWasAuthenticated = true;
+        // Assignment, not a latch. A logged-in run stamps the flag; the session lapses; a later
+        // anonymous run reads a fresh total that is short by however many restricted works the tag
+        // holds. Left true, the flag tells T15's sweep to allow for an invisibility the stored
+        // number no longer has — so a run that replaces the total replaces the flag, downwards
+        // included.
+        if (wroteTotal) ship.LastKnownTotalWasAuthenticated = readWhileLoggedIn;
 
         await _db.SaveChangesAsync(ct);
     }

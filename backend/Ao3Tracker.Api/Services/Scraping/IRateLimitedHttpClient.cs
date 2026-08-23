@@ -2,6 +2,13 @@ using System.Net;
 
 namespace Ao3Tracker.Api.Services.Scraping;
 
+/// <param name="Authenticated">
+/// Whether the request that produced this content carried an AO3 session cookie. It travels with
+/// the content rather than with the run because that is what it describes: a page served from cache
+/// is the page the *caching* request was given, so a logged-in run reading a cached anonymous copy
+/// is reading anonymous content and must say so. Always false today — nothing logs in yet; T5 is
+/// where this stops being a constant.
+/// </param>
 /// <param name="FinalUrl">
 /// Where the request ended up after redirects, which is not always where it was sent. AO3 answers
 /// a synonym tag by redirecting to its canonical one, so this is the only thing in the response
@@ -13,7 +20,8 @@ public record ScrapeHttpResponse(
     string Content,
     HttpStatusCode StatusCode,
     bool FromCache,
-    string? FinalUrl = null);
+    string? FinalUrl = null,
+    bool Authenticated = false);
 
 /// <summary>
 /// Shared HTTP entry point for every scraper. Enforces a minimum delay between requests,
