@@ -383,7 +383,7 @@ build. Not something a task should chase.
   their verification will look like a pass while running nothing. T30's `~Authenticated` was 3 at
   T29.
   **The review landed after the commit and found three things the diff itself created** — folded in
-  as `9e0a1c2`, tests confirmed red first, so T34 is two commits. (1) `RecordTotal` ran *before* the
+  as `642cbb9`, tests confirmed red first, so T34 is two commits. (1) `RecordTotal` ran *before* the
   readability guard, so a soft-error page's `<h2>Error 404</h2>` wrote `LastKnownTotalWorks = 404`
   over a real 4,317 — `ParseTotalWorks` takes trailing digits when it finds no "Works", which is
   T31's defect reached through this diff. (2) The residual hole named above turned out to have a
