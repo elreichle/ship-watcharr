@@ -500,3 +500,54 @@ build. Not something a task should chase.
   loop inherited is closed. The eighth review pass found four things and three were the loop's own
   code, continuing T37's observation: what the reviews find now is what this loop is writing.
 
+
+## 2026-08-23 — T30 `LastKnownTotalWasAuthenticated` must describe the total it sits beside — done
+
+- did: The flag belongs to the run that wrote the total. `RecordTotal` returns whether it wrote,
+  and `wroteTotal` — not `!listingWasFiltered` — is what lets a run assign the flag, which also
+  closes the case the filter gate never covered: an unfiltered pass whose heading will not parse
+  writes no total and used to stamp the flag anyway. Assignment, not a latch, so a later anonymous
+  run reading a fresh total clears it. **Where "anonymous" comes from is the decision that took the
+  time.** `flag = sawRestricted` would have closed the latch and opened something worse: a
+  restricted work proves a run was logged in, but its absence proves nothing, so an authenticated
+  pass over an unrestricted tag writes a false *false* — and that is the direction that hurts, since
+  it tells T15's sweep the stored total was counted at its own visibility when it is really the
+  higher logged-in count. So `ScrapeHttpResponse` gained `bool Authenticated`, on the response
+  rather than the run because a cached page is the page the *caching* request was given.
+- files: `Api/Services/Scraping/{Ao3ShipIndexScraper,IRateLimitedHttpClient,RateLimitedAo3HttpClient}.cs`,
+  `Api/Models/Ship.cs`, `Tests/Ao3ShipIndexScraperTests.cs`, `.devloop/{tasks,DECISIONS}.md`
+- ran: `dotnet test --filter FullyQualifiedName~Ao3ShipIndexScraper` → 58 passed (55 before this
+  task); `--filter ~Authenticated` → 6 passed (2 before); `dotnet test` → 382 passed (379 before);
+  `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only. All three new
+  tests confirmed red first. The two tests the review's fix re-shaped were confirmed to bite by
+  mutation — restoring the disjunct and dropping the `wroteTotal` gate fails three of the six.
+- commit: 970b12d "T30: Give the authenticated-total flag to the run that wrote the total"
+- next: **The review's finding was that my fix kept a premise it should have dropped.** The first
+  version read `response.Authenticated || listing.Works.Any(w => w.IsRestricted)`, carrying over the
+  pre-loop belief that a lock symbol proves a session. The disjunct's only reachable effect is to
+  overrule the transport's *no* with a guess off the page — before T5 the client never authenticates,
+  and after T5 the disjunct is redundant except in exactly that contradiction. It is now
+  `response.Authenticated`, with the contradiction logged rather than resolved. **Generalising, and
+  it belongs in T28's table: a proxy signal keeps looking sound right up until the real signal
+  arrives beside it, and then it is only ever a way to disagree with it.** T39 is the same shape one
+  method away, and this is the third review to land on an unverified AO3-markup premise in this file.
+- **Half of T30 turned out to be already dead, and the notes say why.** `sawRestricted` over
+  `toIngest` only is unreachable since T29: it needs a pass with a watermark, such a pass is
+  filtered, and a filtered pass writes no total and cannot touch the flag. On an unfiltered pass
+  `toIngest` *is* `listing.Works`. Fixed anyway — the equality is an accident of where the watermark
+  filter is applied, not a rule — but with no test, because there is no behaviour to pin. Worth
+  knowing before T28 tabulates it as a live rule.
+- **Queued: T42, and it leads the run order.** `PlausiblyTheEndOfTheListing` requires `page == 1`,
+  so an *incremental* pass whose page 2 comes back a well-formed empty listing stops with `Error` —
+  which cannot move the watermark — and the ship re-reads the same two pages every tick forever.
+  The heading condition one line below is already gated on `listingWasFiltered` for this exact
+  reason; this one is not. In T28's `blocked-by` with T37's precedent, and in T15's.
+  The other finding went to **T38** rather than becoming a task: entering `Failed` does not reset
+  `BackfillStalledRuns` and neither reset site is reachable from `Failed`, so even a hand-edited
+  state re-fails on the next run. T38 already owns the missing exit; this is its other half.
+  Filters checked to bite, per T22's lesson: T30's declared `~Authenticated` matched **2**, one of
+  them in an unrelated controller, and missed this field's own positive test — the third form of
+  that lesson, where the filter names the subject and the tests are named for the behaviour.
+  Corrected in `tasks.md` to `~Ao3ShipIndexScraper`; it now matches 6 either way. Still zero and
+  still suspect: T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.
+  **Run order is now T42, then T28's audit** — whose `blocked-by` is down to that one task.
