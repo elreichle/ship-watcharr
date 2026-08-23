@@ -295,3 +295,56 @@ Worth recording: this is the fifth review pass over this scraper and the count o
 it has found is now fifteen. The rate is not falling, and T27's five continue the pattern — four of
 the five are a value written back to the ship that nothing later can tell is wrong. T28 was already
 sequenced before T15 for that reason; nothing here changes the plan beyond adding to it.
+
+## 2026-08-22 — T29: which listing's heading is the tag's total, and the flag that travels with it
+
+`RecordTotal` is gated on the request having carried no `work_search[revised_at]` bound, not on the
+run's mode. The bound now comes from one function, `RevisedAtBound(mode, watermark)`, which
+`BuildUrl` and the gate both read — so a change to *when* the filter applies cannot leave the gate
+believing something else. Gating on the mode would have been equivalent today and wrong the moment a
+backfill or a sweep grew a date window, which the `BackfillBeforeUpdatedAt` column is already
+reserved for.
+
+**A consequence worth naming: the total now goes stale rather than going wrong.** Only an unfiltered
+pass writes it — the first incremental pass of a ship (no watermark yet), every backfill, and in
+future every full sweep. A ship past its backfill and ticking over incrementally will keep the same
+`LastKnownTotalWorks` indefinitely. That is the correct trade — a stale figure with an honest
+`LastKnownTotalWorksAt` beside it is checkable, and a fresh figure that is silently the size of a
+date filter is not — but **T15 must read the timestamp, not just the number**, before letting a
+total license a conclusion about works having disappeared. Nothing outside the scraper reads either
+field today, so there is no UI to correct.
+
+**Folded in from T29's review: the authenticated-total flag is written only where the total is.**
+`LastKnownTotalWasAuthenticated` is documented on `Ship` as whether the run that produced *the
+stored total* was logged in. Skipping the total on a filtered pass while still latching the flag
+would let the two come from different runs — a logged-out backfill's undercount wearing a later
+authenticated pass's flag — which is a sharper version of exactly the defect T30 exists to fix, and
+it would have been introduced *by this diff*. One line, one test, folded in rather than queued,
+because the diff created it. T30 keeps the two halves that pairing does not fix: the flag is still a
+one-way latch no anonymous run can clear, and `sawRestricted` is still computed over newly ingested
+works only. T30's entry now says so.
+
+## 2026-08-22 — T34–T36 added, from T29's review
+
+Four findings, one folded in above; the other three verified against the source and queued:
+
+- **T34**: any page parsing to zero works stops the walk with `LastPage`, and a backfill's
+  `LastPage` becomes `BackfillState = Complete`. A 200 maintenance page or a markup change therefore
+  retires a ship from backfilling having read nothing — the same failure the 404 branch directly
+  above it was hardened against, reached by another route. `listing.TotalWorks` is already parsed and
+  already distinguishes the two cases.
+- **T35**: the `NormalizedPseudIdentity` dedup handles two capitalisation variants and collides on
+  three, failing the upgrade on `PK_WorkAuthors`. Latent — nothing populated `Ao3Pseuds` before this
+  branch.
+- **T36**: `AdminScrapingPage` renders `ScrapingGateState.Problem` — *every* blocker — inside the
+  section explaining the User-Agent, while the callout that should report a missing AO3 login is
+  suppressed in precisely that case.
+
+**T34 is in T28's `blocked-by` and leads the run order.** It is the same species as T29 and T24: a
+pass writing the ship a conclusion it did not earn, which nothing downstream can tell is wrong.
+
+Worth recording against the count kept in the previous entries: this is the sixth review pass over
+this code and the pre-loop defect total is now eighteen. Three of T29's four were outside the
+scraper's walk — the migration and the admin page — which is the first time a pass has found more
+outside it than in. Read as the walk's density falling rather than the codebase's; T28 is still the
+right next structural move, and it is now four tasks away rather than three.

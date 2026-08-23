@@ -10,10 +10,11 @@ a dependency cannot be met — needs a human).
 Tasks are **not** taken in file order. Take the first `todo` listed here whose `blocked-by` are all
 `done`; only when this list is exhausted does file order apply.
 
-1. T29 — the incremental pass overwrites a ship's total with a filtered count
+1. T34 — a backfill marks itself Complete off a page that parsed to nothing
 2. T25, T26 — the remaining pre-loop scraper defects
-3. T28 — the audit of the walking and stopping rules, while that code is still fresh
-4. then file order, from T6
+3. T30 — what is left of the authenticated-total flag, after T29 paired it with the total
+4. T28 — the audit of the walking and stopping rules, while that code is still fresh
+5. then file order, from T6
 
 Why this list exists at all: every entry was found by review of pre-loop scraper code, so none of it
 appears where the original plan put it — without this list, file order would send an iteration to T6
@@ -21,10 +22,12 @@ and leave the scraper's live defects in place. T23, T24 and T27 — the three th
 re-request AO3 in a loop, the one thing its politeness rules exist to prevent — are done. The
 reasoning is in `DECISIONS.md` under the T23 and T27 reviews.
 
-T29 leads because it silently corrupts the one number T15's full sweep is supposed to sanity-check
-itself against, and it does so on every incremental pass. T30 is in the audit's `blocked-by` beside
-it for the same reason — both decide what a pass writes back to the ship, which is what T28
-tabulates. T31, T32 and T33 are real but slow-acting and sit in file order, after the planned work.
+T34 leads for the reason T29 did: it is a ship writing itself a conclusion nothing downstream can
+tell is wrong, and this one retires a ship from backfilling forever off a single unparseable page.
+T30 stays in the audit's `blocked-by` — it and T29 both decide what a pass writes back to the ship,
+which is what T28 tabulates — but it is now the smaller half of itself, T29 having paired the flag
+with the total it describes. T31, T32, T33, T35 and T36 are real but slow-acting or latent and sit
+in file order, after the planned work.
 
 Delete an entry once its task is `done`. When this section is empty, delete the section.
 
@@ -511,7 +514,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 ## T28 — Audit the scraper's walking and stopping rules
 - status: todo
 - attempts: 0
-- blocked-by: T24, T25, T26, T27, T29, T30
+- blocked-by: T24, T25, T26, T27, T29, T30, T34
 - delivers: `.devloop/scraper-audit.md` — one table row per rule that decides where a pass starts,
   where it stops, what it may conclude from stopping, and what it writes back to the ship. Each row
   names the rule, the code that implements it, which passes it applies to, what it concludes, and
@@ -539,7 +542,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   gets three broken passes instead of two.
 
 ## T29 — An incremental pass must not overwrite a ship's total with a filtered count
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: `Ship.LastKnownTotalWorks` holds the number of works in the tag, not the number matching
@@ -564,6 +567,13 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 - blocked-by: none
 - delivers: The flag says whether *this* ship's stored total was read while logged in, and can go
   back to false when a later run reads one anonymously.
+- **Re-scoped by T29.** The flag is no longer written by a pass that writes no total: T29's review
+  found that skipping the total on a filtered listing while still latching the flag let the two come
+  from *different runs*, which is a sharper version of this same defect, so the one-line pairing was
+  folded into T29 and is tested by
+  `Does_not_claim_a_filtered_pass_authenticated_the_total_it_did_not_write`. What is left here is
+  the two things that pairing does not fix, both still live and both described below: the one-way
+  latch, and `sawRestricted` being computed over newly ingested works only.
 - verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Authenticated`
 - notes: Found by `/code-review` during T27, in pre-loop code, and verified.
   `Ao3ShipIndexScraper.FinishAsync` (~line 487) does `if (sawRestricted) ship.LastKnownTotalWasAuthenticated = true;`
@@ -615,3 +625,59 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   duplicated rows — on every incremental pass, over works that have not changed. `.AsSplitQuery()`
   is the whole fix. Cheapest task on this list; it changes no behaviour, so its verification is
   that the existing ingest tests stay green.
+
+## T34 — A backfill must not call itself complete off a page that parsed to nothing
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A backfill whose page yields zero works while AO3's heading says the tag has thousands
+  stops as an error, not as the end of the listing — so the ship is not retired from backfilling.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Backfill`
+- notes: Found by `/code-review` during T29, in pre-loop code, and verified against the source.
+  `Ao3ShipIndexScraper.ExecuteAsync` (~line 221) sets `stopReason = LastPage` for any page parsing
+  to zero works, and `FinishAsync` (~line 467) turns a backfill's `LastPage` into
+  `BackfillState = Complete` + `BackfillCompletedAt`. A 200 maintenance page or a listing markup
+  change therefore marks a ship fully backfilled having read nothing, and nothing looks again. This
+  is the same failure the 404 branch immediately above was deliberately hardened against — reached
+  by a different route, which is why the existing guard does not catch it. **The signal to tell the
+  two apart is already parsed and already on the page**: `listing.TotalWorks`. A heading saying
+  "4,317 Works" over zero readable blurbs is a parse failure; no heading and no blurbs is a
+  plausibly empty tag. `Refuses_to_call_a_backfill_complete_when_the_first_page_404s` is the shape
+  to follow. Check the filter bites before trusting it — `~Backfill` matched 6 at T24.
+
+## T35 — The pseud dedup migration collides on a third capitalisation
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: `NormalizedPseudIdentity` folds any number of capitalisation variants without failing
+  the upgrade.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Pseud`
+- notes: Found by `/code-review` during T29 and verified by reading the SQL. Both providers:
+  `Data/Migrations/Sqlite/20260822182752_NormalizedPseudIdentity.cs:77` and the Postgres twin at
+  `.../Postgres/20260822182800_NormalizedPseudIdentity.cs:77`. The `DELETE` drops a loser link only
+  where the *canonical* (`MIN(Id)`) link is already on that work, so with three variants — ids 1/2/3
+  normalizing alike, a work linked to 2 and 3 but not 1 — neither row is deleted, and the following
+  `UPDATE` repoints both to 1 and violates `PK_WorkAuthors (WorkId, PseudId)` mid-upgrade.
+  **Latent, not live**: nothing populated `Ao3Pseuds` before this branch, so a real deployment's
+  table is empty — which is why this is a correctness fix on the upgrade path and not an incident.
+  Do **not** rewrite the applied migration in place if it has shipped anywhere; prefer a guard that
+  is idempotent (dedup the link set before repointing, or repoint with a conflict-tolerant form).
+  Getting a test around a migration is the hard part here — say in the notes what seam was used.
+
+## T36 — The scraping-identity page shows blockers that are not about identity
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: "What AO3 currently sees" explains the User-Agent and nothing else; a missing AO3 login
+  is reported by the callout that exists for it.
+- verification: `cd frontend && npm run build && npm run lint`, plus a live check on a throwaway
+  instance with **both** the operator contact and the AO3 login missing.
+- notes: Found by `/code-review` during T29 and verified against the source.
+  `ScrapingGateState.Problem` (`Services/Scraping/ScrapingGate.cs:72`) is every blocker joined, by
+  design — `ScrapeWorker` wants all of them at once. `AdminScrapingPage.tsx:134` renders it verbatim
+  under "What AO3 currently sees", so an instance missing both blockers prints "No AO3 login is
+  stored for this instance…" inside the block about the User-Agent, contradicting the comment two
+  lines above it. Worse, the dedicated login callout at line 113 is gated on
+  `identity.identityConfigured`, so it is suppressed in exactly that case. Either render only the
+  identity blocker in that section, or drop the `identityConfigured &&` guard on the callout —
+  the second is smaller and makes both sections honest. Obsidian CSS variables only.

@@ -82,6 +82,11 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         // what a given run has seen enough of the listing to conclude, is decided in FinishAsync.
         var watermark = ship.IncrementalWatermarkUtc;
 
+        // Whether this run's requests narrow the listing to a date range, read from the same place
+        // BuildUrl reads it so that changing when the filter applies cannot leave this behind. Both
+        // its inputs are fixed for the length of a run, so every page of the run answers the same.
+        var listingWasFiltered = RevisedAtBound(context.Mode, watermark) is not null;
+
         var page = startPage;
         var pagesFetched = 0;
         var worksSeen = 0;
@@ -211,7 +216,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             firstPage ??= page;
             lastPage = page;
 
-            RecordTotal(ship, listing);
+            RecordTotal(ship, listing, listingWasFiltered);
 
             if (listing.Works.Count == 0)
             {
@@ -330,7 +335,8 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             page++;
         }
 
-        await FinishAsync(context, ship, stopReason, firstPage, newestSeen, sawRestricted, ct);
+        await FinishAsync(
+            context, ship, stopReason, firstPage, newestSeen, sawRestricted, listingWasFiltered, ct);
 
         return new ScrapeOutcome(
             pagesFetched, budget.RequestsMade, worksSeen, worksAdded, worksUpdated,
@@ -361,17 +367,28 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
         if (page > 1) query.Add($"page={page.ToString(CultureInfo.InvariantCulture)}");
 
-        // Asking AO3 to exclude what we already have is what keeps a routine pass to one request on
-        // a large tag. Day-granular, and deliberately given a day's slack, so it can only ever
-        // return *more* than needed — the exact cut is made client-side against the watermark.
-        if (mode == ScrapeRunMode.Incremental && watermark is { } since)
-        {
-            var from = since.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            query.Add($"work_search%5Brevised_at%5D={Uri.EscapeDataString($"> {from}")}");
-        }
+        if (RevisedAtBound(mode, watermark) is { } bound)
+            query.Add($"work_search%5Brevised_at%5D={Uri.EscapeDataString(bound)}");
 
         return $"{_options.BaseUrl.TrimEnd('/')}/tags/{segment}/works?{string.Join('&', query)}";
     }
+
+    /// <summary>
+    /// The <c>work_search[revised_at]</c> bound a run's requests carry, or null when they ask for
+    /// the whole tag.
+    ///
+    /// Asking AO3 to exclude what we already have is what keeps a routine pass to one request on a
+    /// large tag. Day-granular, and deliberately given a day's slack, so it can only ever return
+    /// *more* than needed — the exact cut is made client-side against the watermark.
+    ///
+    /// One function rather than a condition in <see cref="BuildUrl"/>, because a second caller
+    /// needs the same answer: a filtered listing's heading counts the filter's result set, not the
+    /// tag, and <see cref="RecordTotal"/> has to know which it is looking at.
+    /// </summary>
+    private static string? RevisedAtBound(ScrapeRunMode mode, DateTime? watermark) =>
+        mode == ScrapeRunMode.Incremental && watermark is { } since
+            ? $"> {since.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}"
+            : null;
 
     // ---- ship state --------------------------------------------------------------------------
 
@@ -385,8 +402,23 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         }
     }
 
-    private void RecordTotal(Ship ship, Ao3ListingPage listing)
+    /// <summary>
+    /// Stores AO3's "N Works in ..." heading as the tag's total — from an unfiltered listing only.
+    ///
+    /// The heading counts whatever result set the request produced, so an incremental pass carrying
+    /// a <c>revised_at</c> bound prints the number of works revised since the watermark, which on a
+    /// quiet tag is a single digit. Written to <see cref="Ship.LastKnownTotalWorks"/> that is not
+    /// merely wrong, it is wrong in the direction that matters: the field is documented as the
+    /// figure a full sweep checks itself against before concluding works have left the tag, and a
+    /// tag backfilled to 4,317 works reading 2 is a tag a sweep would call emptied.
+    ///
+    /// Gated on the filter rather than on the mode, so the rule survives the filter's conditions
+    /// changing — a backfill of a ship that has a watermark still asks for the whole listing, and
+    /// its heading still counts the tag.
+    /// </summary>
+    private void RecordTotal(Ship ship, Ao3ListingPage listing, bool listingWasFiltered)
     {
+        if (listingWasFiltered) return;
         if (listing.TotalWorks is not { } total) return;
 
         ship.LastKnownTotalWorks = total;
@@ -427,6 +459,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         int? firstPage,
         DateTime? newestSeen,
         bool sawRestricted,
+        bool listingWasFiltered,
         CancellationToken ct)
     {
         var now = _time.GetUtcNow().UtcDateTime;
@@ -484,7 +517,18 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             ship.IncrementalWatermarkUtc = newest;
         }
 
-        if (sawRestricted) ship.LastKnownTotalWasAuthenticated = true;
+        // Set only where RecordTotal writes, and for the same reason. Ship documents this as
+        // whether the run that produced *the stored total* was logged in, so a filtered pass — which
+        // produces no total — must not set it: doing so leaves a total counted logged-out, with
+        // restricted works invisible and the count therefore short, wearing an authenticated run's
+        // flag. That is the mis-conclusion the field exists to prevent, and T15's sweep is what
+        // would act on it.
+        //
+        // Two things here are still wrong and are T30's, not this pass's: the flag is a one-way
+        // latch that no later anonymous run can clear, and `sawRestricted` is computed over newly
+        // ingested works only, so a page whose restricted works were all already held does not set
+        // it even on a genuinely authenticated run.
+        if (!listingWasFiltered && sawRestricted) ship.LastKnownTotalWasAuthenticated = true;
 
         await _db.SaveChangesAsync(ct);
     }

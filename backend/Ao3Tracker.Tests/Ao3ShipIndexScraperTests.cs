@@ -87,6 +87,9 @@ public class Ao3ShipIndexScraperTests : IDisposable
     [Fact]
     public async Task Records_the_tags_total_for_the_ship()
     {
+        // The ship has no watermark, so the pass asks for the unfiltered listing and AO3's
+        // "N Works in ..." heading really is the tag's total. That is the only case in which it
+        // is — see Leaves_the_tags_total_alone_when_the_listing_was_filtered.
         _host.Http.Responds = Pages(Page(1, [Blurb(1)], total: 4317));
         var shipId = await FollowAsync();
 
@@ -286,6 +289,79 @@ public class Ao3ShipIndexScraperTests : IDisposable
         await _host.ScrapeAsync(shipId);
 
         Assert.Equal(_host.Clock.Now.UtcDateTime, (await ReloadAsync(shipId)).LastKnownTotalWorksAt);
+    }
+
+    [Fact]
+    public async Task Leaves_the_tags_total_alone_when_the_listing_was_filtered()
+    {
+        // An incremental pass with a watermark adds work_search[revised_at] to the URL, so AO3's
+        // heading counts the *filter's* result set. A ship that backfilled to 4,317 works read 2
+        // after one quiet pass — and LastKnownTotalWorks is the figure a full sweep checks itself
+        // against before concluding works have left the tag, so a 2 there reads as an emptied tag.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1, updatedAt: Jan(9))], total: 2));
+
+        var shipId = await FollowAsync();
+        await SetTotalAsync(shipId, 4317, readAt: Jan(1));
+        await SetWatermarkAsync(shipId, Jan(5));
+
+        await _host.ScrapeAsync(shipId);
+
+        // Not merely the count: the timestamp beside it must not claim the old figure was re-read.
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(4317, ship.LastKnownTotalWorks);
+        Assert.Equal(Jan(1), ship.LastKnownTotalWorksAt);
+    }
+
+    [Fact]
+    public async Task Does_not_claim_a_filtered_pass_authenticated_the_total_it_did_not_write()
+    {
+        // Ship documents the flag as whether the run that produced *the stored total* was logged
+        // in. A filtered pass produces no total, so letting it flip the flag leaves a total counted
+        // logged-out — restricted works invisible, so undercounted — wearing an authenticated run's
+        // flag. That is the exact mis-conclusion the field exists to prevent, and it is what a full
+        // sweep reads before deciding works have left the tag.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1, updatedAt: Jan(9), restricted: true)], total: 2));
+
+        var shipId = await FollowAsync();
+        await SetTotalAsync(shipId, 4317, readAt: Jan(1));
+        await SetWatermarkAsync(shipId, Jan(5));
+
+        await _host.ScrapeAsync(shipId);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(4317, ship.LastKnownTotalWorks);
+        Assert.False(ship.LastKnownTotalWasAuthenticated);
+    }
+
+    [Fact]
+    public async Task Records_that_an_unfiltered_pass_read_the_total_while_logged_in()
+    {
+        // The other side of it: an unfiltered pass writes the total, so the flag describing that
+        // total is its to set.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1, restricted: true)], total: 4317));
+
+        var shipId = await FollowAsync();
+
+        await _host.ScrapeAsync(shipId);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(4317, ship.LastKnownTotalWorks);
+        Assert.True(ship.LastKnownTotalWasAuthenticated);
+    }
+
+    [Fact]
+    public async Task Records_the_tags_total_from_a_backfill_of_a_ship_that_has_a_watermark()
+    {
+        // The gate is on the filter, not on the mode. A backfill asks for the whole listing
+        // whatever the ship's watermark says, so its heading is the tag's total and must land.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1)], total: 4317));
+
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(5));
+
+        await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(4317, (await ReloadAsync(shipId)).LastKnownTotalWorks);
     }
 
     [Fact]
@@ -699,6 +775,19 @@ public class Ao3ShipIndexScraperTests : IDisposable
     }
 
     /// <summary>
+    /// Puts a total on the ship as an earlier unfiltered pass would have left it, so a later pass
+    /// overwriting it is visible as a change rather than as a first write.
+    /// </summary>
+    private async Task SetTotalAsync(int shipId, int total, DateTime readAt)
+    {
+        await using var db = _host.NewContext();
+        var ship = await db.Ships.SingleAsync(s => s.Id == shipId);
+        ship.LastKnownTotalWorks = total;
+        ship.LastKnownTotalWorksAt = readAt;
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>
     /// Puts a ship where a previous run's cap would have left it: backfill under way, cursor part
     /// of the way into the listing. The scraper reads this cursor to pick its starting page.
     /// </summary>
@@ -770,7 +859,8 @@ public class Ao3ShipIndexScraperTests : IDisposable
         DateTime? updatedAt = null,
         int kudos = 10,
         string[]? freeforms = null,
-        bool undated = false)
+        bool undated = false,
+        bool restricted = false)
     {
         var epoch = new DateTimeOffset(updatedAt ?? Jan(1)).ToUnixTimeSeconds();
         var tags = string.Join('\n', (freeforms ?? ["Fluff"])
@@ -780,6 +870,7 @@ public class Ao3ShipIndexScraperTests : IDisposable
             <li id="work_{id}" class="work blurb group">
               <div class="header module">
                 <h4 class="heading">
+                  {(restricted ? """<img class="symbol" title="Restricted" alt="Restricted" />""" : "")}
                   <a href="/works/{id}">Work {id}</a>
                   by <a rel="author" href="/users/someuser/pseuds/somepseud">somepseud (someuser)</a>
                 </h4>
