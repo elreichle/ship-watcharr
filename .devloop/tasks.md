@@ -10,12 +10,10 @@ a dependency cannot be met — needs a human).
 Tasks are **not** taken in file order. Take the first `todo` listed here whose `blocked-by` are all
 `done`; only when this list is exhausted does file order apply.
 
-1. T37, then T25 — settle what a cursor pointing past a shrunken listing concludes, then fix the
-   404 branch under that rule. T25 is now its 404 half only; T34 took the other.
-2. T26 — the last of the pre-loop scraper defects
-3. T30 — what is left of the authenticated-total flag, after T29 paired it with the total
-4. T28 — the audit of the walking and stopping rules, while that code is still fresh
-5. then file order, from T6
+1. T26 — the last of the pre-loop scraper defects
+2. T30 — what is left of the authenticated-total flag, after T29 paired it with the total
+3. T28 — the audit of the walking and stopping rules, while that code is still fresh
+4. then file order, from T6
 
 Why this list exists at all: every entry was found by review of pre-loop scraper code, so none of it
 appears where the original plan put it — without this list, file order would send an iteration to T6
@@ -25,8 +23,8 @@ reasoning is in `DECISIONS.md` under the T23 and T27 reviews.
 
 T30 stays in the audit's `blocked-by` — it and T29 both decide what a pass writes back to the ship,
 which is what T28 tabulates — but it is now the smaller half of itself, T29 having paired the flag
-with the total it describes. T31, T32, T33, T35 and T36 are real but slow-acting or latent and sit
-in file order, after the planned work.
+with the total it describes. T31, T32, T33, T35, T36 and T38 are real but slow-acting or latent and
+sit in file order, after the planned work.
 
 Delete an entry once its task is `done`. When this section is empty, delete the section.
 
@@ -268,7 +266,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 ## T15 — The full-sweep pass
 - status: todo
 - attempts: 0
-- blocked-by: T28, T29, T30
+- blocked-by: T28, T29, T30, T38
 - delivers: A third pass over a ship's index that walks every page and, only afterwards, marks the
   `ShipWork` rows it did not see as having left the tag — so the library stops drifting from AO3.
 - verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~FullSweep`
@@ -444,10 +442,15 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   single-run case; the test this needs is a backfill resumed at a page above 1.
 
 ## T25 — What actually ends a backfill
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
-- **Re-scoped by T34**, which took half (2). See the struck-through note below.
+- **Re-scoped by T34**, which took half (2), then **closed by T37**, which took what was left. See
+  the struck-through notes below and `DECISIONS.md` under T37. Nothing of T25 remained once the 404
+  branch was rewritten: its guard is now `lastPage == page - 1` — "a 404 is the end of a listing only
+  past a page this run actually read" — rather than the `page == 1` T25 proposed, which would have
+  been right about a resumed cursor and wrong about T37's retreat. Verified by T37's run of
+  `--filter FullyQualifiedName~Ao3ShipIndexScraper` (53 tests).
 - delivers: A resumed backfill whose first request 404s because the listing shrank reaches
   `Complete`, instead of re-requesting the missing page on every scheduled run forever.
 - verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Backfill`
@@ -459,7 +462,8 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   `pagesFetched == 0` and is recorded as `Error` instead of `LastPage` — so `BackfillState` never
   becomes `Complete`, the cursor never advances, and the ship re-requests the same missing page on
   every scheduled run indefinitely. The guard wants `page == 1`.
-  **Do not write this fix without reading T37 first.** T34's review found that `page == 1` on the
+  ~~**Do not write this fix without reading T37 first.**~~ **T37 is done, and took this half with
+  it.** T34's review found that `page == 1` on the
   404 branch and T34's rule on the empty-200 branch conclude *opposite* things about the same
   real-world situation — a cursor left pointing past an end the listing has since shrunk to. One
   would call it the end of the listing, the other a parse failure. T37 is where that is settled;
@@ -520,7 +524,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 ## T28 — Audit the scraper's walking and stopping rules
 - status: todo
 - attempts: 0
-- blocked-by: T24, T25, T26, T27, T29, T30, T34, T37
+- blocked-by: T26, T30
 - delivers: `.devloop/scraper-audit.md` — one table row per rule that decides where a pass starts,
   where it stops, what it may conclude from stopping, and what it writes back to the ship. Each row
   names the rule, the code that implements it, which passes it applies to, what it concludes, and
@@ -693,7 +697,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   the second is smaller and makes both sections honest. Obsidian CSS variables only.
 
 ## T37 — A backfill stuck on a page that is neither readable nor gone
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: One rule covering both ways a resumed backfill's cursor can point past the end of a
@@ -718,3 +722,51 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   through T28.
   **Add to T28's `blocked-by`** when taken, or resolve it before T28 runs: it is a rule about what a
   stop is entitled to conclude, which is exactly what that audit tabulates.
+
+## T38 — An operator way back out of a failed backfill
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: An admin can put a ship whose backfill was written off back to `InProgress`, choosing
+  where its cursor restarts, so an outage does not cost a back catalogue permanently.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Backfill` plus
+  `cd frontend && npm run build && npm run lint`
+- notes: Found while writing T37, which made `ShipBackfillState.Failed` reachable for the first time
+  — the enum's fourth value, which nothing had ever set. T37's bound gives up on a backfill after
+  `MaxStalledBackfillRuns` consecutive runs against a cursor the listing will not answer, which is
+  right while AO3 is genuinely refusing and wrong the moment it stops: nothing in the product can
+  move a ship out of `Failed`, so a backfill written off during an outage stays written off until a
+  full sweep or a hand-edited database. `BackfillNextPage` is deliberately left pointing where the
+  walk gave up, so a restart has somewhere honest to resume from; resetting `BackfillStalledRuns` to
+  0 is part of the restart, or the ship gives up again on its very next run. The Ships page already
+  renders `BackfillState` (`ShipDtos.cs`, `ShipsController.cs:110`) — a stalled ship should say so
+  there rather than only in the run history. Consider whether a ship that starts answering again
+  should recover on its own instead; if so, say why in a comment, because a self-clearing give-up is
+  a give-up that can loop.
+
+## T39 — Confirm what AO3 serves for a works index with no results
+- status: blocked
+- attempts: 0
+- blocked-by: **fixture** — needs `backend/Ao3Tracker.Tests/Fixtures/ao3-empty-listing.html`, a real
+  capture of a relationship-tag works index that matches nothing (either a tag with no works, or any
+  tag under a `work_search[revised_at]` bound far in the future — the second is easy to produce and
+  is the shape a quiet incremental pass actually sends). A human must save this file; the loop has no
+  network. Leave this task `blocked` until it exists.
+- delivers: A parser test over captured markup pinning whether AO3's zero-result index renders
+  `ol.work.index.group`, and `Ao3ListingPage.HasListing` corrected if it does not.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Listing`
+- notes: Found by `/code-review` during T37, against T34's committed code. `HasListing` is what
+  `PlausiblyTheEndOfTheListing` uses to tell an empty tag from a page that is not a results page at
+  all, on the premise — stated in that method's doc, verified nowhere — that an empty tag still
+  renders the container. Nothing in the repo tests it: `Ao3BlurbParserTests.cs` has no `HasListing`
+  case, and every scraper test reaching the zero-work path goes through the `Page(n, [])` helper in
+  `Ao3ShipIndexScraperTests.cs`, which emits the container unconditionally. The tests prove the
+  premise by assuming it. **If the premise is wrong the failure is worse than the one T34 fixed**: a
+  quiet incremental pass — a `revised_at` filter matching nothing, the common case on a ship nobody
+  is writing for — reads zero blurbs, `HasListing` is false, `PlausiblyTheEndOfTheListing` says no,
+  and the run stops with `Error`. `Error` is neither `Watermark` nor `LastPage`, so `mayPropose` is
+  false, the watermark never moves, and every scheduled run on every quiet ship is recorded failed
+  forever. Check the filtered case specifically, not only an empty tag: the heading check beside it
+  is already gated on `listingWasFiltered` for exactly this reason, and `HasListing` is not.
+  While the capture is out, settle the sibling question `Ao3ListingPage` also guesses at: whether
+  AO3 pages a zero-result listing with `ol.index.group` rather than `ol.work.index.group`.

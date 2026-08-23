@@ -470,6 +470,213 @@ public class Ao3ShipIndexScraperTests : IDisposable
         Assert.Equal(ShipBackfillState.Complete, (await ReloadAsync(shipId)).BackfillState);
     }
 
+    // ---- a cursor pointing past the end of a listing that shrank ---------------------------------
+
+    [Fact]
+    public async Task Completes_a_backfill_whose_cursor_the_shrunken_listing_404s_past()
+    {
+        // A previous run left the cursor at page 3 because page 2 offered a next link. Works were
+        // then deleted and the listing is two pages long, so the cursor's page is gone. AO3 answers
+        // that with a 404 — which says nothing on its own about whether the listing ended or the
+        // request was wrong, so the run asks the page before it, and page 2 having no next link is
+        // the listing's own word that it ends there.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1)], nextPage: true),
+            Page(2, [Blurb(2)]));
+
+        var shipId = await FollowAsync();
+        await ResumeBackfillAtAsync(shipId, page: 3);
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
+        Assert.Contains(_host.Http.Requested, url => url.Contains("page=3"));
+        Assert.Contains(_host.Http.Requested, url => url.Contains("page=2"));
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(ShipBackfillState.Complete, ship.BackfillState);
+        Assert.Equal(0, ship.BackfillStalledRuns);
+    }
+
+    [Fact]
+    public async Task Completes_a_backfill_whose_cursor_the_shrunken_listing_serves_empty()
+    {
+        // The same event, and AO3's other answer to it: a 200 carrying the listing container with
+        // nothing in it. The 404 branch and this one used to conclude opposite things here — the end
+        // of the listing, or a parse failure re-requested on every run forever. Both now ask page 2.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1)], nextPage: true),
+            Page(2, [Blurb(2)]),
+            Page(3, []));
+
+        var shipId = await FollowAsync();
+        await ResumeBackfillAtAsync(shipId, page: 3);
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
+        Assert.Equal(ShipBackfillState.Complete, (await ReloadAsync(shipId)).BackfillState);
+    }
+
+    [Fact]
+    public async Task Leaves_a_stale_looking_cursor_alone_when_the_page_before_it_still_offers_a_next_link()
+    {
+        // The other half of the same question, and the reason the retreat is not licence to
+        // complete: page 2 says page 3 exists, so page 3 not answering is AO3 having a bad moment,
+        // not a listing that ended. The run stops, the cursor stays where it was, and page 3 is
+        // asked for once more on the next scheduled run — not a second time inside this one.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1)], nextPage: true),
+            Page(2, [Blurb(2)], nextPage: true));
+
+        var shipId = await FollowAsync();
+        await ResumeBackfillAtAsync(shipId, page: 3);
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        Assert.Equal(1, _host.Http.Requested.Count(url => url.Contains("page=3")));
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(ShipBackfillState.InProgress, ship.BackfillState);
+        Assert.Equal(3, ship.BackfillNextPage);
+        Assert.Equal(1, ship.BackfillStalledRuns);
+    }
+
+    [Fact]
+    public async Task Halves_the_cursor_when_the_page_before_it_does_not_answer_either()
+    {
+        // Two pages in a row unanswerable says the listing is shorter than the cursor by an unknown
+        // amount, not by one — so stepping back a page a run does not converge, and a listing that
+        // lost dozens of pages (an instance login lapsing drops every restricted work at once)
+        // would exhaust the allowance and be written off having never been broken.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1)]));
+
+        var shipId = await FollowAsync();
+        await ResumeBackfillAtAsync(shipId, page: 40);
+
+        var first = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.Error, first.StopReason);
+        Assert.Contains("shorter than the backfill cursor", first.ErrorMessage);
+        Assert.Equal(20, (await ReloadAsync(shipId)).BackfillNextPage);
+
+        // And it keeps halving until it lands on a page the listing will answer for, rather than
+        // spending the allowance walking. Four more runs reach page 1, which reads.
+        for (var run = 0; run < 4; run++) await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(ShipBackfillState.Complete, ship.BackfillState);
+        Assert.Equal(0, ship.BackfillStalledRuns);
+    }
+
+    [Fact]
+    public async Task Does_not_count_a_cursor_page_it_set_aside_as_a_page_it_read()
+    {
+        // The retreat sets the cursor's page aside unread, so it must not stand in for the page the
+        // run went on to read. FinishAsync asks "did this run see page 1" to decide whether it may
+        // move the watermark, and a stale cursor answering that question for page 1 throws away the
+        // watermark the retreat just earned — while leaving a FirstPageFetched above the
+        // LastPageFetched in the run history, which is a range an operator cannot read at all.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1, updatedAt: Jan(9))]));
+
+        var shipId = await FollowAsync();
+        await ResumeBackfillAtAsync(shipId, page: 2);
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(1, outcome.FirstPage);
+        Assert.Equal(1, outcome.LastPage);
+        Assert.Equal(Jan(9), (await ReloadAsync(shipId)).IncrementalWatermarkUtc);
+    }
+
+    [Fact]
+    public async Task Reads_the_same_run_off_both_of_AO3s_answers_to_a_page_that_is_gone()
+    {
+        // The unification, stated as a test: a 404 and a 200 with an empty listing are AO3's choice
+        // about how to answer for a page that no longer exists, not a difference in what happened,
+        // so a run must not be able to tell which it got from what it leaves behind.
+        async Task<(ScrapeOutcome Outcome, Ship Ship)> RunAsync(FakePage[] pages)
+        {
+            _host.Http.Responds = Pages(pages);
+            var id = await FollowAsync($"Alpha{pages.Length}/Beta{pages.Length}");
+            await ResumeBackfillAtAsync(id, page: 2);
+            return (await _host.ScrapeAsync(id, ScrapeRunMode.Backfill), await ReloadAsync(id));
+        }
+
+        // Page 2 missing from the listing entirely: the fake answers 404.
+        var missing = await RunAsync([Page(1, [Blurb(1, updatedAt: Jan(9))])]);
+
+        // Page 2 present and empty: the fake answers 200 with the listing container and no blurbs.
+        var empty = await RunAsync([Page(1, [Blurb(1, updatedAt: Jan(9))]), Page(2, [])]);
+
+        Assert.Equal(missing.Outcome.StopReason, empty.Outcome.StopReason);
+        Assert.Equal(missing.Outcome.FirstPage, empty.Outcome.FirstPage);
+        Assert.Equal(missing.Outcome.LastPage, empty.Outcome.LastPage);
+        Assert.Equal(missing.Ship.BackfillState, empty.Ship.BackfillState);
+        Assert.Equal(missing.Ship.IncrementalWatermarkUtc, empty.Ship.IncrementalWatermarkUtc);
+    }
+
+    [Fact]
+    public async Task Gives_up_on_a_backfill_that_spends_run_after_run_on_a_cursor_nothing_answers()
+    {
+        // The bound. Every page is a maintenance page, so no retreat ever finds an answer and the
+        // cursor walks back a page a run. Left alone that is two requests a run, forever, which is
+        // the load this project's politeness rules exist to prevent. After MaxStalledBackfillRuns
+        // the backfill is Failed — not Complete, which would claim a back catalogue never read.
+        // The cursor halves its way down to page 1 on the way and goes on counting there, so a
+        // ship that has run out of listing to retreat into is written off rather than left asking.
+        _host.Http.Responds = _ => new ScrapeHttpResponse(
+            "<html><body><h1>Down for maintenance</h1></body></html>",
+            HttpStatusCode.OK, FromCache: false, FinalUrl: "");
+
+        var shipId = await FollowAsync();
+        await ResumeBackfillAtAsync(shipId, page: 10);
+
+        for (var run = 1; run < Ao3ShipIndexScraper.MaxStalledBackfillRuns; run++)
+        {
+            await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+            var during = await ReloadAsync(shipId);
+            Assert.Equal(run, during.BackfillStalledRuns);
+
+            // Still trying, right up to the last run in the allowance.
+            Assert.Equal(ShipBackfillState.InProgress, during.BackfillState);
+        }
+
+        await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(ShipBackfillState.Failed, ship.BackfillState);
+        Assert.Null(ship.BackfillCompletedAt);
+
+        // Failed, not Complete, is what keeps the gap visible: ScrapeWorker backfills a NotStarted
+        // or InProgress ship only, so the ship falls back to its incremental pass rather than going
+        // on asking. Closing the gap is a full sweep's job.
+        Assert.NotEqual(ShipBackfillState.Complete, ship.BackfillState);
+    }
+
+    [Fact]
+    public async Task Clears_a_stalled_streak_as_soon_as_the_backfill_moves_forward_again()
+    {
+        // The counter is about *consecutive* stalls. A ship that was stuck and is no longer must
+        // not carry the count into the run that finally finds the listing again.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1)], nextPage: true),
+            Page(2, [Blurb(2)], nextPage: true),
+            Page(3, [Blurb(3)]));
+
+        var shipId = await FollowAsync();
+        await ResumeBackfillAtAsync(shipId, page: 2);
+        await SetStalledRunsAsync(shipId, 3);
+
+        await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(0, ship.BackfillStalledRuns);
+        Assert.Equal(ShipBackfillState.Complete, ship.BackfillState);
+    }
+
     // ---- what a page with no readable works may conclude ----------------------------------------------
 
     [Fact]
@@ -957,6 +1164,17 @@ public class Ao3ShipIndexScraperTests : IDisposable
         ship.BackfillState = ShipBackfillState.InProgress;
         ship.BackfillStartedAt = Jan(1);
         ship.BackfillNextPage = page;
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Puts a stalled streak on the ship, as consecutive runs against an unanswerable cursor would
+    /// have left it.
+    /// </summary>
+    private async Task SetStalledRunsAsync(int shipId, int runs)
+    {
+        await using var db = _host.NewContext();
+        (await db.Ships.SingleAsync(s => s.Id == shipId)).BackfillStalledRuns = runs;
         await db.SaveChangesAsync();
     }
 

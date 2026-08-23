@@ -521,6 +521,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                     b.Property<int?>("BackfillNextPage")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("BackfillStalledRuns")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime?>("BackfillStartedAt")
                         .HasColumnType("TEXT");
 

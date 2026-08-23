@@ -37,6 +37,20 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// </summary>
     private const int MaxPagesPerRun = 200;
 
+    /// <summary>
+    /// How many consecutive runs a ship may spend on a cursor the listing will not answer, before
+    /// the backfill is written off as <see cref="ShipBackfillState.Failed"/>.
+    ///
+    /// Each such run costs at most two requests — the cursor and the page before it — so twelve of
+    /// them is two dozen requests, spread over twelve scheduler intervals, before this gives up.
+    /// Twelve rather than a handful because the allowance has to be wide enough for the *honest*
+    /// case to converge inside it: <see cref="JumpCursorBackFrom"/> halves the cursor each time a
+    /// retreat finds nothing either, so a listing that shrank by a factor of two thousand still
+    /// finds a readable page with runs to spare, and anything that runs the allowance out is a
+    /// listing not answering at any depth rather than one that merely lost pages.
+    /// </summary>
+    internal const int MaxStalledBackfillRuns = 12;
+
     private readonly AppDbContext _db;
     private readonly IRateLimitedHttpClient _http;
     private readonly IWorkIngestor _ingestor;
@@ -95,6 +109,19 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         var parseWarnings = 0;
         int? firstPage = null;
         int? lastPage = null;
+
+        // Requests whose response reached the status branching below, so `pagesRequested == 1`
+        // identifies the run's first answered request whatever that answer was — unlike
+        // `pagesFetched`, which counts only pages that parsed, and `firstPage`, which is set only
+        // once one has. A backfill's first request is the one that lands on the saved cursor.
+        var pagesRequested = 0;
+
+        // The page a stale-cursor retreat stepped back from, once per run. Both a bound on the
+        // retreating and the thing that stops the walk turning round and re-asking for it, and —
+        // in `retreatBecause` — what that page actually did, since the retreat has two routes into
+        // it and a message naming the wrong one misdirects the operator reading the run history.
+        int? retreatedFrom = null;
+        string? retreatBecause = null;
         DateTime? newestSeen = null;
         var sawRestricted = false;
 
@@ -151,6 +178,8 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 continue;
             }
 
+            pagesRequested++;
+
             if (response.FromCache) budget.RecordCacheHit();
             else if (response.StatusCode == HttpStatusCode.OK) budget.RecordSuccess();
             else budget.RecordFailure();
@@ -160,25 +189,38 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 // Walking off the end of a listing is how a backfill finishes; AO3 404s rather than
                 // serving an empty page past the last one.
                 //
-                // But only *past* a page we actually read. A 404 on the very first request of a run
-                // says nothing about the end of the listing — it means the URL was wrong or the tag
-                // is gone — and calling that "complete" would mark a ship fully backfilled having
-                // read nothing at all, then never look again. That is precisely what a wrong
+                // But only *past a page this run actually read*, which is what `lastPage` holds: the
+                // page before this one was read, it offered a next link, and there is nothing there.
+                // That is a listing that ended. A 404 anywhere else was reached on somebody's word
+                // other than a page this run has in hand, and concluding "complete" from it would
+                // mark a ship fully backfilled having read nothing — which is precisely what a wrong
                 // address did on the first live run.
-                if (pagesFetched == 0)
-                {
-                    _logger.LogError(
-                        "AO3 returned 404 for the first page of ship {ShipId} ({Tag}) at {Url}. "
-                        + "Treating this as an error rather than the end of the listing.",
-                        ship.Id, ship.CanonicalTagName, url);
-
-                    stopReason = ScrapeStopReason.Error;
-                    errorMessage = $"AO3 returned 404 for the first page requested, {url}";
-                }
-                else
+                if (lastPage == page - 1)
                 {
                     stopReason = ScrapeStopReason.LastPage;
+                    break;
                 }
+
+                if (CursorMayBeStale(context.Mode, page, pagesRequested, retreatedFrom))
+                {
+                    retreatBecause = $"AO3 returned 404 for page {page.ToString(CultureInfo.InvariantCulture)}";
+                    RetreatFromStaleCursor(ship, page, retreatBecause);
+                    retreatedFrom = page;
+                    page--;
+                    continue;
+                }
+
+                _logger.LogError(
+                    "AO3 returned 404 for page {Page} of ship {ShipId} ({Tag}) at {Url}. "
+                    + "Treating this as an error rather than the end of the listing.",
+                    page, ship.Id, ship.CanonicalTagName, url);
+
+                stopReason = ScrapeStopReason.Error;
+                errorMessage = retreatedFrom is { } from
+                    ? JumpCursorBackFrom(
+                        ship, from, retreatBecause!,
+                        $"page {page.ToString(CultureInfo.InvariantCulture)} before it returned 404 as well")
+                    : $"AO3 returned 404 for the first page requested, {url}";
 
                 break;
             }
@@ -211,6 +253,31 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
             var listing = Ao3BlurbParser.ParseListing(response.Content);
 
+            // Whether the page can be taken for the end of the listing, evaluated before the page
+            // is counted as read — because the retreat below sets it aside unread, and counting it
+            // would make the two routes to a stale cursor differ again in exactly the way this task
+            // exists to stop. `firstPage` is the one that matters: FinishAsync asks "did this run
+            // see page 1" to decide whether it may move the watermark, so a cursor page the run
+            // could not read, standing in for page 1, silently throws away a watermark the retreat
+            // then went on to earn. It also put a `FirstPageFetched` above `LastPageFetched` in the
+            // run history — an inverted range an operator has no way to read.
+            var unreadable = listing.Works.Count == 0
+                && !PlausiblyTheEndOfTheListing(listing, page, listingWasFiltered);
+
+            // The other route to a stale cursor, and the reason it is handled beside the 404 rather
+            // than in that branch alone: which of the two AO3 serves for a page that no longer
+            // exists is AO3's choice, not a difference in what happened.
+            if (unreadable && CursorMayBeStale(context.Mode, page, pagesRequested, retreatedFrom))
+            {
+                retreatBecause =
+                    $"page {page.ToString(CultureInfo.InvariantCulture)} parsed to no works, and "
+                    + WhyNotTheEnd(listing, page, listingWasFiltered);
+                RetreatFromStaleCursor(ship, page, retreatBecause);
+                retreatedFrom = page;
+                page--;
+                continue;
+            }
+
             pagesFetched++;
             parseWarnings += listing.ParseWarnings;
             firstPage ??= page;
@@ -222,7 +289,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             // as 200 with <h2 class="heading">Error 404</h2> would put LastKnownTotalWorks = 404
             // over a real 4,317 and stamp it as freshly read — the same field, and the same
             // mis-conclusion, that RecordTotal's filter guard exists to prevent.
-            if (listing.Works.Count == 0 && !PlausiblyTheEndOfTheListing(listing, page, listingWasFiltered))
+            if (unreadable)
             {
                 _logger.LogError(
                     "Page {Page} for ship {ShipId} ({Tag}) parsed to no works from {Length} characters of "
@@ -231,8 +298,12 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                     WhyNotTheEnd(listing, page, listingWasFiltered));
 
                 stopReason = ScrapeStopReason.Error;
-                errorMessage =
-                    $"Page {page} parsed to no works, and {WhyNotTheEnd(listing, page, listingWasFiltered)}";
+                errorMessage = retreatedFrom is { } from
+                    ? JumpCursorBackFrom(
+                        ship, from, retreatBecause!,
+                        $"page {page.ToString(CultureInfo.InvariantCulture)} before it did not read either")
+                    : $"Page {page} parsed to no works, and {WhyNotTheEnd(listing, page, listingWasFiltered)}";
+
                 break;
             }
 
@@ -348,15 +419,110 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 break;
             }
 
+            // The retreat's answer, in the case where the listing sides with the cursor. This run
+            // already asked for the page after this one and got nothing readable back; the page
+            // before it insisting that page exists does not make a second identical request any
+            // likelier to be served, and making one is how a walk turns into a loop. Stop, leave
+            // the cursor pointing at it, and let the next run ask once at the scheduler's spacing.
+            if (retreatedFrom == page + 1)
+            {
+                _logger.LogWarning(
+                    "Page {Page} for ship {ShipId} ({Tag}) still offers page {Next}, which did not answer "
+                    + "earlier in this run. Leaving the cursor there for the next run.",
+                    page, ship.Id, ship.CanonicalTagName, retreatedFrom);
+
+                stopReason = ScrapeStopReason.Error;
+                errorMessage =
+                    $"Page {retreatedFrom.Value.ToString(CultureInfo.InvariantCulture)} did not answer, and "
+                    + $"page {page.ToString(CultureInfo.InvariantCulture)} before it still offers a next one";
+                break;
+            }
+
             page++;
         }
 
         await FinishAsync(
-            context, ship, stopReason, firstPage, newestSeen, sawRestricted, listingWasFiltered, ct);
+            context, ship, stopReason, startPage, firstPage, newestSeen, sawRestricted, listingWasFiltered,
+            askedStaleCursor: retreatedFrom is not null, ct);
 
         return new ScrapeOutcome(
             pagesFetched, budget.RequestsMade, worksSeen, worksAdded, worksUpdated,
             parseWarnings, firstPage, lastPage, stopReason, errorMessage);
+    }
+
+    // ---- a cursor pointing past the end of a listing that shrank -------------------------------
+
+    /// <summary>
+    /// Whether this run's first request landed on a backfill cursor the listing may no longer have
+    /// a page for.
+    ///
+    /// The situation: a run stopped with <see cref="Ship.BackfillNextPage"/> at N+1 because page N
+    /// offered a next link; before the next run, works were deleted or hidden and the listing shrank
+    /// so that N+1 no longer exists. AO3 may answer that with a 404 or with a 200 carrying an empty
+    /// listing, and the two branches used to conclude opposite things about it — the 404 the end of
+    /// the listing, so the backfill completed with its back catalogue unread; the empty 200 a parse
+    /// failure, so the ship re-requested the same page on every scheduled run forever. Neither
+    /// reading was wrong so much as unentitled: a page that did not answer cannot say why.
+    ///
+    /// So neither concludes. Both retreat to the page before the cursor and ask *it*, because the
+    /// listing is the only authority on how long it is and this is a question it can answer: a Next
+    /// link there means the cursor's page is supposed to exist and this run's failure was passing;
+    /// no Next link means the listing really does end before the cursor, and the backfill is
+    /// complete on evidence rather than on a guess about what a 404 meant.
+    ///
+    /// Once per run. Retreating twice would be a backwards walk inside one run, and the walk-back a
+    /// listing that lost several pages needs is paid a page per run instead, bounded by
+    /// <see cref="MaxStalledBackfillRuns"/>.
+    /// </summary>
+    private static bool CursorMayBeStale(ScrapeRunMode mode, int page, int pagesRequested, int? retreatedFrom) =>
+        mode == ScrapeRunMode.Backfill && pagesRequested == 1 && page > 1 && retreatedFrom is null;
+
+    /// <summary>
+    /// Steps the cursor back one page before the walk re-aims at it.
+    ///
+    /// Moving the *stored* cursor is what carries the question into the next run if this one cannot
+    /// finish it: if the retreat's page reads, the backfill's own advance writes the cursor straight
+    /// back to where it was. Retreating can never skip anything — it only re-reads pages, and
+    /// ingestion is idempotent.
+    /// </summary>
+    private void RetreatFromStaleCursor(Ship ship, int page, string because)
+    {
+        _logger.LogWarning(
+            "Backfill cursor for ship {ShipId} ({Tag}) points at page {Page}, but {Because}. Re-reading "
+            + "page {Previous} to let the listing say whether page {Page} should exist.",
+            ship.Id, ship.CanonicalTagName, page, because, page - 1);
+
+        ship.BackfillNextPage = page - 1;
+    }
+
+    /// <summary>
+    /// Where the cursor goes when the retreat's page did not read either, and the run-history line
+    /// saying why.
+    ///
+    /// Two pages in a row unanswerable says the listing is shorter than the cursor by an unknown
+    /// amount, not by one — so stepping back one page a run does not converge, and a large shrink
+    /// would exhaust <see cref="MaxStalledBackfillRuns"/> and write off a backfill over a listing
+    /// that was never broken. That is not hypothetical here: the AO3 login is instance-level, and
+    /// a lapsed one drops every restricted work out of the listing at once.
+    ///
+    /// So halve it. Backwards only, so it can no more skip a page than the retreat can, and it
+    /// finds a readable page in a number of runs logarithmic in the cursor rather than linear —
+    /// which is what makes the allowance a bound on a broken listing rather than on a big one. The
+    /// pages between the landing point and where the walk was are simply re-read.
+    /// </summary>
+    private string JumpCursorBackFrom(Ship ship, int cursor, string cursorBecause, string retreatBecause)
+    {
+        var landing = Math.Max(1, cursor / 2);
+
+        _logger.LogWarning(
+            "Backfill of ship {ShipId} ({Tag}) found neither page {Cursor} nor page {Previous} readable; "
+            + "moving the cursor back to page {Landing} to look for a page the listing will answer for.",
+            ship.Id, ship.CanonicalTagName, cursor, cursor - 1, landing);
+
+        ship.BackfillNextPage = landing;
+
+        return $"{cursorBecause}, and {retreatBecause}, so the listing is shorter than the backfill "
+            + $"cursor by more than one page; retrying from page {landing.ToString(CultureInfo.InvariantCulture)}";
     }
 
     // ---- what a page with no readable works may conclude ---------------------------------------
@@ -524,29 +690,83 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         ship.BackfillMinUpdatedAtSeen = floor;
     }
 
+    /// <summary>
+    /// What a finished backfill run leaves on the ship: whether the walk is over, and how long this
+    /// ship has been stuck on a cursor the listing will not answer.
+    ///
+    /// The counter is the bound <see cref="CursorMayBeStale"/> needs. A stalled run is one the
+    /// archive answered and that got no further through the listing for it, so it will ask again
+    /// next time; <see cref="MaxStalledBackfillRuns"/> of those in a row and the backfill is
+    /// <see cref="ShipBackfillState.Failed"/> — not <see cref="ShipBackfillState.Complete"/>, which
+    /// would claim a back catalogue that was never read. The ship keeps its incremental pass (see
+    /// ScrapeWorker's mode choice, which backfills only a NotStarted or InProgress ship), so it goes
+    /// on collecting new works; what it stops doing is spending two requests a run on a question
+    /// nothing is answering. Closing the gap left behind is a full sweep's job.
+    /// </summary>
+    private void RecordBackfillProgress(
+        Ship ship, string stopReason, int startPage, int? firstPage, bool askedStaleCursor, DateTime now)
+    {
+        if (stopReason == ScrapeStopReason.LastPage)
+        {
+            ship.BackfillState = ShipBackfillState.Complete;
+            ship.BackfillCompletedAt = now;
+            ship.BackfillStalledRuns = 0;
+
+            _logger.LogInformation(
+                "Backfill of ship {ShipId} ({Tag}) completed at page {Page}",
+                ship.Id, ship.CanonicalTagName, ship.BackfillNextPage);
+
+            return;
+        }
+
+        // Cleared by forward progress and nothing else. Reading *a* page is not enough: a run that
+        // retreated to page 1 and found that unreadable too has read a page, learned nothing, and
+        // would clear the streak that is meant to be counting exactly this.
+        if (ship.BackfillNextPage > startPage)
+        {
+            ship.BackfillStalledRuns = 0;
+            return;
+        }
+
+        // No forward progress. Whether that counts against the ship turns on whether the archive
+        // answered at all. A run that asked about its cursor, or that got pages it could not use,
+        // has been told something; a run stopped by the budget, the breaker, a transport failure or
+        // a refused status has not — and writing off a back catalogue because AO3 was down for an
+        // afternoon is exactly the mis-conclusion this counter must not make.
+        if (!askedStaleCursor && firstPage is null) return;
+
+        ship.BackfillStalledRuns++;
+
+        if (ship.BackfillStalledRuns >= MaxStalledBackfillRuns)
+        {
+            ship.BackfillState = ShipBackfillState.Failed;
+
+            _logger.LogError(
+                "Backfill of ship {ShipId} ({Tag}) has spent {Runs} runs without getting past page {Page}, "
+                + "which the listing will not answer for; giving up on the back catalogue. The incremental "
+                + "pass continues; a full sweep is what can close the gap.",
+                ship.Id, ship.CanonicalTagName, ship.BackfillStalledRuns, ship.BackfillNextPage);
+        }
+    }
+
     private async Task FinishAsync(
         ScrapeContext context,
         Ship ship,
         string stopReason,
+        int startPage,
         int? firstPage,
         DateTime? newestSeen,
         bool sawRestricted,
         bool listingWasFiltered,
+        bool askedStaleCursor,
         CancellationToken ct)
     {
         var now = _time.GetUtcNow().UtcDateTime;
 
         if (context.Mode == ScrapeRunMode.Incremental) ship.LastIncrementalRunAt = now;
 
-        if (context.Mode == ScrapeRunMode.Backfill && stopReason == ScrapeStopReason.LastPage)
-        {
-            ship.BackfillState = ShipBackfillState.Complete;
-            ship.BackfillCompletedAt = now;
-
-            _logger.LogInformation(
-                "Backfill of ship {ShipId} ({Tag}) completed at page {Page}",
-                ship.Id, ship.CanonicalTagName, ship.BackfillNextPage);
-        }
+        if (context.Mode == ScrapeRunMode.Backfill)
+            RecordBackfillProgress(ship, stopReason, startPage, firstPage, askedStaleCursor, now);
 
         // Two conditions, and both are about what the run was in a position to *know*.
         //

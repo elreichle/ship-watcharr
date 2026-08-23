@@ -435,3 +435,121 @@ new rule firing on a healthy pass, which are the ones whose regression would be 
 lesson that a filter matching nothing looks like a pass; this is its second form, and the more
 dangerous one, because it does not look empty. Corrected to `~Ao3ShipIndexScraper`. Checked while
 the tooling was out: `~TotalWorks` (T31) and `~Monotonic` (T32) match **zero** tests today.
+
+## 2026-08-23 — T37: what a cursor pointing past a shrunken listing may conclude, and the bound
+
+**Decided: neither branch concludes. Both ask the page before the cursor.**
+
+The situation T37 was filed over: a run stops with `BackfillNextPage = N+1` because page N offered a
+next link; works are then deleted or hidden, the listing shrinks, and page N+1 no longer exists. AO3
+answers that with a 404 or with a 200 carrying an empty listing, and which one it picks is AO3's
+choice, not a difference in what happened. The two branches nonetheless read it as opposite things —
+T25 planned the 404 as the end of the listing, so the backfill completes with its back catalogue
+unread; T34's rule reads the empty 200 as a parse failure, so the ship re-requests that page on every
+scheduled run forever. Both readings were less wrong than *unentitled*: a page that did not answer
+cannot say why it did not answer.
+
+So `CursorMayBeStale` recognises the situation — a backfill run's **first** answered request, on a
+page above 1 — from either branch, and the answer is the same for both: step back one page and ask
+the listing, which is the only authority on how long it is and which *can* answer. A Next link on
+page N means the cursor's page is supposed to exist and this run's failure was passing, so the run
+stops with `Error` and the cursor stays put. No Next link means the listing really does end before
+the cursor, and `LastPage` → `Complete` is reached on the listing's own evidence rather than on a
+guess about what a 404 meant. This is the third option T37 listed, chosen over the other two because
+it *answers* the question rather than deferring it (option 3, leaving it for T15's sweep) or deciding
+it by exhaustion (option 1 alone, a failure count converting into completed-with-gaps — a conclusion
+drawn from failure, which is the shape this loop has now found wrong five times).
+
+**The retreat is once per run, and the cursor moves with it.** Retreating twice inside one run is a
+backwards walk of unknown length; a listing that lost several pages instead walks back a page per
+run. That works because `RetreatFromStaleCursor` writes `BackfillNextPage = page - 1` *before* the
+re-read: if the page reads, the backfill's own advance puts the cursor straight back where it was,
+and if it does not, the next run starts a page lower and asks a **new** question rather than the same
+one again. Retreating can never skip anything — it only re-reads pages, and ingestion is idempotent.
+
+**The 404 branch's guard is now `lastPage == page - 1`, not `pagesFetched == 0` and not T25's
+`page == 1`.** A 404 is the end of a listing only past a page *this run actually read*, which is what
+`lastPage` holds. That is the guard T25's half (1) was reaching for, stated in terms of the evidence
+rather than in terms of a page number: `page == 1` would have been right about a resumed cursor and
+wrong about a retreat, and `pagesFetched == 0` was wrong about a resumed cursor. **T25 is closed by
+this task** — nothing of it remained once the branch was rewritten, exactly as T34 took its half (2).
+
+**The bound: `Ship.BackfillStalledRuns`, and `Failed` rather than `Complete`.** T37 asked for a bound
+on how many runs a ship may spend re-asking, and the retreat alone does not give one — a maintenance
+page answers nothing at any depth. A run that had to ask about its cursor and came away without an
+end to the listing increments the counter; forward progress (`BackfillNextPage > startPage`) and
+nothing else clears it. At `MaxStalledBackfillRuns` (5, so a listing that lost a few pages still
+converges inside the allowance) the backfill is `ShipBackfillState.Failed` — the enum's existing
+fourth value, which nothing had ever set. Not `Complete`, which would claim a back catalogue that was
+never read, and which is the mis-conclusion T34 and T25 were both filed over. `ScrapeWorker` backfills
+a `NotStarted` or `InProgress` ship only, so a `Failed` ship keeps its incremental pass and goes on
+collecting new works; what it stops doing is spending two requests a run on a question nothing is
+answering. Closing the gap it leaves is a full sweep's job, which is T15.
+
+**Reading *a* page is not progress.** The first draft cleared the streak whenever any page parsed,
+which a run that retreated to page 1 and found that unreadable too satisfies — it read a page, learned
+nothing, and reset the counter that exists to count precisely that. Hence the cursor-advanced test.
+
+**Two rows for T28's table, and one gap left open.** The rows: what a 404 is entitled to conclude now
+depends on whether the run read the page before it, and a stalled backfill has a terminal state that
+is neither complete nor still walking. The gap: **`Failed` has no operator exit** — nothing in the
+product can put a ship back to `InProgress` once the count runs out, so a backfill written off during
+an AO3 outage stays written off until a full sweep or a hand-edited database. Queued as **T38**, and
+added to T15's `blocked-by`, since the sweep is what the state hands the gap to.
+
+## 2026-08-23 — T37's review: three folded in, one queued as T39
+
+`/code-review high` over the T37 diff reported four findings. Three were the diff's own and are
+folded into it; one is about T34's committed code and became T39.
+
+**Folded in — a cursor page the run sets aside must not be counted as a page it read.**
+`pagesFetched++`, `firstPage ??= page` and `lastPage = page` ran *before* the empty-200 retreat, so
+the unreadable cursor page was recorded as this run's first page. `FinishAsync` asks
+`firstPage == 1` to decide whether a run saw the newest end of the listing, so a retreat from page 2
+that went on to read page 1 and earn a watermark had that watermark thrown away — and the run
+history stored `FirstPageFetched = 2` beside `LastPageFetched = 1`, a range that reads backwards.
+The 404 route had no such bookkeeping, so the two routes T37 exists to unify still concluded
+different things about one event; the review measured both. The readability test is now computed
+before the counters and the retreat is taken above them.
+`Reads_the_same_run_off_both_of_AO3s_answers_to_a_page_that_is_gone` asserts the two routes leave
+the same outcome and the same ship, which is the property rather than an instance of it.
+
+**Folded in — stepping back one page a run only converges for a listing that lost a few.**
+`MaxStalledBackfillRuns` bounded the walk-back at one page per run, so a listing that shrank by
+dozens exhausted the allowance and was written off `Failed` having never been broken — and the
+review's scenario is a real one on this app, because the AO3 login is instance-level and a lapsed
+one drops every restricted work out of every listing at once. `JumpCursorBackFrom` now halves the
+cursor once a *second* consecutive page proves unanswerable: still backwards only, so it can no more
+skip a page than the retreat can, but it finds a readable page in runs logarithmic in the cursor
+instead of linear. The allowance went to 12 to match — two dozen requests, spread over twelve
+scheduler intervals, and wide enough that anything exhausting it is a listing not answering at any
+depth rather than one that merely lost pages. **This is what makes the give-up honest**: without it
+the bound was as likely to fire on a big shrink as on a broken tag.
+
+**Folded in — and the counter now catches a cursor that has run out of listing to retreat into.**
+A consequence of the halving found while testing it: the cursor walks down to page 1, and page 1 is
+never a stale cursor, so the streak stopped counting and the ship re-asked page 1 once a run forever
+without ever being written off. The rule is now stated in terms of what the run learned rather than
+which branch it took: forward progress clears the streak, a run the archive answered and that got no
+further counts against it, and a run stopped by the budget, the breaker, a transport failure or a
+refused status counts for nothing either way — writing off a back catalogue because AO3 was down for
+an afternoon is the mis-conclusion this counter must not make.
+
+**Folded in — the post-retreat message named a 404 that may not have happened.** `retreatedFrom` is
+set by both routes, and the message said "AO3 returned 404 for page N as well as page N+1" whichever
+one had happened, so a maintenance page at the cursor was reported to the operator as a 404. Each
+page now reports what it actually did. Third iteration running in which this exact species —
+a run-history string asserting more than the evidence behind it — has come back; `SchedulesPage`
+renders it verbatim.
+
+**Queued as T39 — `HasListing` is load-bearing on a claim about AO3's markup that nothing verifies.**
+T34's fix made `ol.work.index.group` the thing that tells an empty tag from a page that is not a
+results page, on the stated premise that an empty tag still renders the container. No test pins
+that: `Ao3BlurbParserTests` has no `HasListing` case, and every scraper test reaching the zero-work
+path goes through the `Page(n, [])` helper, which emits the container unconditionally. So the tests
+prove the premise by assuming it. If AO3 instead renders a "No results found" notice with no
+container, **every quiet incremental pass errors** — a `revised_at` filter matching nothing is the
+common case on a quiet ship, and `Error` is neither `Watermark` nor `LastPage`, so the watermark
+freezes and every scheduled run is recorded failed, forever. That is a worse failure than the one
+T34 fixed, reached by the same rule. It needs one real capture of a zero-result AO3 index, which
+this loop cannot fetch, so T39 is `blocked` on a fixture like T5, T10 and T13.
