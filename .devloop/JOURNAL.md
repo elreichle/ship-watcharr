@@ -738,7 +738,7 @@ build. Not something a task should chase.
   checked the same way and by grep over the test sources: `MaxPagesPerRun`, `LastIncrementalRunAt`,
   `Interrupted`, `BackfillState` in the worker tests, and any assertion of `UpdatedAt` preservation
   across two ingests all return nothing.
-- commit: (see below)
+- commit: 21e2cd3 "T28: Write down the walking and stopping rules the scraper actually has"
 - next: **The audit's own finding is that two iterations queued the same defect twice.** T41 and T49
   are one CA2017 warning in one log line, found at two different baselines by two fresh contexts,
   neither noticing the other. That is this loop's failure mode appearing in the task list rather
