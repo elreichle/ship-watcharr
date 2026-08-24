@@ -852,7 +852,7 @@ build. Not something a task should chase.
   `.devloop/{tasks,DECISIONS,JOURNAL}.md`
 - ran: `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only;
   `dotnet test` → 413 passed (413 before — no backend code in this diff). Live check below.
-- commit: (see below)
+- commit: a36e4e7 "T7: Let a reader rate, mark and annotate a work from the feed"
 - next: **The live check ran a real browser, and it is worth keeping.** `~/.cache/ms-playwright`
   holds a `chrome-headless-shell` even though playwright itself is in no `node_modules`, and node 22
   has a built-in `WebSocket`, so CDP can be driven from a ~200-line script with **no new dependency
