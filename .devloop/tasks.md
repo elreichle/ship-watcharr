@@ -7,29 +7,10 @@ a dependency cannot be met — needs a human).
 
 ## Run order
 
-Tasks are **not** taken in file order. Take the first `todo` listed here whose `blocked-by` are all
-`done`; only when this list is exhausted does file order apply.
-
-1. T28 — the audit of the walking and stopping rules, while that code is still fresh
-2. then file order, from T6
-
-Why this list exists at all: every entry was found by review of pre-loop scraper code, so none of it
-appears where the original plan put it — without this list, file order would send an iteration to T6
-and leave the scraper's live defects in place. T23, T24 and T27 — the three that made this app
-re-request AO3 in a loop, the one thing its politeness rules exist to prevent — are done, and with
-T26 the pre-loop scraper defects this loop inherited are closed. What is left in this list is the
-audit alone.
-
-T47 is done, and with it the last *silent* wrong conclusion in the walk: every stopping defect still
-queued — T38, T40, T45, T46 — announces itself in the run history, so none of them can lose works on
-a run recorded as a success. That is what makes the audit the right next task rather than another
-fix. Its `blocked-by` is now empty, and the five tasks that stood in that slot one after another
-(T34, T37, T42, T43, T47) were every one of them a rule about what a stop may conclude — the
-argument for the audit stated five times over, and twice over in the same code, T47 being a defect
-inside T42's fix. T31, T32, T33, T35, T36, T38, T40, T41, T44, T45, T46, T48 and T49 are real but
-slow-acting or latent and sit in file order, after the planned work.
-
-Delete an entry once its task is `done`. When this section is empty, delete the section.
+Empty, and deleted with T28: the audit that stood in this slot is done, every pre-loop scraper
+defect this loop inherited is closed, and nothing left is more urgent than file order. The next task
+is the first `todo` in file order whose `blocked-by` are all `done` — T6. `.devloop/scraper-audit.md`
+is what that section's reasoning turned into; read it before touching the walk.
 
 Read `.devloop/spec.md` before starting any task. Every task additionally has to leave
 `cd backend && PATH="$HOME/.dotnet:$PATH" dotnet test`, `cd frontend && npm run build` and
@@ -191,7 +172,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 ## T10 — Per-work detail fetch
 - status: blocked
 - attempts: 0
-- blocked-by: T9, and **fixture** — needs `backend/Ao3Tracker.Tests/Fixtures/ao3-work-page.html`,
+- blocked-by: T9, T51, and **fixture** — needs `backend/Ao3Tracker.Tests/Fixtures/ao3-work-page.html`,
   a real capture of an `https://archiveofourown.org/works/<id>` page (ideally one that is
   multi-chapter, in a series, and has a long freeform tag list). A human must save this file.
 - delivers: A scraper that reads a work's own page for what a blurb does not carry — publication
@@ -205,6 +186,11 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   works with a null `DetailFetchedAt`, and re-fetch only when `UpdatedAt` has moved past it —
   detail pages are the most expensive thing this app can ask AO3 for, one request per work.
   Selectors come from the fixture, never from memory.
+  **T51 is on this task's `blocked-by` because of T28's audit** (§E8): `WorkIngestor.ApplyTags`
+  reconciles a work's tags against the listing blurb's list, deleting anything not in it, so the
+  complete tag list this task fetches is erased by the next incremental pass over the same ship —
+  silently, on a run recorded as a success. Do not work around it here; T51 decides which
+  observation wins, and this task then writes through that rule.
 
 ## T11 — Requesting a download
 - status: todo
@@ -269,7 +255,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 ## T15 — The full-sweep pass
 - status: todo
 - attempts: 0
-- blocked-by: T28, T29, T30, T38, T46, T47
+- blocked-by: T29, T30, T38, T40, T44, T46, T47, T52
 - delivers: A third pass over a ship's index that walks every page and, only afterwards, marks the
   `ShipWork` rows it did not see as having left the tag — so the library stops drifting from AO3.
 - verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~FullSweep`
@@ -281,6 +267,21 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   ships may hold it), and a work that returns must come back rather than being resurrected as new.
   Sweeps are expensive — schedule them rarely relative to the incremental pass, and say what the
   interval is and why in a comment. Reuse the existing listing parser; no new markup needed.
+  **From T28's audit** (`.devloop/scraper-audit.md`, §D and §E — read both before starting):
+  three of this task's `blocked-by` were added by it. T40 because a sweep concluding absence needs
+  its own coverage accounting to be honest, and an unreadable page currently counts as a page that
+  was read; T44 because `LastKnownTotalWasAuthenticated` is this pass's, and only this pass's,
+  consumer; T52 because a sweep the circuit breaker stopped halfway must never be readable as a
+  sweep that finished — today that run is recorded `Succeeded`.
+  Two audit rows are addressed to this task and are not tasks of their own. **D12: nothing refreshes
+  `LastKnownTotalWorks` once a ship has a watermark.** Every incremental pass on such a ship is
+  filtered and a filtered heading may not write the total, so the stored number is whatever the last
+  unfiltered run read — possibly months old — while the tag goes on growing. This pass is both the
+  only thing that would refresh it and the only thing documented to check against it, so decide
+  explicitly whether the sweep trusts the stored number or its own, and write the rule down. **E6/E7:
+  `Work.IsDeleted` and `ShipWork.MissingSinceAt` are cleared by every ingest and set by nothing.**
+  This task writes the first code in the app that ever concludes absence, with the clearing side
+  already shipped and every test in the suite proving only that direction.
 
 ## T16 — Notifications when a followed ship gains works
 - status: todo
@@ -525,7 +526,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   shape the fix wants. Make the `Program.cs` comment true rather than deleting it.
 
 ## T28 — Audit the scraper's walking and stopping rules
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: `.devloop/scraper-audit.md` — one table row per rule that decides where a pass starts,
@@ -795,6 +796,14 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   is already gated on `listingWasFiltered` for exactly this reason, and `HasListing` is not.
   While the capture is out, settle the sibling question `Ao3ListingPage` also guesses at: whether
   AO3 pages a zero-result listing with `ol.index.group` rather than `ol.work.index.group`.
+  **T28's audit adds a third question to the same capture** (§C7): does a zero-result index render
+  the "N Works in …" heading, and if so what number? It decides an open conclusion. `page == 1`
+  short-circuits `PlausiblyTheEndOfTheListing`, so an **unfiltered** page 1 with the container, no
+  works, no Next link and no heading at all concludes `LastPage` — for a backfill, `Complete`, the
+  whole back catalogue written off from the absence of every piece of evidence. T47 established the
+  opposite rule one page later: no heading is no evidence, and no evidence is not permission. Page 1
+  can only be held to that standard once this capture says a genuinely empty listing carries a
+  heading to be held to.
 
 ## T40 — An unreadable page must not be counted as a page that was read
 - status: todo
@@ -815,20 +824,6 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   retreat path and the hunk's own comment says so; the non-retreat path was missed. Moving the four
   lines below the break is the whole change — but check what else reads `lastPage`, because the
   404 guard is `lastPage == page - 1` and that arithmetic must still hold.
-
-## T41 — A warning about a stalled backfill that cannot print its own page number
-- status: todo
-- attempts: 0
-- blocked-by: none
-- delivers: A clean build, and a log line that says which page the walk is re-reading.
-- verification: `PATH="$HOME/.dotnet:$PATH" dotnet build` reporting no CA2017, plus the suite.
-- notes: Found at T26's baseline check — it is the one compiler warning in the backend build.
-  `RetreatFromStaleCursor` (`Ao3ShipIndexScraper.cs` ~line 490) writes six placeholders
-  (`{ShipId} {Tag} {Page} {Because} {Previous} {Page}`) and passes five arguments; structured
-  logging binds positionally, so the repeated `{Page}` has nothing to bind to and the sentence that
-  explains the retreat trails off. Name the second occurrence something else and pass it, or reword.
-  Small, but it is the log line an operator reads when a backfill is stuck — the one T37 wrote for
-  exactly that moment.
 
 ## T42 — An incremental pass must not stop with `Error` on a page it was told to expect
 - status: done
@@ -969,6 +964,14 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   in a state the product cannot move it out of — and on T15's `blocked-by` for the same reason.
   Weigh it against what that guard was written for: writing off a back catalogue because AO3 was
   down for an afternoon. A 404 is not that, and telling the two apart is the whole task.
+  **T28's audit re-derived this row independently** (§D6) and adds its sibling from §A2, which is
+  the same family and belongs in the same diff if it is cheap: a ship whose tag AO3 has denied
+  returns `ScrapeOutcome.Empty(ScrapeStopReason.LastPage)` at `Ao3ShipIndexScraper.cs:90`, so the
+  run history records a healthy "walked off the end of the listing" for a run that made no request
+  at all, on every tick, forever. It is harmless only because that early return skips `FinishAsync`
+  — move the return below it in some later refactor and a denied ship's backfill is marked
+  `Complete` with the tag never once requested. A stop reason that says why (or disabling the job)
+  costs nothing here.
 
 ## T47 — A filtered page carrying no evidence at all must not end the pass
 - status: done
@@ -1038,6 +1041,10 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   name the second occurrence differently — but it is the one warning the build prints, and a build
   with a standing warning is a build where the next one arrives unnoticed. Worth checking whether
   any other template in the scraper reuses a name the same way while the file is open.
+  **T41 was folded into this task by T28's audit and its entry deleted** — it described the same six
+  placeholders over five arguments in the same log line, found at T26's baseline rather than T47's,
+  and its verification (`dotnet build` reporting no CA2017) is already half of this one's. The number
+  T41 is retired, not reusable; see `DECISIONS.md`.
 
 ## T50 — Page 1 accepts the same filtered contradiction page 2 now refuses
 - status: todo
@@ -1070,3 +1077,117 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   contradiction standing in for one. Third iteration running that a rule's own test builds a
   different situation from the one its comment cites (T42, T43, and this); it belongs in T28's table
   as a row about tests, not only about rules.
+
+## T51 — A listing blurb's tag list must not delete what a detail fetch added
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A rule, written down and applied, for which observation of a work's tags wins when a
+  listing pass and a work's own page disagree — so a fuller tag list survives the next incremental
+  pass over the same ship.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ingest` — 7
+  today; name the new test so it matches.
+- notes: Found by T28's audit (`.devloop/scraper-audit.md` §E8), and the one live cross-task hazard
+  it turned up. `WorkIngestor.ApplyTags` (`WorkIngestor.cs:172`) builds `desired` from `blurb.Tags`
+  and hands it to `Reconcile`, which deletes every `WorkTag` not in that set — correct while the
+  blurb is the only source, and destructive the moment it is not. The spec's user story 11 says a
+  listing blurb does **not** carry the complete tag list, which is the entire reason T10 exists; so
+  under the spec's own premise every detail fetch is undone by the next incremental pass over that
+  ship, silently, on a run recorded as a success. `ApplySeries` and `ApplyAuthors` share the
+  reconcile and should be checked for the same exposure, though nothing planned writes them from a
+  second source.
+  This is T26's shape one layer out — a rule whose destructive half is safe only because of an
+  assumption about its input, and the assumption is about to stop holding. Options worth weighing:
+  reconcile only within the tag types a blurb is authoritative for; keep a per-`WorkTag` provenance
+  column and let a listing pass reconcile only its own rows (a migration on both providers); or make
+  the detail fetch the only writer of tags for a work it has fetched. Say which and why in a
+  comment, because whichever it is, T10 writes through it.
+  Whether a blurb really is short of tags is a markup question of T39's family — but the rule has to
+  be decided either way, since T10 is blocked on it and the cost of being wrong is deletion.
+
+## T52 — A run the circuit breaker stopped is recorded as a success
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A run that stopped because the archive was failing is visible as such in the run
+  history, rather than recorded `Succeeded` with no error message.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~ScrapeWorker` —
+  12 today; name the new test so it matches.
+- notes: Found by T28's audit (`.devloop/scraper-audit.md` §F1). `ScrapeWorker.cs:278` reads
+  `run.Status = outcome.StopReason == ScrapeStopReason.Error ? Failed : Succeeded`, and
+  `ScrapeStopReason.Breaker` is not `Error` — so a run that spent `MaxConsecutiveFailures`
+  consecutive refused or timed-out requests, 5-8s apart, and tripped the breaker is recorded a
+  success. `HitRequestCap` and `HitTimeCap` are persisted on `ScrapeRun`; `BreakerOpen` has no
+  counterpart, so nothing in the history distinguishes it either. An operator watching the Schedules
+  page sees green while a ship collects nothing — which is precisely what the comment three lines
+  above that ternary says the rule exists to prevent.
+  On T15's `blocked-by`: a sweep is the only pass permitted to conclude absence and must conclude
+  nothing when interrupted, so "the breaker stopped it" reading as a completed run is the exact
+  mis-read that pass cannot afford.
+  The narrow fix is the status; consider also carrying `budget.BreakerOpen` onto the run beside the
+  two cap flags, since the `finally` already reads the budget for those (that is a schema change on
+  both providers, so weigh it). Do **not** widen this into a review of every stop reason — `cap` and
+  `timeCap` are genuinely successful outcomes for a backfill, and `watermark`/`lastPage` are the
+  healthy ends. `Breaker` is the one that means the archive was failing.
+
+## T53 — Which pass a ship gets is pinned by no test
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: Tests over `ScrapeWorker`'s mode choice: a `NotStarted` or `InProgress` ship is
+  backfilled, and a `Complete` or `Failed` one falls back to its incremental pass.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~ScrapeWorker` —
+  12 today; name the new tests so they match.
+- notes: Found by T28's audit (`.devloop/scraper-audit.md` §A1) — the top row of the whole table,
+  and nothing pins it. `ScrapeWorker.cs:234` is one ternary, and three separate comments in
+  `Ao3ShipIndexScraper` lean on its second half: "the ship keeps its incremental pass (see
+  ScrapeWorker's mode choice, which backfills only a NotStarted or InProgress ship), so it goes on
+  collecting new works" is what makes T37's give-up survivable and what makes T46's stall a defect
+  rather than a nuisance. A sentence three fixes rest on should not be a claim in a comment.
+  `ScrapeWorkerJobIsolationTests` already has the seam: a fake `IAo3Scraper` recording the
+  `ScrapeContext` it was handed, and `LibraryTestHost` for the ship rows. Assert the mode on the
+  context, and on the `ScrapeRun` row, for all four `ShipBackfillState` values — the fourth,
+  `Failed`, is the one nothing has ever exercised end to end.
+
+## T54 — An unreadable date must not erase the date a working pass read
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A test that fails if `WorkIngestor` ever writes `DateTime.MinValue` over a revision
+  timestamp an earlier pass stored.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ingest` — 7
+  today; name the new test so it matches.
+- notes: Found by T28's audit (`.devloop/scraper-audit.md` §E4). `WorkIngestor.Apply`
+  (`WorkIngestor.cs:124`) writes `UpdatedAt` only when the blurb's reading is above `MinValue`, and
+  its comment names the cost of getting it wrong: "overwriting a real timestamp with MinValue would
+  drag the ship's watermark backwards and re-ingest the tag". Only the *first-seen* branch is pinned
+  (`Marks_a_work_an_incremental_pass_first_saw_undated_as_having_an_approximate_date`); the
+  preservation branch — ingest a work with a good date, ingest the same work again from a blurb
+  whose date will not parse, assert the stored timestamp is untouched — is not.
+  Test-only, no production change expected; if writing it turns up a real defect, that is a separate
+  task and this one still lands. The reason it is queued rather than left as a note: this loop has
+  now twice deleted a test that pinned a defect instead of the rule (T43, T47), and an untested
+  protective branch is the same failure one step earlier — nothing would fail if a refactor dropped
+  the guard. Assert `UpdatedAtIsApproximate` too, since the same branch sets it.
+
+## T55 — A failed credential fetch leaves the AO3 login block loading forever
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: The instance-AO3-login block reports a failed load the way the identity block above it
+  already does, instead of rendering "Loading…" permanently.
+- verification: `cd frontend && npm run build && npm run lint`, plus a live check on a throwaway
+  instance with the endpoint failing (stop the API after the page loads, or point the dev server at
+  a port with nothing on it, and reload).
+- notes: Found by `/code-review low` at T28's review step, in T3's committed code, and verified by
+  reading. `AdminScrapingPage.tsx:31` is `const loadCredential = () => api.getInstanceAo3Credential().then(setCredential)`
+  and its only caller (`:35`) catches into `setLoginError`. `credential` therefore stays `null`, and
+  the render branch at `:212` is `credential === null ? <p>Loading…</p> : …` — so a rejected fetch
+  shows an error *and* a spinner that never resolves, with nothing to retry it. The identity block
+  thirty lines earlier has the same shape and gets it right: `:103` renders `error ? … : <p>Loading…</p>`,
+  so the loaded-vs-failed distinction is made there and not here. Copy that shape, or give
+  `credential` a third state; a retry button is worth considering since neither block has one.
+  **Same file as T36** — which is about the gate blockers rendered under "What AO3 currently sees" —
+  and a different defect. Not folded, but whoever takes either should read both and may land them
+  together; they are two small edits to the same page's login and gate rendering. Obsidian CSS
+  variables only.

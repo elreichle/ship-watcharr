@@ -926,3 +926,74 @@ someone else's. And the cost of refusing is a request per tick with no recovery,
 the bound T45 owes — so T45 probably has to land first for T50 to have anything to refuse *into*.
 The asymmetry is real and is now written down in both tasks rather than left in the code for a
 later reader to find.
+
+## 2026-08-23 — T28: what the audit changed about the plan
+
+The audit itself fixed nothing, by design. What it changed is the plan, in six places.
+
+**Four new tasks, T51 to T54.** T51 (a listing blurb's tag list is reconciled as if it were
+complete, so T10's detail fetch is undone by the next incremental pass) and T52 (a run the circuit
+breaker stopped is recorded `Succeeded`) are defects with a stated consequence. T53 (nothing pins
+`ScrapeWorker`'s mode choice) and T54 (nothing pins the ingestor's unreadable-date preservation) are
+rules with no test under them. All four are in `.devloop/scraper-audit.md` with the row that found
+them: §E8, §F1, §A1, §E4.
+
+**Three edges added to T15's `blocked-by`: T40, T44, T52.** None is new work; each is a queued task
+the audit found to be load-bearing for the sweep specifically. T40 because a pass that concludes
+absence needs its coverage accounting to be honest and an unreadable page currently counts as read.
+T44 because `LastKnownTotalWasAuthenticated` has exactly one consumer and it is T15. T52 because a
+sweep the breaker stopped halfway must never be readable as a sweep that finished — which is the
+same rule as "an interrupted sweep concludes nothing", one layer up in the run history.
+
+**Not every gap became a task, and the grading is written down.** Four rules have no test and were
+deliberately left unqueued: the 200-page ceiling (whose only consequence is an ambiguous `cap` in
+the run history), `LastIncrementalRunAt` (a timestamp nothing branches on), the ingestor's per-page
+work dedup (which fails loudly on a unique key if it breaks), and the startup reconciliation of
+interrupted runs (a path with no clock seam, whose failure mode is a stale row in a history view).
+They are listed at the foot of §F so the next reader can see the grading was done rather than
+missed. The instruction in T28 was that every gap becomes a task; taken literally that would put
+four entries with no stated cost onto a fifty-task list, which buys less than the sentence naming
+them does.
+
+**Two rows are addressed to T15 rather than to a task.** D12: nothing refreshes
+`LastKnownTotalWorks` once a ship has a watermark, because every incremental pass on such a ship is
+filtered and a filtered heading may not write the total — so T15 is both the only pass that would
+refresh the number and the only one documented to check against it, and it has to decide which it
+trusts. E6/E7: `Work.IsDeleted` and `ShipWork.MissingSinceAt` are cleared by every ingest and set by
+nothing, so T15 writes the first code in this app that ever concludes absence. Both went into T15's
+notes.
+
+**Two open conclusions went to existing tasks instead of becoming new ones.** The `page == 1`
+short-circuit in `PlausiblyTheEndOfTheListing` has two of them: the filtered one is T50, already
+queued; the unfiltered one — page 1 with the container, no works, no Next link and *no heading at
+all* completing a backfill — cannot be decided without knowing whether AO3's zero-result index
+carries a heading, which is T39's capture. Added there rather than queued as a task that would
+immediately block. Similarly, §A2's denied-tag `LastPage` went into T46's notes: same family (a ship
+pointed at a tag that is not there), same diff if it is cheap.
+
+**T41 folded into T49 and its entry deleted.** Both described the same six placeholders over five
+arguments in `RetreatFromStaleCursor`'s log template — T41 found at T26's baseline, T49 at T47's,
+neither noticing the other because each was written from a fresh context. That is this loop's
+failure mode showing up in the task list rather than in the code, and it is the argument for the
+audit having been worth an iteration: two independent readings of the same file produced two
+entries for one line. The number T41 is retired, not reusable.
+
+**The `Run order` section is deleted.** Its only entry was T28, and its own rule is to delete the
+section when it empties. Five iterations running it held one task, and each time that task was a
+rule about what a stop may conclude; the audit is what those five turned into. File order applies
+from here, and the next task is T6 — the first planned work this loop has taken in fourteen
+iterations.
+
+**A verification detail worth keeping.** `dotnet test --filter FullyQualifiedName~X` matches
+case-insensitively: `~Backfill` runs 13 tests although no test name contains a capital `Backfill`.
+T22's ritual of checking that a task's filter bites is therefore safe, but checking it with a
+case-sensitive `grep` over a test list is not — that under-reports, and would have made three
+queued tasks look like they name a filter matching nothing.
+
+**One finding folded out, not in.** `/code-review low` at this task's review step reported a real
+defect in `AdminScrapingPage.tsx` — a rejected credential fetch leaves the login block rendering
+"Loading…" forever, where the identity block thirty lines above it handles the same case correctly.
+Verified by reading and queued as **T55**. Not fixed here: T28 fixes nothing by construction, and a
+frontend fix riding along in a documentation commit is exactly the wandering diff the loop policy
+exists to prevent. Worth noting that the review found nothing in the diff itself, which is what a
+docs-only diff should produce — it reviewed the branch and reported the branch's oldest UI defect.

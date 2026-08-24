@@ -718,3 +718,67 @@ build. Not something a task should chase.
   stood in that slot one after another — T34, T37, T42, T43, T47 — every one a rule about what a
   stop may conclude, and this one a defect inside the previous one's fix. Every stopping defect
   still queued announces itself in the run history; this was the last silent one.
+
+
+## 2026-08-23 — T28 Audit the scraper's walking and stopping rules — done
+
+- did: Wrote `.devloop/scraper-audit.md` — 60-odd rows over eight sections covering where each pass
+  starts (§A), where it stops (§B), what a page with no works may conclude (§C), what is written
+  back to the ship (§D), what the ingestor may erase (§E), what the run history is told (§F), the
+  five rules-about-rules the last six iterations paid for (§G), and where every gap went (§H). Each
+  row names the rule, the file and line, the passes it applies to, what it entitles them to
+  conclude, and the test that pins it. Fixed nothing, as the task requires; queued four new tasks,
+  added three edges to T15's `blocked-by`, and folded T41 into T49 as a duplicate.
+- files: `.devloop/scraper-audit.md` (new), `.devloop/{tasks,DECISIONS}.md`. No source changed.
+- ran: `dotnet test` → 391 passed (391 before — this task writes no code); `npm run build` +
+  `npm run lint` → clean, the two known fast-refresh warnings only. Verification: all 66 test names
+  cited in the audit were checked against `dotnet test --list-tests` (391 tests) and each matches
+  exactly one test — none matches zero — and four were re-run as real `--filter` invocations to
+  confirm the discovery list agrees with the runner. Every row claiming *unpinned* or *no rule* was
+  checked the same way and by grep over the test sources: `MaxPagesPerRun`, `LastIncrementalRunAt`,
+  `Interrupted`, `BackfillState` in the worker tests, and any assertion of `UpdatedAt` preservation
+  across two ingests all return nothing.
+- commit: (see below)
+- next: **The audit's own finding is that two iterations queued the same defect twice.** T41 and T49
+  are one CA2017 warning in one log line, found at two different baselines by two fresh contexts,
+  neither noticing the other. That is this loop's failure mode appearing in the task list rather
+  than in the code, and it is the clearest argument that the audit was worth an iteration: a
+  fifty-task list read from a cold start is not something the next pass can hold in its head.
+  **Four new tasks, and only two of them are defects.** T51 is the live one: `WorkIngestor.ApplyTags`
+  reconciles a work's tags against the listing blurb's list and deletes everything else, which is
+  correct while the blurb is the only source and destructive the moment T10 fetches a fuller list
+  from the work's own page — every detail fetch undone by the next incremental pass, silently, on a
+  run recorded a success. It is on T10's `blocked-by`. T52 is the other: a run the circuit breaker
+  stopped is recorded `Succeeded`, so an operator watching the Schedules page sees green while a
+  ship collects nothing. T53 and T54 are rules with no test under them — the mode choice three
+  fixes rest on, and the ingestor's unreadable-date preservation.
+  **What the table is actually for is §D and §E, and they are addressed to T15.** D12: nothing
+  refreshes `LastKnownTotalWorks` once a ship has a watermark, because every incremental pass on
+  such a ship is filtered and a filtered heading may not write the total — so the sweep is both the
+  only pass that would refresh the number and the only one documented to check against it. E6/E7:
+  `IsDeleted` and `MissingSinceAt` are cleared by every ingest and set by nothing, so T15 writes the
+  first code in this app that ever concludes absence, with the reading side already shipped and
+  every test proving only the clear. Both are in T15's notes now, along with the three new
+  `blocked-by` edges (T40, T44, T52), each added because the audit found a queued task to be
+  load-bearing for the sweep specifically rather than merely open.
+  **The `page == 1` short-circuit is the last unexamined clause in the walk** and it has two open
+  conclusions, not one. T50 is the filtered half, already queued. The unfiltered half — page 1 with
+  the container, no works, no Next link and *no heading at all* completes a backfill — went to T39's
+  capture list rather than becoming a task, because it cannot be decided without knowing whether a
+  zero-result AO3 index renders a heading. That is now the third question waiting on that one file,
+  and T39 has been re-reported by four independent reviews.
+  **A verification detail the next iteration should not re-learn:** `--filter FullyQualifiedName~X`
+  matches case-insensitively — `~Backfill` runs 13 tests although no test name contains a capital
+  `Backfill`. Checking a filter with a case-sensitive `grep` over a test list under-reports it.
+  Filters checked to bite, per T22's lesson: every one of the 66 names in the audit, listed above.
+  Still zero and still suspect: T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero
+  by design. The new tasks name `~Ingest` (7) and `~ScrapeWorker` (12), both confirmed non-zero.
+  **The review found nothing in the diff and one thing on the branch.** `/code-review low` over a
+  docs-only diff reported `AdminScrapingPage.tsx`: a rejected credential fetch leaves the login
+  block rendering "Loading…" forever while the identity block thirty lines above it handles the
+  same case correctly. Verified by reading, queued as **T55**, not folded in — a frontend fix
+  riding along in a documentation commit is the wandering diff the policy forbids, and T28 fixes
+  nothing by construction. It is in T36's file; whoever takes either should read both.
+  **The `Run order` section is gone and file order applies.** The next task is T6 — per-user work
+  state — the first planned work this loop has taken in fourteen iterations. Everything the run
+  order was carrying is in `.devloop/scraper-audit.md`; read it before touching the walk.
