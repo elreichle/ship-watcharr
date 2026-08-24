@@ -801,7 +801,7 @@ build. Not something a task should chase.
   only one is still T49's CA2017. Fifteen mutations applied one at a time and reverted, every one
   red. The suite was run 30 times over for order-dependence, since the new tests share the fixture's
   single in-memory connection: 413 every time.
-- commit: (see below)
+- commit: c36d2d9 "T6: Give each reader their own status, rating and note on a work"
 - next: **One mutation survived the first round, and it was a test naming a guard without
   constructing its case.** `Refuses_a_reading_status_it_does_not_offer` sends `"Abandoned"`, so
   deleting `Enum.IsDefined` from the parse left the suite green — a *word* cannot reach that check,
