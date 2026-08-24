@@ -663,3 +663,58 @@ build. Not something a task should chase.
   about what a stop may conclude** (T34, T37, T42, T43, T47). Five iterations have now each closed
   one and queued the next, which is the argument for doing the audit rather than the sixth of these.
   Run order after this: T47, then T28.
+
+## 2026-08-23 — T47 A filtered page carrying no evidence at all must not end the pass — done
+
+- did: The filtered waiver now rests on the heading instead of merely surviving it.
+  `!FilteredHeadingSaysMore(...)` became `FilteredHeadingSaysThisIsAll(...)` —
+  `TotalWorks is { } matched && matched <= blurbsRead` — so a filtered page past the first whose
+  heading did not parse keeps `page > 1` and does not conclude `LastPage`. The negation was the
+  defect: the helper returns false for an absent heading deliberately, its own comment saying "no
+  evidence", and the negation read that false as permission. `WhyNotTheEnd` gained the matching
+  branch so the run history says "carries no heading to say the date filter's results ended here"
+  rather than quoting a count that does not exist.
+- files: `Api/Services/Scraping/Ao3ShipIndexScraper.cs`, `Tests/Ao3ShipIndexScraperTests.cs`,
+  `.devloop/{tasks,DECISIONS}.md`
+- ran: `dotnet test --filter FullyQualifiedName~Ao3ShipIndexScraper` → 67 passed (67 before: one
+  test replaced, not added); `dotnet test` → 391 passed (391 before); `npm run build` + `npm run
+  lint` → clean, the two known fast-refresh warnings only. The new test was confirmed red first,
+  failing with `lastPage` where `error` was wanted — the defect exactly as T47 described it. Both
+  halves mutated separately: restoring the absent-heading permission fails only the new test,
+  dropping the waiver entirely fails only `Ends_a_filtered_pass_on_an_empty_page_whose_heading_
+  agrees_it_was_served_everything`. No schema change, no migrations.
+- commit: 61faf31 "T47: Require a heading before a filtered page past the first may end the pass"
+- next: **The test I deleted was the defect, for the second iteration running.** T42's
+  `Lets_a_filtered_pass_end_on_an_empty_page_past_the_first` built page 2 as `Page(2, [])` — no
+  heading — so the suite asserted `LastPage` and a moved watermark on precisely the page this task
+  refuses. The waiver's real case was already pinned by the `..._whose_heading_agrees_...` test, so
+  the deleted one pinned nothing but the defect. T43 deleted a test for the same reason one
+  iteration earlier. **Generalising, and it is now a T28 row about tests rather than rules: a fix
+  and its test are written in the same sitting by the same reasoning, so a wrong premise produces a
+  test that agrees with it. Read the fixture, not the test name.**
+  **The trade is T45's, one shape wider.** Such a page now stops with `Error`, and an incremental
+  pass has no retreat — so it re-reads the same two pages every tick until the heading returns.
+  Recorded in T45's notes: unlike the 404 that motivated that task, this shape is a page AO3
+  answered 200 with a listing container on it, so whatever bound T45 settles on has to cover both.
+  **The review found the asymmetry this diff creates and it is queued as T50, not folded in.**
+  `page == 1` short-circuits the whole clause, so a filtered *page 1* with a heading counting N > 0
+  over zero blurbs still concludes `LastPage` with a null error — the ship ingests nothing and the
+  run is recorded a success, every tick. Same contradiction, one page earlier. Left out of this diff
+  because it is not what T47 delivers (no watermark moves — `newestSeen` is null with no blurbs), it
+  overturns a decision T42 stated in a doc comment and pinned with a test, and refusing costs a
+  request per tick with no recovery, which is the bound T45 owes first.
+  `Reads_a_quiet_filtered_pass_with_a_populated_heading_as_nothing_new` is the third fixture in this
+  family: `Page(1, [], total: 4317)` under a watermark asserts that 4,317 filtered matches over zero
+  served is healthy.
+  **T40 and T44 were each re-reported, T40 for the third time and T44 for the second** — still the
+  only signal this loop gets about which queued tasks are costing something. **T49** was queued from
+  this task's own baseline before the review independently found it: `RetreatFromStaleCursor` binds
+  five arguments to six placeholders, so the operator reads a literal `{Page}`, and it is the one
+  analyzer warning the API build prints — which is why the next one will arrive unnoticed.
+  Filters checked to bite, per T22's lesson: `~Ao3ShipIndexScraper` 67 and covers the new test;
+  `~Backfill` 13, unchanged, which is the guard on this diff. Still zero and still suspect: T31
+  `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.
+  **Run order is now T28's audit alone, its `blocked-by` empty for the first time.** Five tasks
+  stood in that slot one after another — T34, T37, T42, T43, T47 — every one a rule about what a
+  stop may conclude, and this one a defect inside the previous one's fix. Every stopping defect
+  still queued announces itself in the run history; this was the last silent one.

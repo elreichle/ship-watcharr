@@ -617,11 +617,15 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// case asks it one item below with a different denominator. A filtered heading counts the
     /// filter's result set, and an incremental pass always starts at page 1, so
     /// <paramref name="blurbsRead"/> — this run's own tally of blurbs served — is the number it is
-    /// comparable with. Counting more than the run was served is the listing saying there is more,
-    /// and this stops for the same reason the unfiltered walk does. Counting no more than that,
-    /// or carrying no readable heading at all, leaves nothing on the page contradicting the end —
-    /// and the race above shrinks that count, so the case this waiver exists for is the case where
-    /// the heading agrees.
+    /// comparable with. Counting no more than the run was served is the listing agreeing that this
+    /// is all of it, and the race above is exactly what shrinks that count, so the agreement is the
+    /// case the waiver exists for.
+    ///
+    /// Anything else keeps <c>page > 1</c>, including a page whose heading did not parse at all.
+    /// The waiver replaces one piece of evidence with another and is not entitled to fire on a page
+    /// carrying neither: no heading is no evidence, and no evidence is not permission (see
+    /// <see cref="FilteredHeadingSaysThisIsAll"/>, which is where reading it the other way round
+    /// cost a run's worth of works).
     ///
     /// A backfill is never filtered (<see cref="RevisedAtBound"/> gates on
     /// <see cref="ScrapeRunMode.Incremental"/>), so nothing the waiver reaches is a walk that could
@@ -639,19 +643,32 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     private static bool PlausiblyTheEndOfTheListing(
         Ao3ListingPage listing, int page, bool listingWasFiltered, int blurbsRead) =>
         listing.HasListing
-        && (page == 1 || (listingWasFiltered && !FilteredHeadingSaysMore(listing, blurbsRead)))
+        && (page == 1 || (listingWasFiltered && FilteredHeadingSaysThisIsAll(listing, blurbsRead)))
         && !listing.HasNextPage
         && !(listing.TotalWorks > 0 && !listingWasFiltered);
 
     /// <summary>
-    /// Whether a filtered listing's heading counts more works than the run has been served.
+    /// Whether a filtered listing's heading says the run has been served the whole result set.
     ///
-    /// Read only where <see cref="PlausiblyTheEndOfTheListing"/> has waived <c>page > 1</c>, and
-    /// deliberately silent when the heading did not parse: no heading is no evidence, and the
-    /// container plus the absent Next link are what the conclusion rests on there.
+    /// Read only where <see cref="PlausiblyTheEndOfTheListing"/> waives <c>page > 1</c>, and it is
+    /// what the waiver rests on rather than a side condition on it: a page carrying no readable
+    /// heading is no evidence, and no evidence is not permission. Stated the other way round — as
+    /// "the heading does not say there is more" — the absent heading read as agreement, and a
+    /// filtered page 2 with the container, no Next link, no blurbs and no heading satisfied every
+    /// condition and concluded <see cref="ScrapeStopReason.LastPage"/>. That moves the watermark to
+    /// page 1's newest reading, and the listing being <c>revised_at</c> descending, everything page
+    /// 2 would have held is older than that and newer than the old watermark: skipped by every
+    /// later incremental pass, silently, on a run recorded as a success.
+    ///
+    /// The price is that such a page stops the run with <see cref="ScrapeStopReason.Error"/>
+    /// instead, and an incremental pass has no retreat to recover with — so it re-reads the same
+    /// two pages every tick until the heading comes back. That is the trade this scraper has made
+    /// every time it has been offered: a refusal costs requests at the scheduler's spacing and
+    /// files a failed run naming the page, and a wrong conclusion costs works permanently and says
+    /// nothing.
     /// </summary>
-    private static bool FilteredHeadingSaysMore(Ao3ListingPage listing, int blurbsRead) =>
-        listing.TotalWorks is { } matched && matched > blurbsRead;
+    private static bool FilteredHeadingSaysThisIsAll(Ao3ListingPage listing, int blurbsRead) =>
+        listing.TotalWorks is { } matched && matched <= blurbsRead;
 
     /// <summary>
     /// Which of <see cref="PlausiblyTheEndOfTheListing"/>'s conditions actually failed, phrased for
@@ -667,14 +684,18 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         if (listing.TotalWorks > 0 && !listingWasFiltered)
             return $"the heading counts {listing.TotalWorks.Value.ToString(CultureInfo.InvariantCulture)} works in the tag";
 
-        if (listingWasFiltered && FilteredHeadingSaysMore(listing, blurbsRead))
-            return $"the heading counts {listing.TotalWorks!.Value.ToString(CultureInfo.InvariantCulture)} works "
-                + $"matching this run's date filter and the run has been served "
-                + $"{blurbsRead.ToString(CultureInfo.InvariantCulture)}";
+        if (listingWasFiltered && page > 1 && !FilteredHeadingSaysThisIsAll(listing, blurbsRead))
+            return listing.TotalWorks is { } matched
+                ? $"the heading counts {matched.ToString(CultureInfo.InvariantCulture)} works "
+                    + $"matching this run's date filter and the run has been served "
+                    + $"{blurbsRead.ToString(CultureInfo.InvariantCulture)}"
+                : $"page {page.ToString(CultureInfo.InvariantCulture)} was only reached because an earlier "
+                    + "page offered a next one, and it carries no heading to say the date filter's results "
+                    + "ended here";
 
-        // The unfiltered walk's remaining evidence. The filtered walk waives it and answers with the
-        // heading above instead, so a filtered page failing none of these conditions is the end of
-        // the listing and never asks why it is not.
+        // The unfiltered walk's remaining evidence. A filtered page past the first is answered by
+        // the branch above whether it carries a heading or not, and a filtered page 1 waives this
+        // condition outright — so nothing filtered reaches here.
         return $"page {page.ToString(CultureInfo.InvariantCulture)} was only reached because an earlier page offered a next one";
     }
 

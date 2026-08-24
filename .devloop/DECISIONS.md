@@ -863,3 +863,66 @@ not `rel="author"`, so under the exact markup change T26 exists to defend agains
 "Anonymous…" parses as having no creators and `ApplyAuthors` deletes them. T26's own lesson arriving
 a third time: when a fix turns one signal into a conclusion, ask what else in the same document can
 produce that signal.
+
+## 2026-08-23 — T47: the filtered waiver rests on the heading, and an absent heading is not one
+
+**Stated positively, not as a negation.** T42's waiver read
+`listingWasFiltered && !FilteredHeadingSaysMore(...)`, and `FilteredHeadingSaysMore` returns false
+for a page whose heading did not parse — deliberately, its own comment saying "no heading is no
+evidence". The negation turned that false into permission, so a filtered page 2 carrying the listing
+container, no Next link, no blurbs and no heading satisfied every condition and concluded
+`LastPage`. The helper is now `FilteredHeadingSaysThisIsAll`, `TotalWorks is { } matched && matched
+<= blurbsRead`, and the waiver fires on it directly: the heading is what the waiver rests on, not a
+side condition it may skip when absent.
+
+**The distinction T42 did not draw.** T42 answered "what may a *waiver* rest on" and this branch
+took the answer for "what may a *stop* conclude". They are not the same question, and the second is
+the one with works at stake: `LastPage` satisfies `mayPropose`, so the watermark moves to page 1's
+newest reading — the listing being `revised_at` descending, everything page 2 would have held is
+older than that and newer than the old watermark. `RevisedAtBound`'s day of slack recovers only what
+sits within a day of the new watermark, so on a ship catching up over a long gap, where page 1 spans
+weeks, the rest is unreachable by any incremental pass. Generalising, for T28's table: **a waiver
+that replaces one piece of evidence with another may not fire on a page carrying neither.**
+
+**The cost is T45's, knowingly.** Such a page now stops the run with `Error`, and an incremental
+pass has no retreat — so it re-reads the same two pages every tick until the heading comes back,
+which is exactly the every-tick repeat T45 owns and which this change makes one shape more reachable.
+Recorded in T45's notes rather than fixed here. It is the same trade T24, T42 and T43 each ruled on
+and the ruling has not changed: a refusal costs two requests per scheduler interval and files a
+failed run naming the page, and a wrong conclusion costs works permanently on a run recorded as a
+success.
+
+**The test I deleted was the defect, for the second iteration running.**
+`Lets_a_filtered_pass_end_on_an_empty_page_past_the_first` built page 2 as `Page(2, [])` — no
+heading — so T42's own test asserted `LastPage` and a watermark of Jan 9 on precisely the page this
+task refuses. The waiver's real case was already pinned by
+`Ends_a_filtered_pass_on_an_empty_page_whose_heading_agrees_it_was_served_everything`, which builds
+the heading the waiver asks for, so the deleted test was pinning the defect and nothing else. It is
+now `Refuses_an_empty_filtered_page_that_carries_no_heading_at_all`, asserting `Error` and a frozen
+watermark. T43's lesson arriving one iteration later: **check whether a rule's own test constructs
+the situation its comment claims.**
+
+## 2026-08-23 — T47's review: nothing folded in, one new task, three already queued
+
+`/code-review high` over the T47 diff and the branch reported four findings. Three were already on
+the list — `readWhileLoggedIn` ORing across a run whose total is written per page (T44, second
+independent arrival), an unreadable page still advancing `pagesFetched` and naming the run's page
+boundaries (T40, third arrival), and the `RetreatFromStaleCursor` log template binding five arguments
+to six placeholders (queued as T49 at this task's baseline, hours before the review found it).
+Nothing was folded in.
+
+**Queued as T50 — page 1 accepts the contradiction page 2 now refuses.** `PlausiblyTheEndOfTheListing`
+short-circuits on `page == 1`, and the unfiltered heading check is waived for filtered listings, so a
+filtered page 1 with the container, no Next link, no blurbs and a heading counting N > 0 concludes
+`LastPage` with a null error message: the ship ingests nothing and the run is recorded a success,
+every tick. It is T47's own argument one page earlier, and the reviewer is right that it reads
+oddly beside this diff — page 2 now refuses what page 1 accepts.
+
+Not folded in for three reasons. It is not what T47 `delivers`, which is about the waiver of
+`page > 1` and about a watermark moving past unseen works — and nothing moves here, because a page
+with no blurbs leaves `newestSeen` null. It overturns a decision T42 stated in a doc comment and
+pinned with a test, which is a thing to do deliberately in its own diff rather than as a rider on
+someone else's. And the cost of refusing is a request per tick with no recovery, which is exactly
+the bound T45 owes — so T45 probably has to land first for T50 to have anything to refuse *into*.
+The asymmetry is real and is now written down in both tasks rather than left in the code for a
+later reader to find.

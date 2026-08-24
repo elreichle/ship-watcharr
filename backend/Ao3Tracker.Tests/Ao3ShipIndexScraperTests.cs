@@ -1010,30 +1010,27 @@ public class Ao3ShipIndexScraperTests : IDisposable
     }
 
     [Fact]
-    public async Task Lets_a_filtered_pass_end_on_an_empty_page_past_the_first()
+    public async Task Refuses_an_empty_filtered_page_that_carries_no_heading_at_all()
     {
-        // The `page > 1` evidence is an argument about an *unfiltered* listing — AO3 404s past the
-        // last page rather than serving an empty 200, so getting above page 1 means a page said
-        // there was more. Under a revised_at filter the Next link comes from a result count that
-        // can race the blurbs, and a single work leaving the window between the two requests serves
-        // a well-formed empty page 2. Held against it, the run stops with Error, which may not move
-        // the watermark — so the ship re-reads the same two pages on every tick, forever, having
-        // read the newest end of the listing in full each time.
+        // The waiver rests on the heading, so a page carrying none has not earned it. This fixture
+        // is the one the waiver's first test used to build: page 2 with the listing container, no
+        // Next link, no blurbs and no heading — every condition satisfied, `LastPage` concluded,
+        // and the watermark moved to page 1's newest. Page 2's works are older than page 1's oldest
+        // and newer than the old watermark, so the jump puts them behind the filter for good;
+        // RevisedAtBound's day of slack recovers only what sits within a day of Jan 20, and a ship
+        // catching up over a long gap has page 1 spanning weeks.
         _host.Http.Responds = Pages(
-            Page(1, [Blurb(1, updatedAt: Jan(9))], nextPage: true),
+            Page(1, [Blurb(1, updatedAt: Jan(20)), Blurb(2, updatedAt: Jan(15))], nextPage: true),
             Page(2, []));
 
         var shipId = await FollowAsync();
-        await SetWatermarkAsync(shipId, Jan(5));
+        await SetWatermarkAsync(shipId, Jan(1));
 
         var outcome = await _host.ScrapeAsync(shipId);
 
-        Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
-        Assert.Null(outcome.ErrorMessage);
-
-        // The point of the stop reason: page 1 was read in full, so the watermark may move and the
-        // next tick asks for one page rather than these two again.
-        Assert.Equal(Jan(9), (await ReloadAsync(shipId)).IncrementalWatermarkUtc);
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        Assert.Contains("no heading", outcome.ErrorMessage);
+        Assert.Equal(Jan(1), (await ReloadAsync(shipId)).IncrementalWatermarkUtc);
     }
 
     [Fact]

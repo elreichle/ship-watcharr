@@ -10,24 +10,23 @@ a dependency cannot be met — needs a human).
 Tasks are **not** taken in file order. Take the first `todo` listed here whose `blocked-by` are all
 `done`; only when this list is exhausted does file order apply.
 
-1. T47 — the filtered end-of-listing waiver that fires on a page carrying no evidence at all
-2. T28 — the audit of the walking and stopping rules, while that code is still fresh
-3. then file order, from T6
+1. T28 — the audit of the walking and stopping rules, while that code is still fresh
+2. then file order, from T6
 
 Why this list exists at all: every entry was found by review of pre-loop scraper code, so none of it
 appears where the original plan put it — without this list, file order would send an iteration to T6
 and leave the scraper's live defects in place. T23, T24 and T27 — the three that made this app
 re-request AO3 in a loop, the one thing its politeness rules exist to prevent — are done, and with
 T26 the pre-loop scraper defects this loop inherited are closed. What is left in this list is the
-loop's own work: one stopping rule, and the audit.
+audit alone.
 
-T43 is done and produced T47 in its review — T42's waiver concluding `LastPage` off a filtered page
-carrying no heading, no next link and no works, which moves the watermark past everything the next
-page would have held. It leads because it is the only *silent* wrong conclusion left in the walk:
-every other one this loop has queued announces itself in the run history, and this one loses works
-and reports success. The audit's `blocked-by` is now T47 alone; every entry on it has been a rule
-about what a stop may conclude (T34, T37, T42, T43, T47), which is the argument for the audit stated
-five times over. T31, T32, T33, T35, T36, T38, T40, T41, T44, T45, T46 and T48 are real but
+T47 is done, and with it the last *silent* wrong conclusion in the walk: every stopping defect still
+queued — T38, T40, T45, T46 — announces itself in the run history, so none of them can lose works on
+a run recorded as a success. That is what makes the audit the right next task rather than another
+fix. Its `blocked-by` is now empty, and the five tasks that stood in that slot one after another
+(T34, T37, T42, T43, T47) were every one of them a rule about what a stop may conclude — the
+argument for the audit stated five times over, and twice over in the same code, T47 being a defect
+inside T42's fix. T31, T32, T33, T35, T36, T38, T40, T41, T44, T45, T46, T48 and T49 are real but
 slow-acting or latent and sit in file order, after the planned work.
 
 Delete an entry once its task is `done`. When this section is empty, delete the section.
@@ -528,7 +527,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 ## T28 — Audit the scraper's walking and stopping rules
 - status: todo
 - attempts: 0
-- blocked-by: T47
+- blocked-by: none
 - delivers: `.devloop/scraper-audit.md` — one table row per rule that decides where a pass starts,
   where it stops, what it may conclude from stopping, and what it writes back to the ship. Each row
   names the rule, the code that implements it, which passes it applies to, what it concludes, and
@@ -554,6 +553,12 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   only one permitted to conclude a work has left a tag — the strongest conclusion in the system,
   built on the stopping rules this audit is checking. Building it on rules already known to be wrong
   gets three broken passes instead of two.
+  Three generalisations the table should carry as rows in their own right, one from each of the last
+  three iterations: a waiver is only as good as the evidence it substitutes, and may not fire on a
+  page carrying neither piece (T47); when a rule is waived because its argument does not hold, ask
+  what that rule was *carrying*, not only whether it was sound (T42); and check whether a rule's own
+  test constructs the situation its comment claims — T42's and T43's tests both pinned the defect
+  rather than the rule, and were the defect written down.
 
 ## T29 — An incremental pass must not overwrite a ship's total with a filtered count
 - status: done
@@ -936,6 +941,10 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   address, are both worth weighing — and either is a schema change on both providers if it needs
   remembering across runs. A give-up threshold is a conclusion drawn from failure and inherits every
   objection this loop has raised to those (T37's note), so whatever comes out belongs in T28's table.
+  **T47 widened the entrance.** A filtered page past the first that carries no readable heading now
+  stops with `Error` rather than concluding the end, so a second shape reaches this stuck state — and
+  unlike the 404 that motivated the task, this one is a page AO3 answered 200 with a listing
+  container on it. Whatever bound this task settles on has to cover both.
 
 ## T46 — A backfill whose cursor sits at page 1 can never reach `Failed`
 - status: todo
@@ -962,7 +971,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   down for an afternoon. A 404 is not that, and telling the two apart is the whole task.
 
 ## T47 — A filtered page carrying no evidence at all must not end the pass
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: `PlausiblyTheEndOfTheListing` waives `page > 1` for a filtered listing only on a page
@@ -1013,3 +1022,51 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   rather than relying on the title being an anchor. This is T26's own lesson arriving a third time —
   when a fix turns one signal into a conclusion, ask what else in the same document can produce that
   signal — and the answer here is the same heading, four people's names and a title.
+
+## T49 — The stale-cursor retreat's warning renders a placeholder instead of a page number
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: `RetreatFromStaleCursor`'s log message names both page numbers it means, and the build
+  stops emitting CA2017 for it.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Backfill` — 13
+  today; name the new test so it matches — plus a build with no CA2017 in the output.
+- notes: Noticed at T47's baseline, not caused by it; the warning has been in every build since
+  T37. `Ao3ShipIndexScraper.cs:548` uses `{Page}` twice over five arguments, and structured logging
+  binds positionally, so the second occurrence gets no argument and the operator reads "...to let
+  the listing say whether page {Page} should exist." Trivial as a diff — repeat the argument, or
+  name the second occurrence differently — but it is the one warning the build prints, and a build
+  with a standing warning is a build where the next one arrives unnoticed. Worth checking whether
+  any other template in the scraper reuses a name the same way while the file is open.
+
+## T50 — Page 1 accepts the same filtered contradiction page 2 now refuses
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A decision, applied, about what a filtered listing's heading counting more works than
+  the run was served entitles page 1 to conclude — and whichever way it goes, a test whose fixture
+  is the situation its comment claims.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ao3ShipIndexScraper`
+  — 67 today.
+- notes: Found by `/code-review high` during T47, in the clause T47 did not touch.
+  `PlausiblyTheEndOfTheListing` short-circuits on `page == 1`, and the unfiltered heading check is
+  disabled for filtered listings, so a filtered page 1 carrying the listing container, no Next link,
+  no blurbs and a heading counting N > 0 concludes `LastPage` with a null error message. The ship
+  ingests nothing and the run is recorded a clean success, every tick, indefinitely. That is the
+  same contradiction T47 just taught page 2 to refuse, and the same argument applies to it: a
+  filtered heading counts the filter's result set, so counting more than the run was served is the
+  listing saying there is more.
+  **Read T42 and T45 before deciding, because this is their trade a third time.** T42's doc comment
+  defends the current behaviour in as many words — "a quiet incremental pass reading zero blurbs
+  under a heading is the healthy case and holding it against the page would fail every tick" — and
+  that is true of the *unfiltered* heading it was written about, which counts the tag rather than
+  the filter's results. Whether it stays true once the number is the filter's own count is the
+  question this task settles. Refusing costs one request per tick with a failed run naming the page,
+  which is T45's territory and is why that task's bound should probably land first.
+  Either way `Reads_a_quiet_filtered_pass_with_a_populated_heading_as_nothing_new` needs work: it
+  builds `Page(1, [], total: 4317)` under a watermark, so it asserts that a filtered heading counting
+  4,317 matches over zero blurbs served is a healthy end of listing. If the answer here is that page
+  1 keeps concluding, the fixture should be `total: 0` — the quiet pass it is named for — and not a
+  contradiction standing in for one. Third iteration running that a rule's own test builds a
+  different situation from the one its comment cites (T42, T43, and this); it belongs in T28's table
+  as a row about tests, not only about rules.
