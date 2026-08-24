@@ -905,7 +905,7 @@ build. Not something a task should chase.
   `dotnet test` → 429 passed (413 before); `npm run build` + `npm run lint` → clean, the two known
   fast-refresh warnings only. Thirteen mutations applied one at a time, every one red — plus the live
   check below.
-- commit: <sha>
+- commit: 9944b3d
 - next: **A mutation run can be green because the build was stale, and it cost most of a debug loop.**
   `shutil.move` restores a file with its *original* mtime, so MSBuild saw a source older than the DLL
   built from the mutated copy and skipped the rebuild — the next `dotnet test` then ran the previous
