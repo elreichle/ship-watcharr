@@ -99,7 +99,17 @@ public static class WorkQueries
     /// read into arrays here rather than queried through the navigation, so the criteria become
     /// parameters of one SQL statement instead of a lazy-load per clause.
     /// </remarks>
-    public static IQueryable<Work> ApplyFilter(IQueryable<Work> works, SavedWorkFilter filter)
+    /// <param name="callerStates">
+    /// The states of the user applying the set — <see cref="StatesOf"/> for their id, and nobody
+    /// else's. A parameter rather than a <c>userId</c> this method resolves itself, so that every
+    /// call site has to name whose reading it is filtering by: the reading-status and rating
+    /// criteria are the only ones whose result depends on who asks, and a defaulted or forgotten
+    /// user would answer with someone else's opinion of the same works.
+    /// </param>
+    public static IQueryable<Work> ApplyFilter(
+        IQueryable<Work> works,
+        SavedWorkFilter filter,
+        IQueryable<UserWorkState> callerStates)
     {
         if (filter.IsComplete is bool complete) works = works.Where(w => w.IsComplete == complete);
 
@@ -125,6 +135,27 @@ public static class WorkQueries
         // "Teen and below" when the alternative is silently hiding rows for a scraper's shortfall.
         if (filter.MinRating is Ao3Rating min) works = works.Where(w => w.Rating >= min);
         if (filter.MaxRating is Ao3Rating max) works = works.Where(w => w.Rating <= max);
+
+        // The reader's own state, matched through a correlated EXISTS over callerStates rather than
+        // a navigation on Work — a navigation would be loadable without saying whose state it is.
+        if (filter.ReadingStatus is ReadingStatus status)
+        {
+            // "Unread" is the absence of a mark, and the absence has two shapes: no row at all, and
+            // a row left saying None because a status was cleared while a rating or note stayed. A
+            // NOT EXISTS over "marked as anything" covers both, where an equality against None would
+            // find only the second and silently drop every work nobody has ever touched — which is
+            // most of a fresh library.
+            works = status == ReadingStatus.None
+                ? works.Where(w => !callerStates.Any(s => s.WorkId == w.Id && s.Status != ReadingStatus.None))
+                : works.Where(w => callerStates.Any(s => s.WorkId == w.Id && s.Status == status));
+        }
+
+        // Half-stars, 1-10. An unrated work has a null Rating, so it satisfies neither comparison
+        // and drops out of a bounded set — see the remarks on SavedWorkFilter.MinUserRating.
+        if (filter.MinUserRating is int minMine)
+            works = works.Where(w => callerStates.Any(s => s.WorkId == w.Id && s.Rating >= minMine));
+        if (filter.MaxUserRating is int maxMine)
+            works = works.Where(w => callerStates.Any(s => s.WorkId == w.Id && s.Rating <= maxMine));
 
         // Flags masks, compared bitwise against the column rather than expanded into a set of
         // equality checks — the whole reason Ao3Category and Ao3Warning are stored as ints.

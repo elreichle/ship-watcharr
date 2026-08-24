@@ -144,7 +144,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   sends only the field it changed will silently wipe the other two.
 
 ## T8 — Reading status and rating as saved-filter criteria
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: T6
 - delivers: A saved filter can require a reading status (or its absence) and a minimum/maximum of
@@ -157,6 +157,10 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   applies it — only its owner ever can, so this is consistent, but say so in a comment. **"Unread"
   must match works with no `UserWorkState` row at all**, not merely rows saying `None`; a left join
   is required. Extend `frontend/src/pages/FiltersPage.tsx` and `api/types.ts` to match.
+  Delivered as three typed columns — `ReadingStatus`, `MinUserRating`, `MaxUserRating` — with
+  `WorkQueries.ApplyFilter` taking the caller's `StatesOf` queryable as a parameter, so the list and
+  the match count share both the predicate and the answer to "whose reading". See DECISIONS,
+  "T8: what a per-user criterion is".
   T6 narrowed what "no row at all" can mean: a wholly empty state is *stored* as an absent row and
   the API refuses to distinguish the two, so the left join is the only correct shape — but a row
   saying `None` still exists whenever a status was cleared while a rating stands, and the predicate
@@ -770,6 +774,8 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   ~line 633) already resets `BackfillStartedAt` and the cursor and is the restart path this task
   builds on, but it leaves `BackfillStalledRuns` alone — so a ship restarted at 12 gives up on its
   first stalled run rather than its twelfth.
+  T26's, T30's and now T8's review have each arrived at this same missing reset independently —
+  three reports, one defect. The fourth reader does not need to re-derive it; it needs to fix it.
   T30's review adds the same fact from the other end, and it is what makes the missing exit airtight
   rather than merely inconvenient: **both** sites that reset `BackfillStalledRuns` sit on paths a
   `Failed` ship no longer reaches (`ScrapeWorker` only backfills `NotStarted`/`InProgress`), and
@@ -908,6 +914,10 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   `readWhileLoggedIn = true` — stamping "counted while logged in" on a number demonstrably fetched
   without one. Note `FromCache` responses preserve `Authenticated: false`, which is what makes the
   mixed run reachable rather than hypothetical.
+  Re-reported independently by `/code-review high` at T8's review step, from the same reading of
+  `Ao3ShipIndexScraper.cs:944` and with the same fix — the cached-page half of the scenario stated
+  the other way round (page 1 live with a cookie, page 5 from the shared cache writing the logged-out
+  total). Second arrival; not a second defect.
   Latent until T5 teaches the client to authenticate — nothing sets `Authenticated` before then —
   so this is cheap now and a live wrong answer the day T5 lands. The fix is to capture the flag
   beside the write, in `RecordTotal`, rather than to OR it across the run; T30's own note that the

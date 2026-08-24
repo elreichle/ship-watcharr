@@ -885,3 +885,58 @@ build. Not something a task should chase.
   **Nothing new is unpinned that was not already**, because this project has no frontend test runner
   by decision; what stands in for one is the harness above, and it is the reason this entry claims
   more than "it typechecks".
+
+## 2026-08-24 — T8 Reading status and rating as saved-filter criteria — done
+
+- did: Three typed criteria on `SavedWorkFilter` — `ReadingStatus`, `MinUserRating`,
+  `MaxUserRating` — migrated on both providers and applied by `WorkQueries.ApplyFilter`, which now
+  takes the caller's `StatesOf` queryable as a parameter so the list and the match count share both
+  the predicate and the answer to *whose* reading it is. "Unread" is a `NOT EXISTS` over "marked as
+  anything", covering the work with no state row and the row left saying `None` alike. A rating bound
+  drops unrated works, by decision. The editor grew a "Your own reading" section, and the status
+  labels moved out of `WorksPage.tsx` into `frontend/src/readingStatus.ts`.
+- files: `Api/Models/SavedWorkFilter.cs`, `Api/Data/WorkQueries.cs`,
+  `Api/Controllers/{SavedFilters,Works}Controller.cs`, `Api/Dtos/SavedFilterDtos.cs`,
+  `Api/Data/Migrations/{Sqlite,Postgres}/*ReadingCriteriaOnSavedFilters*`,
+  `Tests/SavedFiltersControllerTests.cs`, `frontend/src/readingStatus.ts` (new),
+  `frontend/src/pages/{FiltersPage,WorksPage}.tsx`, `frontend/src/api/types.ts`,
+  `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter FullyQualifiedName~SavedFilter` → 55 passed (39 before);
+  `dotnet test` → 429 passed (413 before); `npm run build` + `npm run lint` → clean, the two known
+  fast-refresh warnings only. Thirteen mutations applied one at a time, every one red — plus the live
+  check below.
+- commit: <sha>
+- next: **A mutation run can be green because the build was stale, and it cost most of a debug loop.**
+  `shutil.move` restores a file with its *original* mtime, so MSBuild saw a source older than the DLL
+  built from the mutated copy and skipped the rebuild — the next `dotnet test` then ran the previous
+  mutation, and a suite that had just passed went red with no source change. Restores in a mutation
+  harness must **rewrite** the file, not move it back. The mutation *results* all survived the
+  mistake (each mutation is written with a fresh mtime, so its own run rebuilt correctly); only the
+  run *after* a restore is poisoned. `mutate2.py` in the scratchpad is the corrected shape.
+  **One mutation genuinely survived, and it was the count path.** Passing everyone's states instead of
+  the caller's to `DescribeAsync` left the suite green: `Counts_a_per_user_criterion_with_the_same_predicate_that_lists_it`
+  exercises one user, so an unscoped join gives the same number. **T6's lesson again — a test that
+  names a guard without constructing its case** — fixed by asserting `MatchingWorkCount` inside
+  `Reads_only_the_applying_readers_marks`, where a second user's marks exist. The generalisation is
+  worth keeping: the shared-predicate property means the list and the count are two call sites, and
+  pinning one pins nothing about the other.
+  **The live check ran a real browser again and it earned its keep.** T7's harness adapted in about
+  twenty lines (`t8-live.sh` + `t8-drive.mjs` in the scratchpad; three works instead of two). It marks
+  9001 Read and rates 9002 through the real feed controls, builds both filters in the real editor, and
+  reads the list back: "Unread" matches **2** — the never-touched work with no row *and* the rated one
+  whose row says `None` — while "Loved" (≥4 stars) matches 1, and the feed shows exactly those works
+  under each. That is the two-shapes-of-absence case proven in a browser, not only in SQLite.
+  **T9, T14, T17 and T19 should copy `t8-live.sh` rather than `t7-live.sh`** — it seeds three works,
+  which is the minimum for a filter test, and its driver already has the "pick an option out of a
+  labelled select inside a named section" helper the filter and download UIs both need.
+  **The review found nothing in this diff and two things on the branch, both already queued.** The
+  `LastKnownTotalWasAuthenticated` mis-pairing is **T44**, second arrival; `BeginBackfill` not
+  resetting `BackfillStalledRuns` is **T38**, now the *third* independent report of one defect. Both
+  task entries now say so, so the fourth reader fixes it instead of re-deriving it. This is the audit's
+  own finding recurring, and the answer is in the task list rather than in the code.
+  **T9 is next by file order** — a page per work, `blocked-by: T6`, satisfied. It renders one work, so
+  T7's keyed-editing-state smell does not apply to it; `SummaryHtml` is untrusted AO3 markup and is
+  the thing to be careful with there.
+  Filters checked to bite, per T22's lesson: `~SavedFilter` matches 55 and covers every new test
+  (`--list-tests` grepped case-insensitively, per T28's note). Still zero and still suspect:
+  T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.

@@ -236,6 +236,58 @@ public class SavedFiltersControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task Refuses_a_reading_status_no_reader_can_set()
+    {
+        var emma = _host.SeedUser();
+
+        Assert.True(Rejected(
+            await _host.SavedFilters(emma).CreateFilter(new("Abandoned") { ReadingStatus = "Abandoned" }, default),
+            "ReadingStatus"));
+    }
+
+    [Fact]
+    public async Task Refuses_a_reading_status_number_no_status_has()
+    {
+        // A word cannot reach the IsDefined check — TryParse has already rejected it. Only a number
+        // gets that far, and TryParse hands back whatever byte it was given, defined or not. Without
+        // IsDefined this would store a status nothing can ever match.
+        var emma = _host.SeedUser();
+
+        Assert.True(Rejected(
+            await _host.SavedFilters(emma).CreateFilter(new("Bad") { ReadingStatus = "99" }, default),
+            "ReadingStatus"));
+    }
+
+    [Theory]
+    [InlineData(0, null)]
+    [InlineData(11, null)]
+    [InlineData(null, 0)]
+    [InlineData(null, 11)]
+    public async Task Refuses_a_rating_bound_off_the_half_star_scale(int? min, int? max)
+    {
+        // The column these compare against carries a check constraint; these columns cannot, so the
+        // controller is the whole of the guard. Stored unchecked, "11 stars" would be a set that
+        // matches nothing for ever and reads as a broken filter rather than as the typo it is.
+        var emma = _host.SeedUser();
+
+        var result = await _host.SavedFilters(emma)
+            .CreateFilter(new("Off scale") { MinUserRating = min, MaxUserRating = max }, default);
+
+        Assert.True(Rejected(result, min is null ? "MaxUserRating" : "MinUserRating"));
+    }
+
+    [Fact]
+    public async Task Refuses_a_rating_floor_above_its_ceiling()
+    {
+        var emma = _host.SeedUser();
+
+        Assert.True(Rejected(
+            await _host.SavedFilters(emma)
+                .CreateFilter(new("Impossible") { MinUserRating = 8, MaxUserRating = 4 }, default),
+            "MinUserRating"));
+    }
+
+    [Fact]
     public async Task Round_trips_enum_criteria_as_names_not_numbers()
     {
         // The wire format is the enum's name. A flags column arriving as 17 would make the client
@@ -497,6 +549,181 @@ public class SavedFiltersControllerTests : IDisposable
         Assert.Equal([1, 2], (await AppliedAsync(emma, filter)).Order());
     }
 
+    // ---- the reader's own marks, laid over the archive's numbers -------------------------------
+
+    [Theory]
+    [InlineData("Read", new long[] { 3 })]
+    [InlineData("Reading", new long[] { 2 })]
+    [InlineData("ToRead", new long[] { 1 })]
+    public async Task Filters_by_the_readers_own_reading_status(string status, long[] expected)
+    {
+        var emma = _host.SeedUser();
+        var lexa = await SeedShipAsync("Clarke Griffin/Lexa", emma);
+        await SeedWorksAsync(lexa, 1, 2, 3, 4);
+
+        await MarkAsync(emma, 1, ReadingStatus.ToRead);
+        await MarkAsync(emma, 2, ReadingStatus.Reading);
+        await MarkAsync(emma, 3, ReadingStatus.Read);
+
+        var filter = await CreateAsync(emma, new("Marked") { ReadingStatus = status });
+
+        Assert.Equal(expected, await AppliedAsync(emma, filter));
+    }
+
+    [Fact]
+    public async Task Reads_unread_as_no_mark_at_all_and_not_merely_a_cleared_one()
+    {
+        // The left-join half of the criterion, and the half a naive Status == None would get wrong:
+        // most of a fresh library has no state row whatsoever, so an equality against the column
+        // would answer "unread" with the handful of works someone marked and then unmarked.
+        var emma = _host.SeedUser();
+        var lexa = await SeedShipAsync("Clarke Griffin/Lexa", emma);
+        await SeedWorksAsync(lexa, 1, 2, 3);
+
+        // 1 has no row at all. 2 has one saying None, which is what clearing a status while a
+        // rating stands leaves behind. 3 is marked.
+        await MarkAsync(emma, 2, ReadingStatus.None, rating: 8);
+        await MarkAsync(emma, 3, ReadingStatus.Read);
+
+        var unread = await CreateAsync(emma, new("Unread") { ReadingStatus = "None" });
+
+        Assert.Equal([1, 2], (await AppliedAsync(emma, unread)).Order());
+    }
+
+    [Fact]
+    public async Task Filters_the_readers_own_rating_inclusively_at_both_ends()
+    {
+        var emma = _host.SeedUser();
+        var lexa = await SeedShipAsync("Clarke Griffin/Lexa", emma);
+        await SeedWorksAsync(lexa, 1, 2, 3, 4, 5);
+
+        // Half-stars: 6 is three stars, 7 is three and a half.
+        await MarkAsync(emma, 1, ReadingStatus.Read, rating: 5);
+        await MarkAsync(emma, 2, ReadingStatus.Read, rating: 6);
+        await MarkAsync(emma, 3, ReadingStatus.Read, rating: 9);
+        await MarkAsync(emma, 4, ReadingStatus.Read, rating: 10);
+
+        // 5 is marked read and never rated, which is not a low score — see MinUserRating.
+        await MarkAsync(emma, 5, ReadingStatus.Read);
+
+        var band = await CreateAsync(emma, new("Three to four and a half")
+        {
+            MinUserRating = 6,
+            MaxUserRating = 9,
+        });
+
+        Assert.Equal([2, 3], (await AppliedAsync(emma, band)).Order());
+    }
+
+    [Fact]
+    public async Task Combines_the_readers_marks_with_the_archives_numbers()
+    {
+        // The saved view the spec asks for by name: unread, complete, over 500 kudos.
+        var emma = _host.SeedUser();
+        var lexa = await SeedShipAsync("Clarke Griffin/Lexa", emma);
+        await SeedWorksAsync(lexa, w => { w.IsComplete = true; w.Kudos = 900; }, 1, 2);
+        await SeedWorksAsync(lexa, w => { w.IsComplete = false; w.Kudos = 900; }, 3);
+        await SeedWorksAsync(lexa, w => { w.IsComplete = true; w.Kudos = 10; }, 4);
+
+        await MarkAsync(emma, 2, ReadingStatus.Read);
+
+        var filter = await CreateAsync(emma, new("Unread, finished, popular")
+        {
+            ReadingStatus = "None",
+            IsComplete = true,
+            MinKudos = 500,
+        });
+
+        Assert.Equal([1], await AppliedAsync(emma, filter));
+    }
+
+    [Fact]
+    public async Task Reads_only_the_applying_readers_marks()
+    {
+        // The criterion joins on the caller's id, so another account's opinion of the same work is
+        // invisible to it. Without that scoping "read" would mean "read by anyone on this instance",
+        // which is the one way a per-user criterion can silently answer with someone else's data.
+        var emma = _host.SeedUser("emma");
+        var sam = _host.SeedUser("sam");
+        var lexa = await SeedShipAsync("Clarke Griffin/Lexa", emma);
+        await _host.Ships(sam).WatchShip(new("Clarke Griffin/Lexa"), default);
+        await SeedWorksAsync(lexa, 1, 2);
+
+        await MarkAsync(sam, 1, ReadingStatus.Read, rating: 10);
+        await MarkAsync(emma, 2, ReadingStatus.Read, rating: 10);
+
+        var hers = await CreateAsync(emma, new("Read") { ReadingStatus = "Read" });
+        Assert.Equal([2], await AppliedAsync(emma, hers));
+
+        var rated = await CreateAsync(emma, new("Loved") { MinUserRating = 10 });
+        Assert.Equal([2], await AppliedAsync(emma, rated));
+
+        // A work Sam marked and Emma never did is still unread to Emma — the absence is hers too.
+        var unread = await CreateAsync(emma, new("Unread") { ReadingStatus = "None" });
+        Assert.Equal([1], await AppliedAsync(emma, unread));
+
+        // The match count travels its own copy of the join, so it has to be scoped separately: a
+        // count reading everyone's marks would report Sam's as matches of Emma's set while the page
+        // it links to showed one work. Asserted here rather than left to the list, because the two
+        // are different call sites of the same predicate and only the list is pinned above.
+        Assert.Equal(1, hers.MatchingWorkCount);
+        Assert.Equal(1, rated.MatchingWorkCount);
+        Assert.Equal(1, unread.MatchingWorkCount);
+
+        // And Sam's own set of the same shape sees only Sam's mark.
+        var his = await CreateAsync(sam, new("Read") { ReadingStatus = "Read" });
+        Assert.Equal([1], await AppliedAsync(sam, his));
+        Assert.Equal(1, his.MatchingWorkCount);
+    }
+
+    [Fact]
+    public async Task Counts_a_per_user_criterion_with_the_same_predicate_that_lists_it()
+    {
+        // The property the shared WorkQueries.ApplyFilter exists for, now that a criterion depends
+        // on who is asking: a count computed from a different join than the list would disagree
+        // with the very page it links to.
+        var emma = _host.SeedUser();
+        var lexa = await SeedShipAsync("Clarke Griffin/Lexa", emma);
+        await SeedWorksAsync(lexa, 1, 2, 3, 4);
+
+        await MarkAsync(emma, 1, ReadingStatus.Read);
+        await MarkAsync(emma, 2, ReadingStatus.Read);
+        await MarkAsync(emma, 3, ReadingStatus.None, rating: 4);
+
+        var read = await CreateAsync(emma, new("Read") { ReadingStatus = "Read" });
+        Assert.Equal(2, read.MatchingWorkCount);
+        Assert.Equal(read.MatchingWorkCount, (await AppliedAsync(emma, read)).Count);
+
+        var unread = await CreateAsync(emma, new("Unread") { ReadingStatus = "None" });
+        Assert.Equal(2, unread.MatchingWorkCount);
+        Assert.Equal(unread.MatchingWorkCount, (await AppliedAsync(emma, unread)).Count);
+    }
+
+    [Fact]
+    public async Task Round_trips_the_readers_own_criteria()
+    {
+        var emma = _host.SeedUser();
+
+        var created = await CreateAsync(emma, new("Unread favourites")
+        {
+            ReadingStatus = "ToRead",
+            MinUserRating = 7,
+            MaxUserRating = 10,
+        });
+
+        Assert.Equal("ToRead", created.ReadingStatus);
+        Assert.Equal(7, created.MinUserRating);
+        Assert.Equal(10, created.MaxUserRating);
+
+        // PUT replaces, so leaving them out clears them rather than keeping them.
+        var cleared = Ok(await _host.SavedFilters(emma)
+            .UpdateFilter(created.Id, new Filter("Unread favourites").ToRequest(), default));
+
+        Assert.Null(cleared.ReadingStatus);
+        Assert.Null(cleared.MinUserRating);
+        Assert.Null(cleared.MaxUserRating);
+    }
+
     [Fact]
     public async Task Counts_what_a_set_currently_matches()
     {
@@ -634,8 +861,12 @@ public class SavedFiltersControllerTests : IDisposable
         public bool? IsComplete { get; init; }
         public int? MinWordCount { get; init; }
         public int? MaxWordCount { get; init; }
+        public int? MinKudos { get; init; }
         public string? MinRating { get; init; }
         public string? MaxRating { get; init; }
+        public string? ReadingStatus { get; init; }
+        public int? MinUserRating { get; init; }
+        public int? MaxUserRating { get; init; }
         public IReadOnlyList<string>? IncludeCategories { get; init; }
         public IReadOnlyList<string>? ExcludeWarnings { get; init; }
         public string Sort { get; init; } = "updated";
@@ -651,8 +882,12 @@ public class SavedFiltersControllerTests : IDisposable
             IsComplete,
             MinWordCount,
             MaxWordCount,
+            MinKudos: MinKudos,
             MinRating: MinRating,
             MaxRating: MaxRating,
+            ReadingStatus: ReadingStatus,
+            MinUserRating: MinUserRating,
+            MaxUserRating: MaxUserRating,
             IncludeCategories: IncludeCategories,
             ExcludeWarnings: ExcludeWarnings,
             Sort: Sort,
@@ -696,6 +931,24 @@ public class SavedFiltersControllerTests : IDisposable
             db.ShipWorks.Add(new ShipWork { ShipId = shipId, WorkId = id });
         }
 
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// One reader's own mark on one work, written straight to the table rather than through
+    /// <c>PUT /api/works/{id}/state</c> — that endpoint stores a wholly empty state as no row, and
+    /// several tests here need the row that says <c>None</c> to exist.
+    /// </summary>
+    private async Task MarkAsync(ApplicationUser user, long workId, ReadingStatus status, int? rating = null)
+    {
+        await using var db = _host.NewContext();
+        db.UserWorkStates.Add(new UserWorkState
+        {
+            UserId = user.Id,
+            WorkId = workId,
+            Status = status,
+            Rating = rating,
+        });
         await db.SaveChangesAsync();
     }
 

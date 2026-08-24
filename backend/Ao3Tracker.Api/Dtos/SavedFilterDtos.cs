@@ -21,6 +21,12 @@ namespace Ao3Tracker.Api.Dtos;
 /// user no longer watches that ship — the set stays valid and simply matches nothing.</param>
 /// <param name="MatchingWorkCount">How many works in the reader's library this set currently
 /// matches. The one number that says whether a set does what its author meant.</param>
+/// <param name="ReadingStatus">"None", "ToRead", "Reading", "Read" or "Dropped" — the reader's own
+/// mark, not anything AO3 knows. "None" means unread in the widest sense: never marked at all, or
+/// marked and cleared. Null is unconstrained. Not in <c>/api/lookups/vocabulary</c>, which serves
+/// AO3's wording only; these five are this app's own and the client names them itself.</param>
+/// <param name="MinUserRating">Inclusive bounds on the reader's own rating in half-stars, 1-10, so
+/// 7 is three and a half. Unrated works match neither bound.</param>
 public record SavedFilterDto(
     int Id,
     string Name,
@@ -42,6 +48,9 @@ public record SavedFilterDto(
     int? MaxBookmarks,
     string? MinRating,
     string? MaxRating,
+    string? ReadingStatus,
+    int? MinUserRating,
+    int? MaxUserRating,
     IReadOnlyList<string> IncludeCategories,
     IReadOnlyList<string> ExcludeCategories,
     IReadOnlyList<string> IncludeWarnings,
@@ -96,6 +105,9 @@ public record SaveFilterRequest(
     int? MaxBookmarks = null,
     string? MinRating = null,
     string? MaxRating = null,
+    string? ReadingStatus = null,
+    int? MinUserRating = null,
+    int? MaxUserRating = null,
     IReadOnlyList<string>? IncludeCategories = null,
     IReadOnlyList<string>? ExcludeCategories = null,
     IReadOnlyList<string>? IncludeWarnings = null,

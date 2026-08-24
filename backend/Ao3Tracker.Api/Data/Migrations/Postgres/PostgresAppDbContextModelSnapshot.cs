@@ -299,6 +299,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.Property<int?>("MaxRating")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("MaxUserRating")
+                        .HasColumnType("integer");
+
                     b.Property<int?>("MaxWordCount")
                         .HasColumnType("integer");
 
@@ -320,6 +323,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.Property<int?>("MinRating")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("MinUserRating")
+                        .HasColumnType("integer");
+
                     b.Property<int?>("MinWordCount")
                         .HasColumnType("integer");
 
@@ -327,6 +333,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<byte?>("ReadingStatus")
+                        .HasColumnType("smallint");
 
                     b.Property<int?>("ShipId")
                         .HasColumnType("integer");

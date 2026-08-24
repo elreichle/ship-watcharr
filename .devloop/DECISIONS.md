@@ -1169,3 +1169,58 @@ state no longer has a row to sit in.
 **The live check grew two cases from this review** rather than the fixes being taken on trust: an
 unsaved draft closed and reopened, and another row's write landing while a draft is open. Both are
 in the driver, and both pass against the real page.
+
+## 2026-08-24 — T8: what a per-user criterion is, and whose reading it reads
+
+**Three typed columns, not a set of them.** `ReadingStatus`, `MinUserRating`, `MaxUserRating` on
+`SavedWorkFilter`, migrated on both providers. The status is *one* value rather than a multi-select:
+`ReadingStatus` is a plain byte enum with `None = 0`, so a flags mask would need a second, parallel
+vocabulary for the same five marks and a bit standing in for the zero — two spellings of one concept,
+which is the drift `Ao3Labels` exists to prevent. The cost is that "to read *or* unread" is
+inexpressible in one set; the delivers line asks for "a reading status (or its absence)", and that is
+what a single nullable column says exactly.
+
+**`ApplyFilter` grew a `callerStates` parameter rather than a `userId`.** It takes
+`IQueryable<UserWorkState>` — `WorkQueries.StatesOf(db, userId)` at both call sites — so every caller
+has to name whose reading it is filtering by, and the same queryable that selects the rows in
+`WorksController` is the one the projection reads each row's state from. A `userId` string would have
+been a parameter a call site could get wrong silently; a defaulted one would have been a parameter a
+call site could forget. The two per-user clauses are the only ones in this method whose answer
+depends on who asks, which is written into the entity's remarks as well.
+
+**"Unread" is a `NOT EXISTS`, not an equality.** The absence has two shapes — no state row at all,
+and a row saying `None` left behind when a status was cleared while a rating or note stood — and T6
+made the first one the common case by storing a wholly empty state as no row. `Status == None` would
+have matched only the second and dropped every work nobody has ever touched, which is most of a fresh
+library. The clause is `!callerStates.Any(s => s.WorkId == w.Id && s.Status != None)`.
+
+**A rating bound drops unrated works, and that is the decision.** Null is not a score. A set asking
+for "4 stars or better" that quietly kept everything unrated would answer a question nobody asked;
+`Any(s => s.Rating >= min)` excludes them because a null fails the comparison, and both the entity
+remarks and the editor's hint say so out loud. "Unrated only" is a criterion this task does not add —
+it is a third state, not a bound, and nothing in the user stories asks for it.
+
+**No check constraint on the new rating columns.** `CK_UserWorkStates_Rating` could be declared
+because that table was new; SQLite cannot `ALTER TABLE ADD CONSTRAINT`, so adding one to
+`SavedWorkFilters` would force a full table rebuild in the migration. `SavedFiltersController` bounds
+them to 1-10 instead — the same numbers `WorksController` already restates — so an off-scale bound is
+a 400 naming the field rather than a set that matches nothing for ever.
+
+**The reading-status wording stays client-side, unlike every other vocabulary in the editor.**
+`/api/lookups/vocabulary` exists so AO3's words have exactly one home, and that home is the server,
+where the parser reading them off a blurb lives. These five marks are this app's own; the labels
+moved out of `WorksPage.tsx` into `frontend/src/readingStatus.ts` so the feed and the filter that
+narrows it cannot call one status by two names. The filter editor overrides exactly one of them —
+`None` reads "Unread — not marked at all" as a criterion, where on a row it reads "Not set".
+
+## 2026-08-24 — T8: a mutation run can be green because the build was stale
+
+`shutil.move` restores a file with its **original mtime**, so MSBuild saw a source older than the DLL
+built from the mutated copy and skipped the rebuild. The next `dotnet test` then ran the *last
+mutation* — which is how a passing suite turned red without a source change and cost most of a debug
+loop. Restores in a mutation harness have to rewrite the file (fresh mtime), not move it back.
+
+Every mutation *result* survived the mistake: each mutation is written with a fresh mtime, so the
+assembly it was tested against was rebuilt from correct sources plus that one change. The stale
+binary only ever affects the run *after* a restore.
+

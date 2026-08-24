@@ -87,7 +87,14 @@ public class WorksController : ControllerBase
         // The page's own ship dropdown outranks the filter's, and the filter's is intersected with
         // the reader's subscriptions rather than trusted — see SavedWorkFilter.ShipId.
         var query = WorkQueries.Library(_db, userId, shipId ?? filter?.ShipId);
-        if (filter is not null) query = WorkQueries.ApplyFilter(query, filter);
+
+        // Closed over rather than called inside an expression tree: EF translates a captured
+        // queryable into a correlated subquery, where a method call would not translate at all.
+        // The same queryable serves the filter's per-user criteria and the projection below, so a
+        // row's own state and the clause that selected it can never be read for different users.
+        var myStates = WorkQueries.StatesOf(_db, userId);
+
+        if (filter is not null) query = WorkQueries.ApplyFilter(query, filter, myStates);
 
         // An explicit sort wins over the set's, so the works page's dropdown keeps working while a
         // saved view is applied. With neither, "updated" is the library's own default.
@@ -104,11 +111,6 @@ public class WorksController : ControllerBase
         var watchedShipIds = _db.WatchedShips
             .Where(w => w.UserId == userId)
             .Select(w => w.ShipId);
-
-        // Closed over rather than called inside the projection: EF translates a captured queryable
-        // into the correlated subquery below, where a method call in the expression tree would not
-        // translate at all.
-        var myStates = WorkQueries.StatesOf(_db, userId);
 
         var totalCount = await query.CountAsync(ct);
 

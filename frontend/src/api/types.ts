@@ -192,6 +192,14 @@ export interface SavedFilter {
   maxBookmarks: number | null;
   minRating: string | null;
   maxRating: string | null;
+  /**
+   * Your own mark, not anything AO3 knows. `'None'` is a real criterion meaning unread in the
+   * widest sense — never marked, or marked and cleared. Null is unconstrained.
+   */
+  readingStatus: ReadingStatus | null;
+  /** Inclusive bounds on your own rating in half-stars, 1-10. Unrated works match neither. */
+  minUserRating: number | null;
+  maxUserRating: number | null;
   includeCategories: string[];
   excludeCategories: string[];
   includeWarnings: string[];
@@ -234,6 +242,14 @@ export interface SaveFilterInput {
   maxBookmarks: number | null;
   minRating: string | null;
   maxRating: string | null;
+  /**
+   * Your own mark, not anything AO3 knows. `'None'` is a real criterion meaning unread in the
+   * widest sense — never marked, or marked and cleared. Null is unconstrained.
+   */
+  readingStatus: ReadingStatus | null;
+  /** Inclusive bounds on your own rating in half-stars, 1-10. Unrated works match neither. */
+  minUserRating: number | null;
+  maxUserRating: number | null;
   includeCategories: string[];
   excludeCategories: string[];
   includeWarnings: string[];

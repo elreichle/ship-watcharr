@@ -11,6 +11,7 @@ import type {
   WorkState,
 } from '../api/types';
 import { RatingStars } from '../components/RatingStars';
+import { READING_STATUS_LABELS } from '../readingStatus';
 
 const SORT_LABELS: Record<WorkSort, string> = {
   updated: 'Last updated',
@@ -19,14 +20,6 @@ const SORT_LABELS: Record<WorkSort, string> = {
   bookmarks: 'Bookmarks',
   comments: 'Comments',
   words: 'Word count',
-};
-
-const READING_STATUS_LABELS: Record<ReadingStatus, string> = {
-  None: 'Not set',
-  ToRead: 'To read',
-  Reading: 'Reading',
-  Read: 'Read',
-  Dropped: 'Dropped',
 };
 
 const PAGE_SIZES = [25, 50, 100];
