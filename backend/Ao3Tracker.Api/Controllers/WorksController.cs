@@ -28,6 +28,17 @@ public class WorksController : ControllerBase
     /// </summary>
     private const int MaxPageSize = 100;
 
+    /// <summary>
+    /// The half-star scale a rating sits on, matching the <c>CK_UserWorkStates_Rating</c> check
+    /// constraint exactly — 7 is three and a half stars. Restated here so a bad rating is a 400
+    /// naming the field rather than a constraint violation on the way out.
+    /// </summary>
+    private const int MinRating = 1;
+    private const int MaxRating = 10;
+
+    /// <summary>Matches <c>UserWorkState.Note</c>'s column length.</summary>
+    private const int MaxNoteLength = 4000;
+
     private readonly AppDbContext _db;
 
     public WorksController(AppDbContext db)
@@ -94,6 +105,11 @@ public class WorksController : ControllerBase
             .Where(w => w.UserId == userId)
             .Select(w => w.ShipId);
 
+        // Closed over rather than called inside the projection: EF translates a captured queryable
+        // into the correlated subquery below, where a method call in the expression tree would not
+        // translate at all.
+        var myStates = WorkQueries.StatesOf(_db, userId);
+
         var totalCount = await query.CountAsync(ct);
 
         var rows = await ordered
@@ -129,6 +145,15 @@ public class WorksController : ControllerBase
                     .Where(sw => watchedShipIds.Contains(sw.ShipId))
                     .Select(sw => sw.Ship.CanonicalTagName)
                     .ToList(),
+
+                // The caller's own row if there is one, and null where there is not — which the
+                // mapping below turns into the same cleared state a stored row saying nothing
+                // would produce. Work has no navigation to it on purpose: state is per-user, and a
+                // navigation is an invitation to load it without saying whose.
+                State = myStates
+                    .Where(s => s.WorkId == w.Id)
+                    .Select(s => new { s.Status, s.Rating, s.Note })
+                    .FirstOrDefault(),
             })
             .ToListAsync(ct);
 
@@ -153,11 +178,168 @@ public class WorksController : ControllerBase
             r.LanguageName,
             r.UpdatedAt,
             r.UpdatedAtIsApproximate,
-            r.IsRestricted)).ToList();
+            r.IsRestricted,
+            r.State is null
+                ? WorkStateDto.Cleared
+                : new WorkStateDto(r.State.Status.ToString(), r.State.Rating, r.State.Note))).ToList();
 
         var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
         return Ok(new PagedResult<WorkListItemDto>(items, page, pageSize, totalCount, totalPages));
     }
+
+    // ---- one reader's own state ---------------------------------------------------------------
+
+    /// <summary>
+    /// What the caller has made of one work. A work they cannot see is a 404, not an empty state —
+    /// the same scoping <see cref="GetWorks"/> applies, so "no watched ship carries this" and "AO3
+    /// deleted it" answer alike here and there.
+    /// </summary>
+    [HttpGet("{id:long}/state")]
+    public async Task<ActionResult<WorkStateDto>> GetWorkState(long id, CancellationToken ct)
+    {
+        var userId = CurrentUserId;
+
+        if (!await IsInLibraryAsync(userId, id, ct)) return NotFound();
+
+        var state = await WorkQueries.StatesOf(_db, userId)
+            .Where(s => s.WorkId == id)
+            .Select(s => new WorkStateDto(s.Status.ToString(), s.Rating, s.Note))
+            .FirstOrDefaultAsync(ct);
+
+        return Ok(state ?? WorkStateDto.Cleared);
+    }
+
+    /// <summary>
+    /// Replaces the caller's state on one work. Nothing here can name an owner: the work id is all
+    /// a request may say and the claim decides the rest, which is what makes reading or writing
+    /// someone else's state unreachable rather than merely filtered out.
+    /// </summary>
+    /// <remarks>
+    /// A state with nothing left in it is stored as <b>no row</b>, and that is the canonical form:
+    /// a row saying <see cref="ReadingStatus.None"/> with no rating and no note means exactly what
+    /// an absent row means, so keeping both would leave every "unread" query with two cases to
+    /// cover instead of one. Callers cannot tell the difference — both read back as
+    /// <see cref="WorkStateDto.Cleared"/>. Only a wholly empty state is an absence: clearing a
+    /// rating while a status stands keeps the row, since the row still holds something.
+    /// </remarks>
+    [HttpPut("{id:long}/state")]
+    public async Task<ActionResult<WorkStateDto>> SetWorkState(
+        long id,
+        SetWorkStateRequest request,
+        CancellationToken ct)
+    {
+        var userId = CurrentUserId;
+
+        if (!await IsInLibraryAsync(userId, id, ct)) return NotFound();
+
+        var status = ReadingStatus.None;
+        if (!string.IsNullOrWhiteSpace(request.Status))
+        {
+            if (Enum.TryParse(request.Status, ignoreCase: true, out ReadingStatus parsed) && Enum.IsDefined(parsed))
+            {
+                status = parsed;
+            }
+            else
+            {
+                ModelState.AddModelError(
+                    nameof(request.Status),
+                    $"'{request.Status}' is not a reading status this library offers.");
+            }
+        }
+
+        // Checked here rather than left to the column's check constraint, which would answer a
+        // typo with a 500 and take the whole SaveChanges with it.
+        if (request.Rating is int rating && rating is < MinRating or > MaxRating)
+        {
+            ModelState.AddModelError(
+                nameof(request.Rating),
+                $"A rating is {MinRating}-{MaxRating} half-stars, or absent for unrated.");
+        }
+
+        var note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim();
+        if (note is not null && note.Length > MaxNoteLength)
+        {
+            ModelState.AddModelError(
+                nameof(request.Note),
+                $"A note is at most {MaxNoteLength} characters.");
+        }
+
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        var stored = await WorkQueries.StatesOf(_db, userId).FirstOrDefaultAsync(s => s.WorkId == id, ct);
+
+        if (status == ReadingStatus.None && request.Rating is null && note is null)
+        {
+            if (stored is null) return Ok(WorkStateDto.Cleared);
+
+            _db.UserWorkStates.Remove(stored);
+
+            try
+            {
+                await _db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // A second clear from this same reader removed the row between the read above and
+                // this write. The state it asked for is the state that now holds, so this request
+                // succeeded — reporting the 500 an unhandled concurrency failure would produce
+                // would be describing someone else's win as this caller's error.
+                _db.Entry(stored).State = EntityState.Detached;
+            }
+
+            return Ok(WorkStateDto.Cleared);
+        }
+
+        var now = DateTime.UtcNow;
+        var isInsert = stored is null;
+
+        stored ??= new UserWorkState { UserId = userId, WorkId = id, CreatedAt = now };
+        if (isInsert) _db.UserWorkStates.Add(stored);
+
+        stored.Status = status;
+        stored.Rating = request.Rating;
+        stored.Note = note;
+        stored.UpdatedAt = now;
+
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException) when (isInsert)
+        {
+            // Two requests from this same reader for this same work, in flight together — a rating
+            // and a status set from one feed row — each found no row and each inserted one. The
+            // unique index on (UserId, WorkId) caught the loser. Same shape as the ship-insert race
+            // in ShipsController.ResolveShipAsync, with one difference: a Ship has nothing to merge
+            // and this does, because PUT replaces, so what this request asked for is written onto
+            // the row that won rather than discarded with the losing insert.
+            _db.Entry(stored).State = EntityState.Detached;
+
+            var winner = await WorkQueries.StatesOf(_db, userId).FirstOrDefaultAsync(s => s.WorkId == id, ct);
+
+            // No winner means the write failed for some reason other than the race this catch is
+            // for. Rethrowing keeps that a 500 carrying its own cause rather than a confusing
+            // null-reference further up.
+            if (winner is null) throw;
+
+            winner.Status = status;
+            winner.Rating = request.Rating;
+            winner.Note = note;
+            winner.UpdatedAt = now;
+
+            await _db.SaveChangesAsync(ct);
+            stored = winner;
+        }
+
+        return Ok(new WorkStateDto(stored.Status.ToString(), stored.Rating, stored.Note));
+    }
+
+    /// <summary>
+    /// Whether the caller can see this work at all — the one question both state endpoints ask
+    /// before anything else, through the same query the list is built from.
+    /// </summary>
+    private Task<bool> IsInLibraryAsync(string userId, long workId, CancellationToken ct) =>
+        WorkQueries.Library(_db, userId, shipId: null).AnyAsync(w => w.Id == workId, ct);
 
     /// <summary>
     /// The saved set this request should apply, if any: the one it named, otherwise the caller's

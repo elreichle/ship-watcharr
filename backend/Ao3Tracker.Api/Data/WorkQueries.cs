@@ -42,6 +42,19 @@ public static class WorkQueries
     }
 
     /// <summary>
+    /// One reader's own states — reading status, rating, note — and nobody else's.
+    /// </summary>
+    /// <remarks>
+    /// Beside <see cref="Library"/> rather than inline at each call site for the same reason: the
+    /// works list, the state endpoints and any future count over "unread" all have to narrow by the
+    /// same predicate, and <see cref="UserWorkState.UserId"/> is the whole of "whose state is this".
+    /// A query that forgets it does not return too much — it returns someone else's opinion of the
+    /// same work, which reads as the caller's own.
+    /// </remarks>
+    public static IQueryable<UserWorkState> StatesOf(AppDbContext db, string userId) =>
+        db.UserWorkStates.Where(s => s.UserId == userId);
+
+    /// <summary>
     /// Applies the requested sort, always tie-broken by id. Null for a sort that isn't offered.
     ///
     /// The tie-break is what makes paging correct, not merely tidy: thousands of works share a

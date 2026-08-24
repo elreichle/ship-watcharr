@@ -75,6 +75,19 @@ export interface PagedResult<T> {
   totalPages: number;
 }
 
+/**
+ * One reader's own data about a work. A work nobody has touched carries the cleared state —
+ * status "None", no rating, no note — rather than being absent, so nothing here needs a null check.
+ */
+export interface WorkState {
+  status: ReadingStatus;
+  /** Half-stars, 1-10, so 7 is three and a half. Null is unrated, not the lowest score. */
+  rating: number | null;
+  note: string | null;
+}
+
+export type ReadingStatus = 'None' | 'ToRead' | 'Reading' | 'Read' | 'Dropped';
+
 /** A scraped work, as listed. Carries no summary — see WorkDtos.cs for why. */
 export interface WorkListItem {
   id: number;
@@ -101,6 +114,8 @@ export interface WorkListItem {
   /** True when only a day-granular date was available, so the UI shouldn't imply a clock time. */
   updatedAtIsApproximate: boolean;
   isRestricted: boolean;
+  /** The reader's own state, never another's. On the row so a page costs one request. */
+  state: WorkState;
 }
 
 export type WorkSort = 'updated' | 'kudos' | 'hits' | 'bookmarks' | 'comments' | 'words';

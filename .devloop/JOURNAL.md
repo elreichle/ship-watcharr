@@ -782,3 +782,55 @@ build. Not something a task should chase.
   **The `Run order` section is gone and file order applies.** The next task is T6 — per-user work
   state — the first planned work this loop has taken in fourteen iterations. Everything the run
   order was carrying is in `.devloop/scraper-audit.md`; read it before touching the walk.
+
+## 2026-08-23 — T6 Per-user work state: rate, mark read, annotate — done
+
+- did: `GET/PUT /api/works/{id}/state` on `WorksController`, and every row of `GET /api/works` now
+  carries the caller's own state. Reading status, half-star rating and note round-trip; a wholly
+  empty state is stored as **no row** and both forms read back as `WorkStateDto.Cleared`, which is
+  the canonical-cleared choice T6's notes asked for. `WorkQueries.StatesOf` is the per-caller
+  predicate, beside `Library`, closed over and used as a correlated subquery in the list projection
+  — `Work` gets no navigation to `UserWorkState`, because a navigation is loadable without saying
+  whose state it is. No migration: the table and its check constraint already existed.
+- files: `Api/Controllers/WorksController.cs`, `Api/Data/WorkQueries.cs`, `Api/Dtos/WorkDtos.cs`,
+  `Tests/UserWorkStateTests.cs` (new), `Tests/LibraryTestHost.cs`, `frontend/src/api/types.ts`,
+  `.devloop/{tasks,DECISIONS}.md`
+- ran: `dotnet test --filter FullyQualifiedName~UserWorkState` → 22 passed (0 before — new class);
+  `dotnet test` → 413 passed (391 before); `npm run build` + `npm run lint` → clean, the two known
+  fast-refresh warnings only. A clean `dotnet build --no-incremental` adds no analyzer warning; the
+  only one is still T49's CA2017. Fifteen mutations applied one at a time and reverted, every one
+  red. The suite was run 30 times over for order-dependence, since the new tests share the fixture's
+  single in-memory connection: 413 every time.
+- commit: (see below)
+- next: **One mutation survived the first round, and it was a test naming a guard without
+  constructing its case.** `Refuses_a_reading_status_it_does_not_offer` sends `"Abandoned"`, so
+  deleting `Enum.IsDefined` from the parse left the suite green — a *word* cannot reach that check,
+  because `Enum.TryParse` has already rejected it. Only a **number** gets past `TryParse`, which
+  hands back whatever byte was asked for, defined or not: `"99"` would have been written to the
+  column. Fixed by adding `Refuses_a_status_number_no_reading_status_has`, and the mutation then
+  bit. **This is T43's and T47's lesson arriving in new code rather than old** — read what the
+  fixture constructs, not what the test is called — and it is the argument for mutating every
+  clause of a new guard rather than trusting that a passing test about it covers it.
+- **The one review finding in this diff was folded in; both others were already queued.** The race:
+  two of one reader's requests for one work, together — exactly what T7's inline star and status
+  controls on a single row produce — both read no row, both insert, and the loser 500s on the unique
+  index. Fixed with `ShipsController.ResolveShipAsync`'s existing shape, plus the symmetric clear
+  path. Neither race is pinned, and **its precedent is not pinned either** — one SQLite connection
+  in the fixture means there is no seam to open the window. Said out loud in DECISIONS so the gap
+  reads as a decision rather than an oversight. The other two findings were **T44** (third arrival)
+  and **T45** (second), both against the branch rather than the diff.
+- **What T7 and T8 need from this, now written into their notes.** T7: `WorkListItem.state` is
+  already on every row, so no extra fetch — but `PUT` **replaces**, so a control that sends only the
+  field it changed silently wipes the other two. T8: the left join is the only correct shape for
+  "unread", *and* a row saying `None` still exists whenever a status is cleared while a rating
+  stands, so the predicate has to accept both; `StatesOf` is the clause to join through.
+- **A property worth knowing before T18's statistics:** unfollowing a ship removes only the
+  `WatchedShip` row, so a reader's state survives, becomes unreachable (404, by the same
+  `WorkQueries.Library` scoping the list uses), and comes back intact if they re-follow. That
+  matches the existing "job disabled, not deleted" policy in `UnwatchShip` rather than contradicting
+  it, but it does mean statistics must not assume every `UserWorkState` row is reachable.
+- **This was the first planned task in fifteen iterations** and the first to touch no scraper code.
+  The next by file order is T7, whose `blocked-by` is now satisfied.
+  Filters checked to bite, per T22's lesson: `~UserWorkState` matches 22 and covers every new test
+  (`--list-tests` grepped case-insensitively, per T28's note). Still zero and still suspect:
+  T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.

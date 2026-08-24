@@ -109,7 +109,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   the login POST itself: no kudos, comments, bookmarks or subscriptions, ever.
 
 ## T6 — Per-user work state: rate, mark read, annotate
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: `GET/PUT /api/works/{id}/state` — reading status, half-star rating, free-text note —
@@ -138,6 +138,10 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   optimistically but reconcile against the response, and surface a failed write rather than
   silently reverting: `WorksPage` already distinguishes real failure states carefully and this must
   not regress that. Obsidian CSS variables only.
+  T6 left the wire ready: `WorkListItem.state` is on every row already (`frontend/src/api/types.ts`),
+  so a page of rows needs no extra fetch, and `PUT /api/works/{id}/state` **replaces** — send status,
+  rating and note together, because an omitted field means "cleared", not "unchanged". A row that
+  sends only the field it changed will silently wipe the other two.
 
 ## T8 — Reading status and rating as saved-filter criteria
 - status: todo
@@ -153,6 +157,11 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   applies it — only its owner ever can, so this is consistent, but say so in a comment. **"Unread"
   must match works with no `UserWorkState` row at all**, not merely rows saying `None`; a left join
   is required. Extend `frontend/src/pages/FiltersPage.tsx` and `api/types.ts` to match.
+  T6 narrowed what "no row at all" can mean: a wholly empty state is *stored* as an absent row and
+  the API refuses to distinguish the two, so the left join is the only correct shape — but a row
+  saying `None` still exists whenever a status was cleared while a rating stands, and the predicate
+  has to accept both. `WorkQueries.StatesOf` is the per-caller predicate to join through; it sits
+  beside `Library` so this stays one shared clause rather than two that can drift.
 
 ## T9 — A page per work
 - status: todo

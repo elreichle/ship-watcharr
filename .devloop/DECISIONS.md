@@ -997,3 +997,78 @@ Verified by reading and queued as **T55**. Not fixed here: T28 fixes nothing by 
 frontend fix riding along in a documentation commit is exactly the wandering diff the loop policy
 exists to prevent. Worth noting that the review found nothing in the diff itself, which is what a
 docs-only diff should produce — it reviewed the branch and reported the branch's oldest UI defect.
+
+## 2026-08-23 — T6: what "no opinion" is stored as, and where the feed's copy of it comes from
+
+**The canonical cleared state is the absence of a row.** T6's notes asked for a choice between
+`Status = None` and no row at all, and this is it: `PUT /api/works/{id}/state` with nothing set
+*deletes* the row rather than blanking it, and both forms read back as `WorkStateDto.Cleared`. The
+argument is T8's, one task ahead: "unread" has to include works nobody has ever opened, so that
+predicate is written over an absence no matter what — and keeping a second, equivalent
+representation beside it would mean every such query covers two cases for one fact. Only a *wholly*
+empty state is an absence; clearing a rating while a status stands keeps the row, because the row
+still holds something. Callers cannot tell the two apart, which is the property that makes the
+choice reversible if T8 or T18 wants the row kept.
+
+**Enums cross the wire as names, so `ReadingStatus` does too.** `WorkStateDto.Status` is a string
+and `SetWorkStateRequest.Status` is parsed with `Enum.TryParse` + `Enum.IsDefined`, matching
+`SavedFiltersController.ParseValue` rather than inventing a numeric contract for one endpoint. The
+`Enum.IsDefined` half is not decoration: `TryParse` accepts a *number* and hands back whatever byte
+was asked for, so `"99"` parses to an undefined `ReadingStatus` and would have been written to the
+column. That is what the mutation check caught — see the journal.
+
+**The rating range is restated in the controller rather than left to the check constraint.**
+`CK_UserWorkStates_Rating` is the source of truth and stays, but reaching it means a
+`DbUpdateException` on the way out: a 500 for a client's typo, and on SQLite it takes the whole
+`SaveChanges` with it. The controller answers 400 naming the field, and the constraint remains the
+thing that makes a bug in this validation a failed write rather than bad data.
+
+**The feed's copy is a correlated subquery, not a navigation.** `Work` has no navigation to
+`UserWorkState` and does not get one — a navigation is loadable without saying whose state it is,
+which is the mistake this whole table exists to prevent. `WorkQueries.StatesOf` is the per-caller
+predicate, closed over and used as a subquery in the list projection, so the list and the state
+endpoints narrow by the same clause. It sits beside `Library` for the reason stated there: a query
+that forgets `UserId` does not return too much, it returns someone else's opinion labelled as the
+caller's.
+
+**One frontend change, and deliberately no UI.** `WorkListItem` in `frontend/src/api/types.ts`
+gains `state: WorkState`, because that file is a hand-maintained mirror of the DTOs and leaving it
+out would make the mirror describe a wire format the API no longer serves. No component reads it
+yet; the controls are T7's, and this diff renders nothing.
+
+**`LibraryTestHost` gained `NewWorksRequest`, and `Works` was left alone.** The state tests write
+through one request and read back through the next, which a shared scope would answer out of the
+change tracker the write warmed — the same reason `AdminAo3Credential` already builds a scope per
+call. Changing `Works` itself would have been the tidier edit and was declined: thirty passing list
+tests hang off it, and re-scoping them is not what T6 delivers.
+
+## 2026-08-23 — T6's review: one folded in, two already queued
+
+**The finding in T6's own diff was the unique-index race, and it is fixed here rather than queued.**
+`SetWorkState` read then inserted with nothing between: two of one reader's requests for one work,
+in flight together — which is precisely what T7's inline star and status controls on a single feed
+row produce — both find no row, both insert, and the loser's `SaveChangesAsync` throws
+`DbUpdateException` for an unhandled 500. Folded in rather than queued because it is a defect in
+what T6 delivers and it needed no new decision: `ShipsController.ResolveShipAsync` already carries
+this exact shape for the ship-insert race — catch, detach the losing insert, re-read the winner,
+rethrow when there is no winner so an unrelated failure keeps its own cause. The one difference is
+stated in the comment: a Ship has nothing to merge and this does, because PUT replaces, so the
+request's state is written onto the winning row instead of being dropped with the losing insert.
+The symmetric hole on the clear path — two concurrent clears, the second throwing
+`DbUpdateConcurrencyException` on a row already gone — is closed the same way and for the same
+reason: the caller asked for an absence and an absence is what holds, so that is a success.
+
+**Neither race is pinned by a test, and its precedent is not either.** The fixture runs one SQLite
+connection, so there is no seam that opens the window between the read and the write without an
+interceptor the container is not built to take. `ShipsController`'s identical catch has been in the
+tree unpinned since before this loop, which is the precedent this follows rather than an oversight
+to copy quietly. Recorded here so a future reader does not read the absence of a test as the absence
+of a decision.
+
+**The review's other two findings are already-queued tasks, in code this diff does not touch.**
+`Ao3ShipIndexScraper.cs:340`'s run-wide `readWhileLoggedIn |= response.Authenticated` is **T44**,
+now arriving for the third time; `:229`'s backfill-only stale-cursor retreat, leaving an incremental
+pass with no recovery for the 404 route that T42/T47 gave it for the empty-200 route, is **T45**,
+arriving for the second. Both were reported against the branch rather than the diff, as T28's
+docs-only review was. Nothing changed on either; the count is the point, since re-arrival is the
+only signal this loop gets about which queued tasks are costing something.

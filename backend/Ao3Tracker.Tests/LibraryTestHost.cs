@@ -283,6 +283,23 @@ internal sealed class LibraryTestHost : IDisposable
     public WorksController Works(ApplicationUser user) => Build(new WorksController(
         _request.ServiceProvider.GetRequiredService<AppDbContext>()), user);
 
+    /// <summary>
+    /// A works controller on a scope of its own, for the per-user state endpoints: those tests
+    /// write through one "request" and read back through the next, and a shared context would
+    /// answer the second out of the change tracker the first warmed. <see cref="Works"/> keeps the
+    /// shared scope, which is all the read-only list tests need.
+    /// </summary>
+    public WorksController NewWorksRequest(ApplicationUser user)
+    {
+        var scope = _provider.CreateScope();
+        _perRequestScopes.Add(scope);
+
+        return Build(
+            new WorksController(scope.ServiceProvider.GetRequiredService<AppDbContext>()),
+            user,
+            scope.ServiceProvider);
+    }
+
     public SavedFiltersController SavedFilters(ApplicationUser user) => Build(new SavedFiltersController(
         _request.ServiceProvider.GetRequiredService<AppDbContext>()), user);
 
