@@ -13,10 +13,12 @@ import type {
   ScrapeJob,
   ScrapeRun,
   ScrapingIdentity,
+  SetWorkStateInput,
   WatchedShip,
   WatchedShipsResponse,
   WorkListItem,
   WorkQuery,
+  WorkState,
 } from './types';
 
 export class ApiError extends Error {
@@ -50,6 +52,18 @@ const hasArray =
   (field: string): ResponseCheck =>
   (body) =>
     isRecord(body) && Array.isArray(body[field]);
+
+/**
+ * A page of works, with every row carrying the caller's own state.
+ *
+ * `items` alone is not enough any more: the works list reads `work.state.status` on every row, so a
+ * server that does not send `state` — one deployed behind this page — would throw during render
+ * rather than produce the version-mismatch message this whole mechanism exists for.
+ */
+const isWorksPage: ResponseCheck = (body) =>
+  isRecord(body) &&
+  Array.isArray(body.items) &&
+  body.items.every((item) => isRecord(item) && isRecord(item.state));
 
 async function request<T>(path: string, init?: RequestInit, isValid?: ResponseCheck): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -139,8 +153,15 @@ export const api = {
     if (savedFilterId != null) query.set('savedFilterId', String(savedFilterId));
     if (useDefaultFilter !== undefined) query.set('useDefaultFilter', String(useDefaultFilter));
 
-    return request<PagedResult<WorkListItem>>(`/works?${query}`, undefined, hasArray('items'));
+    return request<PagedResult<WorkListItem>>(`/works?${query}`, undefined, isWorksPage);
   },
+
+  /**
+   * Replaces the caller's own state on one work. There is no patch: the server writes all three
+   * fields, so every caller sends the state it wants to hold, not the one field it touched.
+   */
+  setWorkState: (workId: number, state: SetWorkStateInput) =>
+    request<WorkState>(`/works/${workId}/state`, { method: 'PUT', body: JSON.stringify(state) }),
 
   getSavedFilters: () => request<SavedFilter[]>('/saved-filters', undefined, Array.isArray),
 

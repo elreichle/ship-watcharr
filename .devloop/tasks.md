@@ -126,7 +126,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   as the canonical "cleared" representation and say which in a comment.
 
 ## T7 — Rating and status controls on the feed
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: T6
 - delivers: Each Works row shows and edits reading status and a half-star rating inline, with a
@@ -1200,3 +1200,30 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   and a different defect. Not folded, but whoever takes either should read both and may land them
   together; they are two small edits to the same page's login and gate rendering. Obsidian CSS
   variables only.
+
+## T56 — A concurrent clear turns another edit into a 500
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: Two of one reader's state writes for one work, in flight together, never answer 500 —
+  the update path handles a row deleted under it the way the clear path already handles a row
+  deleted under *it*.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~UserWorkState`
+- notes: Found by `/code-review high` at T7's review step, in T6's code, and verified by reading.
+  `WorksController.SetWorkState` reads `stored` at `:269`. When it is found, the write at `:306`
+  runs bare: `catch (DbUpdateException) when (isInsert)` covers only the insert race. If the other
+  request took the clear branch and removed the row in between, the UPDATE matches nothing, EF
+  throws `DbUpdateConcurrencyException`, and the caller gets an unexplained 500 with its edit lost.
+  The recovery save at `:330` has the same gap. The clear branch at `:281-288` already handles the
+  mirror-image collision and its comment states it as a real occurrence, so this is an oversight
+  rather than a decision — see DECISIONS, "T6's review: one folded in".
+  **T7 is what makes it ordinary rather than theoretical:** every control on a feed row sends a
+  whole-state PUT, and clicking the rating you already gave sends the all-cleared state that takes
+  the clear branch. Not folded into T7, which delivers no backend code and verifies with
+  `npm run build`; queued so the fix arrives with the backend verification it needs.
+  What "handled" should mean is a decision this task has to make, not copy: the clear path treats a
+  losing clear as a success because the caller asked for an absence and got one, which does not
+  transfer — this caller asked for a state that no longer has a row to sit in, so re-inserting it is
+  the likely answer, and that is `stored`'s insert path re-run rather than an error.
+  Pinning it is the known problem, stated in DECISIONS at T6: `LibraryTestHost` runs one SQLite
+  connection, so there is no seam to open the window. Say what was done about that either way.

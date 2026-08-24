@@ -1,7 +1,16 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
-import type { PagedResult, SavedFilter, WatchedShip, WorkListItem, WorkSort } from '../api/types';
+import type {
+  PagedResult,
+  ReadingStatus,
+  SavedFilter,
+  WatchedShip,
+  WorkListItem,
+  WorkSort,
+  WorkState,
+} from '../api/types';
+import { RatingStars } from '../components/RatingStars';
 
 const SORT_LABELS: Record<WorkSort, string> = {
   updated: 'Last updated',
@@ -12,7 +21,21 @@ const SORT_LABELS: Record<WorkSort, string> = {
   words: 'Word count',
 };
 
+const READING_STATUS_LABELS: Record<ReadingStatus, string> = {
+  None: 'Not set',
+  ToRead: 'To read',
+  Reading: 'Reading',
+  Read: 'Read',
+  Dropped: 'Dropped',
+};
+
 const PAGE_SIZES = [25, 50, 100];
+
+/** Matches `MaxNoteLength` on `UserWorkState.Note`, so an over-long note is refused here first. */
+const MAX_NOTE_LENGTH = 4000;
+
+/** Columns in the works table, for the note editor's row to span all of them. */
+const WORK_COLUMN_COUNT = 8;
 
 const DEFAULT_SORT: WorkSort = 'updated';
 const DEFAULT_PAGE_SIZE = 25;
@@ -45,6 +68,19 @@ export function WorksPage() {
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Why a failed write to one row's state is not the page's `error`: the list itself loaded fine,
+  // and blanking the works to say so would lose the very row the reader was editing.
+  const [stateErrors, setStateErrors] = useState<Record<number, string>>({});
+  const [openNoteId, setOpenNoteId] = useState<number | null>(null);
+  // Drafts are held per work, and dropped only once the note is saved. Closing an editor — by
+  // Cancel, by the toggle, or by opening another row's — leaves the text where the reader left it,
+  // which is the same promise the row-editor layout was chosen to keep.
+  const [noteDrafts, setNoteDrafts] = useState<Record<number, string>>({});
+  const [savingNoteId, setSavingNoteId] = useState<number | null>(null);
+  // One counter per work, bumped on every write. A response is only allowed to touch the row when
+  // its own token is still the newest: two edits to one row in flight together otherwise let the
+  // slower, older answer land last and undo the newer one.
+  const stateWriteTokens = useRef(new Map<number, number>());
 
   // The URL is the source of truth for the query, so a filtered page can be linked and the back
   // button steps through filter changes rather than leaving the app.
@@ -84,6 +120,13 @@ export function WorksPage() {
   useEffect(() => {
     let current = true;
 
+    // A different page of works is a different set of rows: an open note editor and a failed write
+    // both belong to rows that are about to be replaced.
+    setOpenNoteId(null);
+    setNoteDrafts({});
+    setSavingNoteId(null);
+    setStateErrors({});
+
     setLoading(true);
     api
       .getWorks({
@@ -113,6 +156,90 @@ export function WorksPage() {
       current = false;
     };
   }, [page, pageSize, shipId, sort, ascending, savedFilterId, useDefaultFilter]);
+
+  /** Writes one row's state into the loaded page, leaving every other row's copy alone. */
+  const applyState = (workId: number, state: WorkState) => {
+    setResult((current) =>
+      current === null
+        ? current
+        : {
+            ...current,
+            items: current.items.map((work) => (work.id === workId ? { ...work, state } : work)),
+          },
+    );
+  };
+
+  /**
+   * Sends one row's whole state and reconciles the row against what came back. Resolves to whether
+   * the write landed — never rejects, so a caller that only wants the row updated can ignore it.
+   *
+   * Whole, because `PUT /works/{id}/state` replaces: a request naming only the field that changed
+   * would clear the other two. Optimistic, because a rating that waits on a round trip does not
+   * feel like a click — but the response, not the guess, is what the row ends up showing, and a
+   * rejected write puts the old value back *and says so*.
+   */
+  const saveState = (work: WorkListItem, next: WorkState): Promise<boolean> => {
+    const previous = work.state;
+    const token = (stateWriteTokens.current.get(work.id) ?? 0) + 1;
+    stateWriteTokens.current.set(work.id, token);
+    // Whether this write is still the newest for this row. It governs what the *row* shows, not
+    // what this call reports: a superseded write still happened, and the write that superseded it
+    // is the one whose outcome the reader should be looking at.
+    const isCurrent = () => stateWriteTokens.current.get(work.id) === token;
+
+    applyState(work.id, next);
+    setStateErrors(({ [work.id]: _cleared, ...rest }) => rest);
+
+    return api
+      .setWorkState(work.id, next)
+      .then((saved) => {
+        if (isCurrent()) applyState(work.id, saved);
+        return true;
+      })
+      .catch((err) => {
+        if (isCurrent()) {
+          applyState(work.id, previous);
+          setStateErrors((errors) => ({
+            ...errors,
+            [work.id]:
+              err instanceof ApiError ? err.message : 'Could not save that — nothing changed.',
+          }));
+        }
+        return false;
+      });
+  };
+
+  const openNoteEditor = (work: WorkListItem) => {
+    setOpenNoteId(work.id);
+    setNoteDrafts((drafts) =>
+      // Seeded from the stored note only when nothing is held for this row: a draft that is still
+      // here is text the reader typed and never saved, and it outranks what the server has.
+      work.id in drafts ? drafts : { ...drafts, [work.id]: work.state.note ?? '' },
+    );
+  };
+
+  /**
+   * Both ways out of the note editor. The note is a parameter rather than read from `noteDraft`,
+   * because Delete would otherwise have to blank the draft first and then send a value this render
+   * cannot see yet.
+   *
+   * A refused write leaves the editor open holding the text: the row below it already carries the
+   * reason, and closing would throw away what the reader typed as well as the write.
+   */
+  const commitNote = (work: WorkListItem, note: string | null) => {
+    const workId = work.id;
+    setSavingNoteId(workId);
+    saveState(work, { ...work.state, note })
+      .then((saved) => {
+        if (!saved) return;
+        // Both guarded on the row this save was started for. The write is not instant, and the
+        // reader may have closed this editor and opened another one meanwhile — closing theirs and
+        // dropping their draft is the loss this editor is supposed to prevent.
+        setOpenNoteId((open) => (open === workId ? null : open));
+        setNoteDrafts(({ [workId]: _saved, ...rest }) => rest);
+      })
+      .finally(() => setSavingNoteId((saving) => (saving === workId ? null : saving)));
+  };
 
   /** Any change other than paging invalidates the page number, so it resets unless set explicitly. */
   const updateQuery = (changes: Record<string, string | null>) => {
@@ -235,7 +362,9 @@ export function WorksPage() {
             <thead>
               <tr>
                 <th>Work</th>
-                <th>Rating</th>
+                <th>Yours</th>
+                {/* Named for whose rating it is, now that the column beside it holds the other. */}
+                <th>AO3 rating</th>
                 <th>Words</th>
                 <th>Chapters</th>
                 <th>Kudos</th>
@@ -245,48 +374,137 @@ export function WorksPage() {
             </thead>
             <tbody>
               {works.map((work) => (
-                <tr key={work.id}>
-                  <td className="work-cell">
-                    <a href={ao3WorkUrl(work.id)} target="_blank" rel="noreferrer">
-                      {work.title}
-                    </a>
-                    <span className="work-byline">
-                      {work.isAnonymous
-                        ? 'Anonymous'
-                        : work.authors.length > 0
-                          ? work.authors.join(', ')
-                          : 'Unknown author'}
-                      {work.fandoms.length > 0 && <> · {work.fandoms.join(', ')}</>}
-                    </span>
-                    <span className="work-chips">
-                      {work.ships.map((ship) => (
-                        <span key={ship} className="chip chip-ship">
-                          {ship}
-                        </span>
-                      ))}
-                      {work.categories.map((category) => (
-                        <span key={category} className="chip">
-                          {category}
-                        </span>
-                      ))}
-                      {work.warnings.map((warning) => (
-                        <span key={warning} className="chip chip-warning">
-                          {warning}
-                        </span>
-                      ))}
-                      {work.isRestricted && <span className="chip">Registered users only</span>}
-                    </span>
-                  </td>
-                  <td>{work.rating}</td>
-                  <td className="numeric">{work.wordCount.toLocaleString()}</td>
-                  <td className="numeric">
-                    {work.chapterCount}/{work.plannedChapterCount ?? '?'}
-                    {work.isComplete && <span className="work-complete"> complete</span>}
-                  </td>
-                  <td className="numeric">{work.kudos.toLocaleString()}</td>
-                  <td className="numeric">{work.hits.toLocaleString()}</td>
-                  <td>{formatUpdated(work)}</td>
-                </tr>
+                <Fragment key={work.id}>
+                  <tr>
+                    <td className="work-cell">
+                      <a href={ao3WorkUrl(work.id)} target="_blank" rel="noreferrer">
+                        {work.title}
+                      </a>
+                      <span className="work-byline">
+                        {work.isAnonymous
+                          ? 'Anonymous'
+                          : work.authors.length > 0
+                            ? work.authors.join(', ')
+                            : 'Unknown author'}
+                        {work.fandoms.length > 0 && <> · {work.fandoms.join(', ')}</>}
+                      </span>
+                      <span className="work-chips">
+                        {work.ships.map((ship) => (
+                          <span key={ship} className="chip chip-ship">
+                            {ship}
+                          </span>
+                        ))}
+                        {work.categories.map((category) => (
+                          <span key={category} className="chip">
+                            {category}
+                          </span>
+                        ))}
+                        {work.warnings.map((warning) => (
+                          <span key={warning} className="chip chip-warning">
+                            {warning}
+                          </span>
+                        ))}
+                        {work.isRestricted && <span className="chip">Registered users only</span>}
+                      </span>
+                    </td>
+                    <td className="work-state-cell">
+                      <select
+                        aria-label={`Reading status for ${work.title}`}
+                        value={work.state.status}
+                        onChange={(e) => {
+                          void saveState(work, {
+                            ...work.state,
+                            status: e.target.value as ReadingStatus,
+                          });
+                        }}
+                      >
+                        {Object.entries(READING_STATUS_LABELS).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="work-state-row">
+                        <RatingStars
+                          label={`Your rating of ${work.title}`}
+                          value={work.state.rating}
+                          onChange={(rating) => {
+                            void saveState(work, { ...work.state, rating });
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="link"
+                          aria-expanded={openNoteId === work.id}
+                          onClick={() =>
+                            openNoteId === work.id ? setOpenNoteId(null) : openNoteEditor(work)
+                          }
+                        >
+                          {work.state.note === null ? 'Add note' : 'Note'}
+                        </button>
+                      </span>
+                      {stateErrors[work.id] && (
+                        <span className="error work-state-error">{stateErrors[work.id]}</span>
+                      )}
+                    </td>
+                    <td>{work.rating}</td>
+                    <td className="numeric">{work.wordCount.toLocaleString()}</td>
+                    <td className="numeric">
+                      {work.chapterCount}/{work.plannedChapterCount ?? '?'}
+                      {work.isComplete && <span className="work-complete"> complete</span>}
+                    </td>
+                    <td className="numeric">{work.kudos.toLocaleString()}</td>
+                    <td className="numeric">{work.hits.toLocaleString()}</td>
+                    <td>{formatUpdated(work)}</td>
+                  </tr>
+                  {openNoteId === work.id && (
+                    // A row of its own rather than a popover: the table already scrolls sideways,
+                    // and a floating editor over a scrolling table is where a half-typed note goes
+                    // to get lost.
+                    <tr className="work-note-row">
+                      <td colSpan={WORK_COLUMN_COUNT}>
+                        <label className="work-note-field">
+                          Your note on “{work.title}”
+                          <textarea
+                            value={noteDrafts[work.id] ?? ''}
+                            maxLength={MAX_NOTE_LENGTH}
+                            rows={4}
+                            autoFocus
+                            onChange={(e) =>
+                              setNoteDrafts((drafts) => ({ ...drafts, [work.id]: e.target.value }))
+                            }
+                          />
+                        </label>
+                        <div className="button-row">
+                          <button
+                            type="button"
+                            disabled={savingNoteId === work.id}
+                            onClick={() =>
+                              commitNote(work, (noteDrafts[work.id] ?? '').trim() || null)
+                            }
+                          >
+                            Save note
+                          </button>
+                          <button type="button" className="link" onClick={() => setOpenNoteId(null)}>
+                            Close
+                          </button>
+                          {work.state.note !== null && (
+                            // Clearing is emptying the box and saving, which nobody guesses. The
+                            // button says so rather than leaving a note that can only be rewritten.
+                            <button
+                              type="button"
+                              className="link"
+                              disabled={savingNoteId === work.id}
+                              onClick={() => commitNote(work, null)}
+                            >
+                              Delete note
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>

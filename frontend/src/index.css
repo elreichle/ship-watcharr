@@ -461,6 +461,97 @@
     font-size: var(--font-ui-smaller);
   }
 
+  /* ----------------------------------------------------------------- one reader's own state */
+
+  .work-state-cell {
+    min-width: 14rem;
+    white-space: normal;
+  }
+
+  /* A select is full-width by default, which in a table cell means as wide as the widest title. */
+  .work-state-cell select {
+    width: auto;
+    max-width: 100%;
+  }
+
+  .work-state-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--size-4-2);
+    align-items: center;
+    margin-top: var(--size-2-2);
+  }
+
+  /* Why a failed write reads here and not in the page's own error line: it belongs to this row. */
+  .work-state-error {
+    display: block;
+    max-width: 20rem;
+    margin-top: var(--size-2-2);
+    white-space: normal;
+  }
+
+  .rating {
+    display: inline-flex;
+    gap: var(--size-2-2);
+    align-items: center;
+  }
+
+  /* Flush against each other on purpose: the click handler reads a position along this box as a
+     fraction of ten half-stars, so a gap between them would put the boundaries in the wrong place. */
+  .rating-stars {
+    display: inline-flex;
+    border-radius: var(--radius-s);
+    color: var(--text-faint);
+    font-size: var(--font-ui-small);
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .rating-star {
+    position: relative;
+    display: inline-block;
+  }
+
+  /* The filled half is the same glyph again, clipped — never a second character, which would sit
+     on its own metrics and drift out of register with the one underneath. */
+  .rating-star-fill {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: 0;
+    overflow: hidden;
+    color: var(--text-accent);
+  }
+
+  .rating-star[data-fill='half'] .rating-star-fill {
+    width: 50%;
+  }
+
+  .rating-star[data-fill='full'] .rating-star-fill {
+    width: 100%;
+  }
+
+  /* Unrated is a word, not an empty row of stars: five faint stars and half of one faint star are
+     a clipped glyph apart, and the difference is the whole point of the column. */
+  .rating-value {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    white-space: nowrap;
+  }
+
+  .rating[data-rated='true'] .rating-value {
+    color: var(--text-normal);
+  }
+
+  .work-note-row td {
+    white-space: normal;
+  }
+
+  .work-note-field {
+    max-width: 48rem;
+    margin-bottom: var(--size-4-2);
+  }
+
   .ship-tag {
     font-family: var(--font-monospace);
     font-size: var(--font-ui-smaller);

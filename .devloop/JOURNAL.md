@@ -834,3 +834,54 @@ build. Not something a task should chase.
   Filters checked to bite, per T22's lesson: `~UserWorkState` matches 22 and covers every new test
   (`--list-tests` grepped case-insensitively, per T28's note). Still zero and still suspect:
   T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.
+
+## 2026-08-24 — T7 Rating and status controls on the feed — done
+
+- did: Every Works row grew a "Yours" cell — a reading-status select, a half-star rating, and a note
+  button opening an editor in a row of its own under it. `RatingStars` is a `role="slider"` over ten
+  half-steps: one tab stop per row with arrows/Home/End/Delete, a pointer click read as a fraction
+  of the control's width, and clicking the rating you gave clears it. The filled half of a star is a
+  clipped copy of the *same* ★ over the empty one, with `data-fill` of `none`/`half`/`full` and the
+  widths in CSS — no Lucide path invented, no inline style. Unrated reads "Unrated" beside the stars
+  and carries `data-rated` and `aria-valuetext`, so it cannot be mistaken for half a star. Writes are
+  optimistic, reconciled against the response, reverted *and reported in the row* on failure, and
+  ordered by a per-work token so an older answer never lands last. Every control sends the whole
+  `WorkState`, because PUT replaces. The existing `Rating` header became `AO3 rating`.
+- files: `frontend/src/components/RatingStars.tsx` (new), `frontend/src/pages/WorksPage.tsx`,
+  `frontend/src/api/{client,types}.ts`, `frontend/src/index.css`,
+  `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only;
+  `dotnet test` → 413 passed (413 before — no backend code in this diff). Live check below.
+- commit: (see below)
+- next: **The live check ran a real browser, and it is worth keeping.** `~/.cache/ms-playwright`
+  holds a `chrome-headless-shell` even though playwright itself is in no `node_modules`, and node 22
+  has a built-in `WebSocket`, so CDP can be driven from a ~200-line script with **no new dependency
+  and nothing added to `frontend/`** — which the spec forbids. The harness is in the scratchpad
+  (`t7-live.sh` + `t7-drive.mjs`): throwaway API on a free port, scratch data dir, Vite with
+  `BACKEND_URL` pointed at it, two works seeded straight into SQLite (nothing may touch AO3), then
+  click/keyboard/type against the rendered page. It proved things curl cannot: the status select
+  carries the rating it did not touch, an unrated row renders differently from a half-star one, and
+  a refused write both reverts and prints. **T9, T14, T17 and T19 are all UI tasks and should reuse
+  it rather than re-derive it.**
+  **The first run was green for the wrong reason and the second caught it.** Reloading the instant
+  the optimistic update paints cancels the PUT still in flight, so "set a rating, reload, re-read"
+  passed on timing luck and then failed on a fresh database — the API log showed the click's INSERT
+  simply absent. Fixed in the harness by waiting until the *server* reports the value before
+  reloading. This is **T43's and T47's lesson in a test harness rather than a test**: read what the
+  fixture actually does, not what its name claims. The app-level residue is real but out of scope
+  and not a defect: a reader who clicks a star and reloads within the same tick loses it, which is
+  what optimistic UI over HTTP costs and what a `beforeunload` guard would cost more.
+  **The review's three frontend findings were all one mistake — page-level state for per-row work.**
+  A single `noteDraft`, a single `savingNote` boolean, and an unconditional `setOpenNoteId(null)` on
+  completion each meant one row's editing could destroy another's. All three folded in by scoping to
+  `work.id`. **Generalising, and it belongs beside T28's rows about tests: a page that renders N of
+  something needs its editing state keyed by which one, and the smell is a `useState` scalar beside
+  a `.map`.** T9's detail page renders one work and will not show this; T14's downloads list and
+  T17's notifications will.
+  **T56 is queued and deliberately not in this diff**: `SetWorkState`'s update path answers 500 when
+  a concurrent clear removes the row under it, which T7's controls make an ordinary shape rather
+  than a theoretical one. Backend code, backend verification, and a decision of its own about what
+  "handled" means — see its notes.
+  **Nothing new is unpinned that was not already**, because this project has no frontend test runner
+  by decision; what stands in for one is the harness above, and it is the reason this entry claims
+  more than "it typechecks".

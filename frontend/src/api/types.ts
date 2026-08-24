@@ -88,6 +88,15 @@ export interface WorkState {
 
 export type ReadingStatus = 'None' | 'ToRead' | 'Reading' | 'Read' | 'Dropped';
 
+/**
+ * A whole replacement of one reader's state on one work — the body of `PUT /api/works/{id}/state`.
+ *
+ * Identical in shape to `WorkState` because the endpoint **replaces**: it writes all three fields
+ * from what it was sent, so a field left out is cleared rather than left alone. Aliased rather than
+ * declared separately so a caller cannot build one out of only the field it meant to change.
+ */
+export type SetWorkStateInput = WorkState;
+
 /** A scraped work, as listed. Carries no summary — see WorkDtos.cs for why. */
 export interface WorkListItem {
   id: number;

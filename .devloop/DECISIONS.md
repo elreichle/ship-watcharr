@@ -1072,3 +1072,100 @@ pass with no recovery for the 404 route that T42/T47 gave it for the empty-200 r
 arriving for the second. Both were reported against the branch rather than the diff, as T28's
 docs-only review was. Nothing changed on either; the count is the point, since re-arrival is the
 only signal this loop gets about which queued tasks are costing something.
+
+## 2026-08-24 — T7: what the feed's own-state controls are, and what a click is allowed to send
+
+**Every control on a row sends all three fields, and the one that builds the request is
+`saveState`.** `PUT /works/{id}/state` replaces, so a star that posted only a rating would clear the
+status and the note beside it — the gotcha T6 wrote into this task's notes. Rather than trust three
+call sites to remember, `saveState(work, next)` takes a whole `WorkState` and every control spreads
+the row's current one: `{ ...work.state, rating }`. `SetWorkStateInput` in `api/types.ts` is aliased
+to `WorkState` for the same reason — a distinct partial type is exactly the shape that would let a
+caller send one field.
+
+**Optimistic, but the response is what the row keeps.** The click paints immediately, the answer
+overwrites the guess, and a refused write puts the old value back *and* prints the reason in the
+cell. Reverting silently is the failure mode T7's notes name; the revert is not the problem, the
+silence is. The message is per row and not the page's `error`, because the list itself loaded fine
+and blanking the works to report one failed write would lose the row being edited.
+
+**A per-work token, not a per-work lock.** Two writes to one row in flight together (a rating and a
+status, a half-second apart) are ordinary use of these controls, and the slower, older answer must
+not land last and undo the newer one. Each write bumps a counter in a ref and only touches the row
+while its own token is still the newest. The controls are deliberately *not* disabled during a
+write: the token already makes a second edit safe, and disabling would drop the fast second click
+rather than honour it. `saveState` resolves to whether the write landed and never rejects, so the
+two callers that only want the row updated can ignore it without leaving an unhandled rejection —
+whether the write landed is reported regardless of currency, because a superseded write still
+happened.
+
+**The rating is a slider, and the glyph is a text star.** `role="slider"` gives one tab stop per
+row with arrow keys, Home/End and Delete over the ten half-steps; ten buttons per row would be 250
+tab stops on a default page. A pointer click reads its position along the control as a fraction of
+ten, which is why the stars sit flush with no gap between them. Clicking the rating you already gave
+clears it — otherwise a pointer has no way back to unrated. The half-filled star is a *clipped copy
+of the same character* laid over the empty one, not a second glyph and not a Lucide path: `Icon.tsx`
+requires icon path data be copied verbatim out of `lucide-static`, which this project does not
+install and this loop's shell cannot fetch, so inventing a star path would have been the guess that
+rule exists to forbid. Fill is a `data-fill` attribute of `none`/`half`/`full` with the widths in
+CSS, so there is no inline style for a theme to lose to.
+
+**Unrated is spelled out, not merely drawn.** T7 requires an unrated work to look different from a
+half-star one, and five faint stars against one half-filled faint star is a clipped glyph's worth of
+difference. The value reads "Unrated" or the number beside the stars, `data-rated` carries it to CSS,
+and `aria-valuetext` says it out loud.
+
+**One column, named "Yours".** Status, stars and the note button share a cell rather than taking two
+or three columns: they are one fact about one reader, and the table already scrolls sideways. The
+existing `Rating` header became `AO3 rating`, which is a rename this diff owes — the column beside it
+now holds the other kind of rating, and two columns called Rating is the ambiguity the task creates.
+
+**The note editor is a row, not a popover.** It spans the table under the row it belongs to. A
+floating editor over a table that scrolls horizontally is where a half-typed note goes to get lost.
+Clearing a note is a `Delete note` button rather than "empty the box and save", which nobody guesses,
+and both ways out go through one `commitNote(work, note)` so Delete never has to blank the draft and
+then read a value the render cannot see yet.
+
+**The frontend still has no test runner, and this task did not add one.** The spec says UI tasks are
+verified by `npm run build` plus a live check; what that live check *was* is in the journal, and it
+is more than the API-level curl its predecessor T3 used.
+
+## 2026-08-24 — T7's review: three folded in, one queued
+
+**The unhandled rejection was already gone before the review reported it.** `saveState` originally
+rethrew from its `.catch` so the note editor could tell a failure from a success, which left the
+star and the status select — the two callers that ignore the result — dropping a rejected promise on
+every failed write. Found and fixed during my own read of the diff; `saveState` now resolves to
+whether the write landed and never rejects. Noted because the review saw both versions and said so:
+the working tree was being edited while it ran.
+
+**Two note-editor losses folded in, both of them the row-editor layout's own promise broken.**
+The editor was chosen over a popover because "a floating editor over a scrolling table is where a
+half-typed note goes to get lost", and the first version lost text two other ways. `commitNote`
+closed `openNoteId` unconditionally, so a save started on row A landed a moment later and closed row
+B's editor mid-typing; and a single page-level `noteDraft` meant opening any other editor overwrote
+whatever was in it. Both are fixed by scope: drafts are a `Record<number, string>` keyed by work,
+seeded from the stored note only when nothing is held for that row, and dropped only on a *saved*
+note; `commitNote` captures its own `work.id` and guards both setters on it. `savingNoteId` replaced
+the page-level boolean for the same reason — one row's in-flight save was disabling every other
+row's buttons. The Cancel button became **Close**, because a draft that survives is not cancelled.
+
+**The works response check now requires `state` on every row.** `hasArray('items')` was written when
+a row was scalars; T6 added `state` and T7 is the first code to read `work.state.status` two levels
+deep on every row. A server deployed behind this page would have thrown during render — precisely
+the crash `ResponseCheck` exists to convert into the version-mismatch message — so `isWorksPage`
+checks the rows, not just the array.
+
+**The one backend finding is queued as T56, not folded.** `SetWorkState`'s *update* path has no
+handler for a row deleted under it, so one reader's two concurrent writes — the shape T7's controls
+make ordinary — can answer 500 with the edit lost. Real, and in T6's code. Kept out of this diff on
+the one-task rule: T7 delivers no backend code and verifies with `npm run build`, so a controller
+change riding along would be unverified by this task's own command and unpinned by any test, which
+is worse than a task naming it. T6 folded in the mirror-image *insert* race for the opposite reason
+— it was a defect in what T6 delivered. T56 also has a decision to make that this diff must not make
+for it: the clear path's "a losing clear is still a success" does not transfer to a caller whose
+state no longer has a row to sit in.
+
+**The live check grew two cases from this review** rather than the fixes being taken on trust: an
+unsaved draft closed and reopened, and another row's write landing while a draft is open. Both are
+in the driver, and both pass against the real page.
