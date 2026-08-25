@@ -16,6 +16,7 @@ import type {
   SetWorkStateInput,
   WatchedShip,
   WatchedShipsResponse,
+  WorkDetail,
   WorkListItem,
   WorkQuery,
   WorkState,
@@ -64,6 +65,20 @@ const isWorksPage: ResponseCheck = (body) =>
   isRecord(body) &&
   Array.isArray(body.items) &&
   body.items.every((item) => isRecord(item) && isRecord(item.state));
+
+/**
+ * One work's detail. The page maps over four of these lists and reads `state` on every render, so
+ * a server that sent none of them would throw during render rather than report a version mismatch.
+ */
+const isWorkDetail: ResponseCheck = (body) =>
+  isRecord(body) &&
+  Array.isArray(body.authors) &&
+  Array.isArray(body.tags) &&
+  Array.isArray(body.series) &&
+  Array.isArray(body.ships) &&
+  Array.isArray(body.categories) &&
+  Array.isArray(body.warnings) &&
+  isRecord(body.state);
 
 async function request<T>(path: string, init?: RequestInit, isValid?: ResponseCheck): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -155,6 +170,13 @@ export const api = {
 
     return request<PagedResult<WorkListItem>>(`/works?${query}`, undefined, isWorksPage);
   },
+
+  /**
+   * Everything held about one work. 404s for a work no ship the caller follows carries, which is
+   * the same scoping the list applies rather than a separate rule about detail pages.
+   */
+  getWork: (workId: number) =>
+    request<WorkDetail>(`/works/${workId}`, undefined, isWorkDetail),
 
   /**
    * Replaces the caller's own state on one work. There is no patch: the server writes all three

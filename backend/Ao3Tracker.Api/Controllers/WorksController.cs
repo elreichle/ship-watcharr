@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Ao3Tracker.Api.Data;
 using Ao3Tracker.Api.Dtos;
 using Ao3Tracker.Api.Models;
+using Ao3Tracker.Api.Services.Html;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -187,6 +188,133 @@ public class WorksController : ControllerBase
 
         var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
         return Ok(new PagedResult<WorkListItemDto>(items, page, pageSize, totalCount, totalPages));
+    }
+
+    // ---- one work -------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Everything held about one work, plus the caller's own state on it.
+    /// </summary>
+    /// <remarks>
+    /// Reads the database and nothing else — every field here was written by a listing scrape, so
+    /// opening a work costs AO3 no request at all. The scoping is the list's: a work no ship the
+    /// caller follows carries is a 404, which is what stops this being a way to read another user's
+    /// library by guessing AO3 work numbers.
+    ///
+    /// The summary is sanitized on the way out rather than left to the client. It is markup a
+    /// stranger typed into AO3 and this app stored verbatim, and this is the first endpoint that
+    /// hands it to a browser at all — see <see cref="WorkSummaryHtml"/>.
+    /// </remarks>
+    [HttpGet("{id:long}")]
+    public async Task<ActionResult<WorkDetailDto>> GetWork(long id, CancellationToken ct)
+    {
+        var userId = CurrentUserId;
+
+        var myStates = WorkQueries.StatesOf(_db, userId);
+
+        var watchedShipIds = _db.WatchedShips
+            .Where(w => w.UserId == userId)
+            .Select(w => w.ShipId);
+
+        var row = await WorkQueries.Library(_db, userId, shipId: null)
+            .Where(w => w.Id == id)
+            .Select(w => new
+            {
+                w.Id,
+                w.Title,
+                w.SummaryHtml,
+                w.IsAnonymous,
+                w.Rating,
+                w.Categories,
+                w.Warnings,
+                w.IsComplete,
+                w.WordCount,
+                w.ChapterCount,
+                w.PlannedChapterCount,
+                w.Kudos,
+                w.Hits,
+                w.Bookmarks,
+                w.CommentCount,
+                w.CollectionCount,
+                w.LanguageName,
+                w.LanguageCode,
+                w.UpdatedAt,
+                w.UpdatedAtIsApproximate,
+                w.PublishedAt,
+                w.DetailFetchedAt,
+                w.IsRestricted,
+                w.FirstSeenAt,
+                w.LastSeenAt,
+
+                Authors = w.Authors.OrderBy(a => a.Position).Select(a => a.Pseud.DisplayName).ToList(),
+
+                // Kind first, so the list reads the way AO3 renders one, and by the normalized name
+                // within a kind so two scrapes of the same work never order its freeforms
+                // differently. Normalized rather than Name for the reason WorkQueries.Order refuses
+                // to offer a title sort: SQLite and PostgreSQL disagree about where a lowercase tag
+                // sorts, so ordering on the display text would order one instance's tags one way
+                // and another's another.
+                Tags = w.Tags
+                    .OrderBy(t => t.Tag.Type)
+                    .ThenBy(t => t.Tag.NameNormalized)
+                    .Select(t => new { t.Tag.Type, t.Tag.Name })
+                    .ToList(),
+
+                Series = w.Series
+                    .OrderBy(s => s.Series.Title)
+                    .Select(s => new WorkSeriesDto(s.SeriesId, s.Series.Title, s.Part))
+                    .ToList(),
+
+                // The reader's own subscriptions, as on the list: which other ships this instance
+                // tracks for other people is not something a work page should leak.
+                Ships = w.Ships
+                    .Where(sw => watchedShipIds.Contains(sw.ShipId))
+                    .OrderBy(sw => sw.Ship.CanonicalTagName)
+                    .Select(sw => new WorkShipDto(sw.ShipId, sw.Ship.CanonicalTagName))
+                    .ToList(),
+
+                State = myStates
+                    .Where(s => s.WorkId == w.Id)
+                    .Select(s => new { s.Status, s.Rating, s.Note })
+                    .FirstOrDefault(),
+            })
+            .FirstOrDefaultAsync(ct);
+
+        if (row is null) return NotFound();
+
+        return Ok(new WorkDetailDto(
+            row.Id,
+            row.Title,
+            row.Authors,
+            row.IsAnonymous,
+            WorkSummaryHtml.Sanitize(row.SummaryHtml),
+            Ao3Labels.Describe(row.Rating),
+            Ao3Labels.Describe(row.Categories),
+            Ao3Labels.Describe(row.Warnings),
+            [.. row.Tags.Select(t => new WorkTagDto(t.Type.ToString(), t.Name))],
+            row.Series,
+            row.Ships,
+            row.IsComplete,
+            row.WordCount,
+            row.ChapterCount,
+            row.PlannedChapterCount,
+            row.Kudos,
+            row.Hits,
+            row.Bookmarks,
+            row.CommentCount,
+            row.CollectionCount,
+            row.LanguageName,
+            row.LanguageCode,
+            row.UpdatedAt,
+            row.UpdatedAtIsApproximate,
+            row.PublishedAt,
+            row.DetailFetchedAt,
+            row.IsRestricted,
+            row.FirstSeenAt,
+            row.LastSeenAt,
+            row.State is null
+                ? WorkStateDto.Cleared
+                : new WorkStateDto(row.State.Status.ToString(), row.State.Rating, row.State.Note)));
     }
 
     // ---- one reader's own state ---------------------------------------------------------------

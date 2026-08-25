@@ -127,6 +127,73 @@ export interface WorkListItem {
   state: WorkState;
 }
 
+/** One tag on a work, with the kind AO3 files it under. */
+export interface WorkTag {
+  type: Ao3TagType;
+  name: string;
+}
+
+export interface WorkSeriesRef {
+  id: number;
+  title: string;
+  /** Position within the series, or null where the blurb's wording could not be read as a number. */
+  part: number | null;
+}
+
+/** A watched ship the work turned up under, with the id the feed narrows by. */
+export interface WorkShipRef {
+  shipId: number;
+  tagName: string;
+}
+
+/**
+ * Everything the instance holds about one work — the body of `GET /api/works/{id}`.
+ *
+ * A superset of `WorkListItem`, and fetched from the database alone: opening a work costs AO3
+ * nothing. The fields a work's own page carries and a listing blurb does not are null until a
+ * detail fetch fills them, which `detailFetchedAt` is what distinguishes from "AO3 has no value".
+ */
+export interface WorkDetail {
+  id: number;
+  title: string;
+  authors: string[];
+  isAnonymous: boolean;
+  /**
+   * The summary, already sanitized by the server — an allowlist of elements and no attributes at
+   * all. The raw column is not this, and no endpoint hands it out; this is the one summary shape a
+   * client is meant to render as HTML. Null where there is no summary to show.
+   */
+  summarySafeHtml: string | null;
+  rating: string;
+  categories: string[];
+  warnings: string[];
+  tags: WorkTag[];
+  series: WorkSeriesRef[];
+  /** Only the ships this reader follows it under. */
+  ships: WorkShipRef[];
+  isComplete: boolean;
+  wordCount: number;
+  chapterCount: number;
+  plannedChapterCount: number | null;
+  kudos: number;
+  hits: number;
+  bookmarks: number;
+  commentCount: number;
+  collectionCount: number;
+  languageName: string | null;
+  languageCode: string | null;
+  updatedAt: string;
+  updatedAtIsApproximate: boolean;
+  /** Null until the work's own page has been fetched — see `detailFetchedAt`. */
+  publishedAt: string | null;
+  /** When the work's own page was last read. Null while everything here came from listings. */
+  detailFetchedAt: string | null;
+  isRestricted: boolean;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  state: WorkState;
+}
+
 export type WorkSort = 'updated' | 'kudos' | 'hits' | 'bookmarks' | 'comments' | 'words';
 
 export interface WorkQuery {

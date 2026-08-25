@@ -168,7 +168,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   beside `Library` so this stays one shared clause rather than two that can drift.
 
 ## T9 — A page per work
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: T6
 - delivers: `GET /api/works/{id}` and a detail route rendering everything already held — title,
@@ -199,6 +199,11 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   works with a null `DetailFetchedAt`, and re-fetch only when `UpdatedAt` has moved past it —
   detail pages are the most expensive thing this app can ask AO3 for, one request per work.
   Selectors come from the fixture, never from memory.
+  **T9 has already built the reading side**: `WorkDetailDto.PublishedAt` / `DetailFetchedAt` are on
+  the wire and the detail page renders both rows, showing "Not fetched yet" while they are null — so
+  this task writes the columns and nothing about the page has to change. Its tag list is grouped from
+  one `Tags: [{ type, name }]` list, so a fuller list from a work's own page needs no DTO change
+  either.
   **T51 is on this task's `blocked-by` because of T28's audit** (§E8): `WorkIngestor.ApplyTags`
   reconciles a work's tags against the listing blurb's list, deleting anything not in it, so the
   complete tag list this task fetches is erased by the next incremental pass over the same ship —
@@ -1237,3 +1242,19 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   the likely answer, and that is `stored`'s insert path re-run rather than an error.
   Pinning it is the known problem, stated in DECISIONS at T6: `LibraryTestHost` runs one SQLite
   connection, so there is no seam to open the window. Say what was done about that either way.
+
+## T57 — The feed's note editor drops text typed while a save is in flight
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: Text typed into a Works row's note editor after Save was pressed survives the write,
+  rather than being replaced by the copy that was sent.
+- verification: `cd frontend && npm run build` plus a live check driving the feed's note editor
+  (`t9-live.sh` in the scratchpad is the nearest harness; T7's `t7-live.sh` seeds the feed).
+- notes: `WorksPage.tsx`'s `commitNote` clears the row's draft unconditionally on success
+  (`setNoteDrafts(({ [workId]: _saved, ...rest }) => rest)`), and the textarea stays editable
+  through the round trip — only the buttons are disabled. Anything typed after the click is
+  therefore replaced by the server's copy with nothing said. Found by T9's review against the
+  detail page, where it is **already fixed**: `WorkDetailPage.commitNote` captures the draft it
+  sent and clears only if the draft is still that. Copy that shape rather than inventing a second
+  one, and leave the disabled-buttons behaviour alone — the bug is the reset, not the editing.

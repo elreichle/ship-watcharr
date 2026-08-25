@@ -1224,3 +1224,74 @@ Every mutation *result* survived the mistake: each mutation is written with a fr
 assembly it was tested against was rebuilt from correct sources plus that one change. The stale
 binary only ever affects the run *after* a restore.
 
+
+## 2026-08-24 — T9: what a work's own page shows, and what it is allowed to hand a browser
+
+**The summary is sanitized on the server, and the DTO field is named for it.** `Work.SummaryHtml` is
+markup an anonymous stranger typed into AO3 and this app stored verbatim; the detail endpoint is the
+first thing that ever hands it to a browser. Sanitizing at render time in the client was the other
+option and was rejected: the frontend has no sanitizer, the spec forbids adding a test runner and
+this project adds no frontend dependency lightly, and "whichever client remembers to do it" is a rule
+that holds until the second client. `WorkSummaryHtml.Sanitize` runs on the way out and the field is
+`SummarySafeHtml`, so a client rendering it as HTML is doing the intended thing — which would not be
+true of a field named after the column.
+
+**The sanitizer's rule is element names only, and no attributes at all.** Not an attribute allowlist:
+keeping `href` means being right about which URL schemes are safe, which encodings of `javascript:`
+are equivalent, and which attribute AO3's markup starts carrying next. Keeping none means never
+having to be right about that. Anchors are therefore unwrapped to their own words — a real loss of a
+summary's links, and the price of a rule with nothing in it to get wrong. A short list of elements
+(script, style, iframe, svg, form controls, the raw-text ones) is dropped whole rather than unwrapped,
+because unwrapping a `<script>` leaves its source behind as text.
+
+**The walk is iterative, with a depth cap.** A summary is untrusted input, so its nesting depth is
+untrusted input too: a recursive walk over markup nested a few thousand deep would take the request
+down with it. Past `MaxDepth` elements are unwrapped rather than emitted, and the words are kept
+either way. The cap is belt-and-braces and the test over it asserts only that 5,000 nested elements
+return and keep their text — removing the cap leaves that test green, which is stated here rather
+than left as a silently unpinned constant.
+
+**A markup-only summary is reported as no summary.** `Sanitize` returns null when nothing with words
+in it survived, so a summary that was only a tracking pixel renders the page's "no summary" line
+instead of an empty box.
+
+**Tags are one list carrying each tag's kind, not a field per kind.** `Tags: [{ type, name }]`,
+ordered by kind and then by name, so a tag type this app learns about later needs no new DTO field to
+be shown, and two scrapes of the same work never order its freeforms differently. The page groups
+them under headings from its own ordered list, which is what stops a work with no characters tagged
+from moving its freeforms up into the place characters usually occupy.
+
+**The detail route is `/works/:workId`, under the list it is reached from**, so the sidebar keeps
+Works lit and the back link is one hop. The feed's title now opens this app's page for the work and
+AO3 moved into the byline — the row used to leave for the archive on its only link, which is the
+opposite of what a local library is for.
+
+**The ship chips link back to the feed with `filter=none`.** Arriving at a ship's works and seeing
+none of them because the reader's default saved filter was applied would read as the ship being empty.
+
+**Published and the tag list say "not fetched yet" rather than rendering as absent.** Both are what
+T10 fills, and a blank row is indistinguishable from "AO3 has no value for this". The row is rendered
+either way, with `DetailFetchedAt` as what makes the null legible.
+
+## 2026-08-24 — T9's review: three findings, three folded in, one queued for its twin
+
+**A write for the previous work could land on the newly-loaded one.** React Router reuses
+`WorkDetailPage` between two work pages rather than unmounting it, and `stateWriteToken` was bumped
+only by writes — so a rating set on `/works/1`, followed by a navigation to `/works/2` that finished
+loading first, stamped work 1's marks onto work 2's page. The load path already guarded itself with a
+`current` flag; the write path had no equivalent. Fixed by bumping the token in the `workId` effect,
+which is the same "a superseded write may not touch the page" rule already in the file, applied to
+the case where what supersedes it is a different work rather than a later edit.
+
+**Tag order within a kind now goes through `Tag.NameNormalized`.** Ordering on the display name is
+collation-dependent — SQLite's binary collation puts a lowercase freeform after `Z` and PostgreSQL
+does not — which is the exact hazard `WorkQueries.Order` cites when it refuses to offer a title sort,
+and the reason the normalized column exists. The DTO comment promised a stable order; now it has one.
+
+**Text typed while a note save is in flight is kept.** The textarea stays editable through the round
+trip (only the buttons are disabled), and clearing the draft on success unconditionally replaced
+whatever was typed after the click with the server's copy. `commitNote` now captures the draft it
+sent and clears only if that is still what the box holds. **`WorksPage.tsx` has the same shape and is
+not fixed here** — a frontend fix to the feed riding along in the detail page's commit is the
+wandering diff the loop policy forbids. Queued as **T57**, which says to copy this shape rather than
+invent a second one.

@@ -72,3 +72,69 @@ public record WorkStateDto(string Status, int? Rating, string? Note)
 /// omitted one means "cleared", so a merge could not express taking a rating back off.
 /// </summary>
 public record SetWorkStateRequest(string? Status = null, int? Rating = null, string? Note = null);
+
+/// <summary>
+/// Everything this instance holds about one work — a strict superset of <see cref="WorkListItemDto"/>,
+/// and the body of <c>GET /api/works/{id}</c>.
+/// </summary>
+/// <remarks>
+/// Nothing here is fetched on demand: every field was written by a listing scrape, so a detail page
+/// costs AO3 nothing. The two fields a work's own page carries and a blurb does not —
+/// <paramref name="PublishedAt"/> and the complete tag list — are reported as unfetched rather than
+/// as absent, so the page can say which it is.
+/// </remarks>
+/// <param name="SummarySafeHtml">The summary, sanitized for rendering — see
+/// <c>WorkSummaryHtml</c>. Named for what it is because the raw column is not this: a client that
+/// renders this field as HTML is doing the intended thing, which is only true of the sanitized
+/// form. Null where the scrape read no summary, or where the summary was markup and nothing else.</param>
+/// <param name="Tags">Every tag on the work with its kind, in AO3's own order — fandoms,
+/// relationships, characters, freeforms — rather than split into a field per kind, so a tag type
+/// this app learns about later needs no new field to be shown.</param>
+/// <param name="DetailFetchedAt">When the work's own page was last read, or null while everything
+/// here came from listings alone. What makes a null <paramref name="PublishedAt"/> legible as "not
+/// fetched yet" rather than "AO3 has no date for this".</param>
+public record WorkDetailDto(
+    long Id,
+    string Title,
+    IReadOnlyList<string> Authors,
+    bool IsAnonymous,
+    string? SummarySafeHtml,
+    string Rating,
+    IReadOnlyList<string> Categories,
+    IReadOnlyList<string> Warnings,
+    IReadOnlyList<WorkTagDto> Tags,
+    IReadOnlyList<WorkSeriesDto> Series,
+    IReadOnlyList<WorkShipDto> Ships,
+    bool IsComplete,
+    int WordCount,
+    int ChapterCount,
+    int? PlannedChapterCount,
+    int Kudos,
+    int Hits,
+    int Bookmarks,
+    int CommentCount,
+    int CollectionCount,
+    string? LanguageName,
+    string? LanguageCode,
+    DateTime UpdatedAt,
+    bool UpdatedAtIsApproximate,
+    DateTime? PublishedAt,
+    DateTime? DetailFetchedAt,
+    bool IsRestricted,
+    DateTime FirstSeenAt,
+    DateTime LastSeenAt,
+    WorkStateDto State);
+
+/// <param name="Type">An <see cref="Ao3TagType"/> name — enum names on the wire, as everywhere else
+/// on this API.</param>
+public record WorkTagDto(string Type, string Name);
+
+/// <param name="Part">Position within the series, or null where the blurb's wording could not be
+/// read as a number — a work in a series at an unknown position, not a work outside it.</param>
+public record WorkSeriesDto(long Id, string Title, int? Part);
+
+/// <summary>
+/// A watched ship this work turned up under. The reader's own subscriptions only, and the id rides
+/// along so the page can link back into the feed narrowed to that ship.
+/// </summary>
+public record WorkShipDto(int ShipId, string TagName);

@@ -461,6 +461,78 @@
     font-size: var(--font-ui-smaller);
   }
 
+  /* ------------------------------------------------------------------------- one work's page */
+
+  .work-detail-title {
+    margin-bottom: var(--size-2-2);
+  }
+
+  .work-detail-byline {
+    margin-bottom: var(--size-4-3);
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+  }
+
+  .work-detail-section {
+    margin-top: var(--size-4-6);
+  }
+
+  /* Capped for reading rather than for the window: a summary set in one line across a wide screen
+     is the one thing on this page nobody would read. */
+  .work-detail-summary {
+    max-width: 70ch;
+  }
+
+  .work-detail-summary p {
+    margin: 0 0 var(--size-4-2);
+  }
+
+  .work-detail-summary blockquote {
+    margin: 0 0 var(--size-4-2);
+    padding-left: var(--size-4-3);
+    border-left: 3px solid var(--background-modifier-border);
+    color: var(--text-muted);
+  }
+
+  .work-detail-state {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--size-4-4);
+    align-items: flex-end;
+    margin-bottom: var(--size-4-3);
+  }
+
+  .work-detail-tag-group h3 {
+    margin: var(--size-4-3) 0 var(--size-2-2);
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+  }
+
+  .work-detail-series {
+    margin: 0;
+    padding-left: var(--size-4-4);
+  }
+
+  /* Two columns on anything wide enough, one on a phone. The label column sizes to its longest
+     label so the values line up rather than each row starting somewhere new. */
+  .work-detail-facts {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: var(--size-2-2) var(--size-4-4);
+    max-width: 40rem;
+    margin: 0;
+  }
+
+  .work-detail-facts dt {
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+  }
+
+  .work-detail-facts dd {
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+  }
+
   /* ----------------------------------------------------------------- one reader's own state */
 
   .work-state-cell {

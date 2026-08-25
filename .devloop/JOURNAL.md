@@ -940,3 +940,64 @@ build. Not something a task should chase.
   Filters checked to bite, per T22's lesson: `~SavedFilter` matches 55 and covers every new test
   (`--list-tests` grepped case-insensitively, per T28's note). Still zero and still suspect:
   T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.
+
+## 2026-08-24 — T9 A page per work — done
+
+- did: `GET /api/works/{id}` and `/works/:workId` behind it — everything the database already holds
+  about one work (summary, tags by kind, series, authors in byline order, full stats, language, the
+  reader's own ships) plus their own state, editable in place with the feed's `RatingStars` and a
+  note editor. It fetches nothing from AO3. The feed's title now opens this page and AO3 moved into
+  the byline. New: `WorkSummaryHtml.Sanitize`, which is the first thing in this app that hands a
+  browser a work's summary at all — an allowlist of element *names*, **no attributes at all**,
+  script/style/raw-text elements dropped whole, everything else unwrapped to its words, walked
+  iteratively with a depth cap.
+- files: `Api/Services/Html/WorkSummaryHtml.cs` (new), `Api/Controllers/WorksController.cs`,
+  `Api/Dtos/WorkDtos.cs`, `Tests/WorkDetail{,Summary}Tests.cs` (new),
+  `frontend/src/pages/WorkDetailPage.tsx` (new), `frontend/src/pages/WorksPage.tsx`,
+  `frontend/src/api/{client,types}.ts`, `frontend/src/{App.tsx,index.css}`,
+  `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter FullyQualifiedName~WorkDetail` → 33 passed (0 before — new classes);
+  `dotnet test` → 462 passed (429 before); `npm run build` + `npm run lint` → clean, the two known
+  fast-refresh warnings only. Eleven mutations applied one at a time, every one red. Live check in a
+  real browser, twice — before and after the review's fixes.
+- commit: see below
+- next: **The tests passed on their first run, which is a warning rather than a result.** Nothing was
+  seen to fail except the compile, so two of them were checked for constructing their case and both
+  were weak: the tag-order test seeded tags already in the expected order (so ordering was unpinned),
+  and the whose-state test had *both* readers mark the work (so an unscoped query could land on the
+  right row by luck). Fixed by scrambling the seed order and by adding a test where only the *other*
+  reader has marked it. **This is T6's and T8's lesson arriving a third time — a test that names a
+  guard without constructing its case** — and the cheap detector is: write the mutation first, and if
+  you cannot say which assertion it breaks, the assertion is not there yet.
+  **One mutation deliberately survives and it is written down.** Removing the sanitizer's `MaxDepth`
+  cap leaves the suite green: the 5,000-deep test asserts only that it returns and keeps its words,
+  which is what the iterative walk buys. The cap is belt-and-braces about what is handed downstream,
+  not about surviving the walk, and DECISIONS says so rather than leaving it as an unpinned constant.
+  **The summary sanitizer is the piece to be careful with, and it is server-side by decision.** The
+  frontend has no sanitizer and this project adds no frontend dependency lightly, so `SummarySafeHtml`
+  arrives already safe and the page renders it with `dangerouslySetInnerHTML` — the raw column reaches
+  no client. The rule has no attribute parsing in it *on purpose*: keeping `href` means being right
+  about `javascript:` and its encodings for ever. Anchors lose their destination and keep their words.
+  If T10's fixture shows AO3 summaries carrying something the allowlist drops, widen the list of
+  names — never the attributes.
+  **T10 inherits the reading side already built**: `PublishedAt`/`DetailFetchedAt` are on the wire and
+  both rows render as "Not fetched yet", and the tag list is one `[{ type, name }]` array, so a fuller
+  list from a work's own page needs no DTO change. Its notes now say so. T10 stays `blocked` on the
+  fixture and on T51.
+  **The live harness is `t9-live.sh` + `t9-drive.mjs` in the scratchpad**, adapted from T8's in about
+  forty lines: it seeds a work with a script-carrying summary, six tags, two authors and a series,
+  clicks the feed row's title, and asserts the script is gone *including its source text*, that no
+  attribute survived, that the link's words stayed, that "Published" reads "Not fetched yet", and that
+  marks made on the detail page survive a reload. `rm -rf` is blocked by a hook — use `mktemp -d`, as
+  this one now does. **T14, T17 and T19 should copy it**: it already drives a single-record page,
+  which the downloads and notification views are not, but its CDP plumbing and its
+  wait-for-the-server-before-reloading helper are what those tasks would otherwise re-derive.
+  **The review found three, all real, all in the new code.** The one worth remembering: a page keyed
+  by a route parameter needs its *write* path guarded against the parameter changing, not only its
+  load path — React Router reuses the component, so a rating set on one work could land on the next.
+  Generalising T7's "state keyed by which row", one page further: **a component that outlives its own
+  subject must invalidate in-flight writes when the subject changes.** The third finding lives in
+  `WorksPage.tsx` too and was deliberately left there as **T57** rather than fixed in this diff.
+  Filters checked to bite, per T22's lesson: `~WorkDetail` matches 33 and covers every new test in
+  both new classes (`--list-tests` grepped case-insensitively, per T28's note). Still zero and still
+  suspect: T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.

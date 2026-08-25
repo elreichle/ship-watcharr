@@ -6,6 +6,7 @@ import { AdminRoute } from './components/AdminRoute';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { WorksPage } from './pages/WorksPage';
+import { WorkDetailPage } from './pages/WorkDetailPage';
 import { FiltersPage } from './pages/FiltersPage';
 import { ShipsPage } from './pages/ShipsPage';
 import { SchedulesPage } from './pages/SchedulesPage';
@@ -33,6 +34,8 @@ export default function App() {
               of its own. Works leads because it is the thing the app is for. */}
           <Route path="/" element={<Navigate to="/works" replace />} />
           <Route path="/works" element={<WorksPage />} />
+          {/* A work of its own, under the list it is reached from, so the sidebar keeps Works lit. */}
+          <Route path="/works/:workId" element={<WorkDetailPage />} />
           <Route path="/filters" element={<FiltersPage />} />
           <Route path="/ships" element={<ShipsPage />} />
           <Route path="/schedules" element={<SchedulesPage />} />

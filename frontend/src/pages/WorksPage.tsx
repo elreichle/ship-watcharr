@@ -370,9 +370,10 @@ export function WorksPage() {
                 <Fragment key={work.id}>
                   <tr>
                     <td className="work-cell">
-                      <a href={ao3WorkUrl(work.id)} target="_blank" rel="noreferrer">
-                        {work.title}
-                      </a>
+                      {/* The title opens this app's own page for the work — everything known about
+                          it, and the reader's own marks — rather than leaving for the archive. AO3
+                          is one click further on, in the byline. */}
+                      <Link to={`/works/${work.id}`}>{work.title}</Link>
                       <span className="work-byline">
                         {work.isAnonymous
                           ? 'Anonymous'
@@ -380,6 +381,10 @@ export function WorksPage() {
                             ? work.authors.join(', ')
                             : 'Unknown author'}
                         {work.fandoms.length > 0 && <> · {work.fandoms.join(', ')}</>}
+                        {' · '}
+                        <a href={ao3WorkUrl(work.id)} target="_blank" rel="noreferrer">
+                          AO3
+                        </a>
                       </span>
                       <span className="work-chips">
                         {work.ships.map((ship) => (
