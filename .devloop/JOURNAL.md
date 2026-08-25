@@ -960,7 +960,7 @@ build. Not something a task should chase.
   `dotnet test` → 462 passed (429 before); `npm run build` + `npm run lint` → clean, the two known
   fast-refresh warnings only. Eleven mutations applied one at a time, every one red. Live check in a
   real browser, twice — before and after the review's fixes.
-- commit: see below
+- commit: 82d8fe7
 - next: **The tests passed on their first run, which is a warning rather than a result.** Nothing was
   seen to fail except the compile, so two of them were checked for constructing their case and both
   were weak: the tag-order test seeded tags already in the expected order (so ordering was unpinned),
