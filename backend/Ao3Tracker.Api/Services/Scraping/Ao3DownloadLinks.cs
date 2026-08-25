@@ -26,16 +26,20 @@ public static class Ao3DownloadLinks
     /// </summary>
     /// <param name="html">The work page's markup.</param>
     /// <param name="pageUrl">
-    /// Where the page was fetched from, used to resolve a relative href. Null means only absolute
-    /// links are readable — which is what the capture holds, but not something AO3 owes us.
+    /// Where the page was fetched from. It resolves a relative href, and it is also the authority on
+    /// which host a link may name — see <see cref="Resolve"/>. Required, not optional: a link with
+    /// nothing to check it against is not a link this app may fetch.
     /// </param>
-    public static IReadOnlyDictionary<Ao3DownloadFormat, string> Parse(string? html, string? pageUrl = null)
+    public static IReadOnlyDictionary<Ao3DownloadFormat, string> Parse(string? html, string pageUrl)
     {
         var links = new Dictionary<Ao3DownloadFormat, string>();
         if (string.IsNullOrWhiteSpace(html)) return links;
 
         var document = Parser.ParseDocument(html);
-        Uri.TryCreate(pageUrl, UriKind.Absolute, out var pageUri);
+
+        // No usable page address means nothing below can be checked against anything, so nothing is
+        // readable. Empty rather than "trust the markup".
+        if (!Uri.TryCreate(pageUrl, UriKind.Absolute, out var pageUri) || !IsWeb(pageUri)) return links;
 
         // Scoped to the menu rather than matched on extension across the page. A work's page links
         // to plenty this app must never fetch as "the download" — the series, related works, other
@@ -59,25 +63,41 @@ public static class Ao3DownloadLinks
     }
 
     /// <summary>
-    /// An href as an absolute http(s) URL, or null where it is neither.
+    /// An href as an absolute http(s) URL on the same host as the page, or null where it is not.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The scheme check is not ceremony. <c>Uri.TryCreate("/downloads/1/x.epub", UriKind.Absolute, …)</c>
     /// <em>succeeds</em> on Linux, yielding <c>file:///downloads/1/x.epub</c> — so a bare path read
     /// off a page would be treated as absolute and then resolved against local disk. The login
     /// establisher was found doing exactly that; this is the same trap on the same kind of input.
+    /// </para>
+    /// <para>
+    /// The host check is the load-bearing one. Whatever comes back from here is fetched with the
+    /// instance's AO3 session cookie attached and written to the instance's disk, and a work page
+    /// renders author-supplied HTML. One <c>&lt;a href="https://elsewhere.example/x.epub"&gt;</c>
+    /// that survived AO3's sanitiser inside the download menu would otherwise hand this
+    /// deployment's login to whoever wrote it. Same host as the page it was read from, or it is not
+    /// a download.
+    /// </para>
     /// </remarks>
-    private static string? Resolve(string? href, Uri? pageUri)
+    private static string? Resolve(string? href, Uri pageUri)
     {
         if (string.IsNullOrWhiteSpace(href)) return null;
 
         var resolved = Uri.TryCreate(href, UriKind.Absolute, out var absolute) && IsWeb(absolute)
             ? absolute
-            : pageUri is not null && Uri.TryCreate(pageUri, href, out var relative) && IsWeb(relative)
+            : Uri.TryCreate(pageUri, href, out var relative) && IsWeb(relative)
                 ? relative
                 : null;
 
-        return resolved?.ToString();
+        if (resolved is null) return null;
+
+        // Ordinal-ignore-case, which is how a host is compared: AO3 is one host and this is not the
+        // place to learn about anybody's subdomains.
+        return string.Equals(resolved.Host, pageUri.Host, StringComparison.OrdinalIgnoreCase)
+            ? resolved.ToString()
+            : null;
     }
 
     private static bool IsWeb(Uri uri) =>

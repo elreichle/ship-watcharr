@@ -1646,3 +1646,63 @@ SQLite connection and there is no seam to open the window. Said here so the gap 
 `~Ao3DownloadLinks`, and its remaining job is what the capture left open: a test per format, and the
 two questions no capture can answer (whether a stale `updated_at` is rejected or redirected, and
 whether these links work anonymously), decided against a local stub and recorded as assumptions.
+
+## 2026-08-25 — T12's review: five folded in, one queued as T59, one already fixed, one already T49
+
+`/code-review high` ran over the branch and the download slice and returned eight findings. Its two
+highest were the same defect I had already found by reading my own diff (the stalled download
+holding the global gate) and T49 — so of the eight, five were new and are fixed here, one is a
+re-decision queued as T59, and two needed nothing.
+
+**The gate-stall finding was already closed before the commit it reviewed.** The reviewer read the
+working tree before `DownloadTimeout` went in and confirmed the mechanism empirically — with
+`ResponseHeadersRead` and a 2s `HttpClient.Timeout`, a body taking 10s completes without throwing.
+That is worth keeping written down: it is the reason the deadline exists, and it is not something
+the type system or the timeout setting will remind anyone of. **Two readers derived this defect
+independently**, which on this branch is now the third time that has happened.
+
+**A 200 is not evidence that what arrived is the file.** This is the finding worth the most. The
+download transport follows redirects, so an AO3 that declines a download — a restricted work whose
+session dies in the seconds between reading the work's page and fetching the link, which
+`DownloadAsync` cannot notice because it deliberately never reads session state off a file body —
+answers by redirecting to the login form. That is a 200 carrying HTML. The old code stored it,
+hashed it, moved it into place, gave it a `WorkDownloadFile` row and reported the request
+`Complete`: a login page on disk under a name saying it is an EPUB, with a checksum agreeing.
+`DownloadFetcher.LandedOnTheFile` now checks where the request *ended up*. Judged on the extension
+rather than the whole address, so a redirect that still serves the file is not refused for moving
+it, and judged not at all when the transport reported no final URL — "no evidence" is not evidence,
+the same rule the session reading follows. A Content-Type check was considered and rejected: the
+HTML download format really is `text/html`, so it cannot tell a login page from a legitimate
+download.
+
+**The instance's session cookie was being offered to whatever host the markup named.** `Resolve`
+accepted any absolute http(s) URL and `DownloadAsync` attaches the session to whatever it is handed.
+The `li.download` scoping made this unreachable in practice today, but a work page renders
+author-supplied HTML, and one href surviving AO3's sanitiser inside the download menu would have
+handed this deployment's AO3 login to whoever wrote it. A link must now name the same host as the
+page it was read from, and `pageUrl` stopped being optional — a link with nothing to check it
+against is not a link this app may fetch.
+
+**Abandoned part-files are swept at startup.** The fetcher deletes its own when a fetch fails, but a
+killed container leaves one behind with nothing to clean it up, each worth up to `MaxDownloadBytes`.
+Nothing reads that directory and nothing resumes a part-file, so anything in it at startup is
+rubbish by definition — the run that created it is gone and the row it belonged to has just been
+re-queued. It sits in `ReleaseInterruptedFetchesAsync`'s `finally`, so a database failure there does
+not also leak disk.
+
+**Two documentation defects, both mine and both real.** Inserting `WakeTheWorker` above `Arm` left
+two `<summary>` blocks stacked on one member, so `Arm`'s documentation was stranded on a method
+describing something else. And a comment in `FailAsync` explained a guarantee about
+`WorkDownloadFileId` that the controller does not actually provide — which is T59, and the comment
+now points there instead of claiming it.
+
+**T59 is a re-decision, not a bug fix.** `Arm` nulls `WorkDownloadFileId` when it re-arms a stale
+request, which T11 chose on purpose. The review's objection is the half that choice did not weigh:
+the file is not deleted, so a reader whose refetch fails is left with neither a working row nor a
+reachable copy of bytes that are still on disk. Queued rather than changed here, because reverting
+T11's rule would reintroduce the worse failure it was written against, and because T14 has to render
+whatever state the answer invents.
+
+**T49 arrives for the third time and is still not this diff's to fix.** The reviewer confirmed
+`CA2017` empirically once more — six placeholders over five arguments, `string.Format` throws, and
+the retreat never runs. It is the only analyzer warning in the build.

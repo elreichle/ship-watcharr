@@ -205,6 +205,43 @@ public class DownloadWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task Refuses_a_200_that_is_not_the_file_it_asked_for()
+    {
+        // The transport follows redirects, so AO3 declining a download — a restricted work whose
+        // session died in the seconds between reading the page and fetching the link — answers by
+        // redirecting to the login form. That is a 200 carrying HTML, and stored it becomes a login
+        // page on disk under a name saying it is an EPUB, with a row and a checksum agreeing.
+        var emma = await ReaderWithAWorkAsync();
+        _host.Http.Responds = _ => WorkPage(EpubUrl);
+        _host.Http.DownloadsLandOn = "https://ao3.test/users/login";
+        await QueueAsync(emma);
+
+        await DrainAsync();
+
+        var download = await DownloadAsync();
+        Assert.Equal(DownloadStatus.Failed, download.Status);
+        Assert.Contains("login", download.ErrorMessage);
+
+        Assert.Empty(await FilesAsync());
+        Assert.Empty(FilesUnder(DownloadPaths.Root));
+    }
+
+    [Fact]
+    public async Task Accepts_a_download_that_moved_but_still_serves_the_file()
+    {
+        // Judged on the extension rather than the whole address, so a redirect that still serves
+        // the file is not refused merely for having moved it.
+        var emma = await ReaderWithAWorkAsync();
+        _host.Http.Responds = _ => WorkPage(EpubUrl);
+        _host.Http.DownloadsLandOn = "https://mirror.ao3.test/files/we_chose_to_wait.epub";
+        await QueueAsync(emma);
+
+        await DrainAsync();
+
+        Assert.Equal(DownloadStatus.Complete, (await DownloadAsync()).Status);
+    }
+
+    [Fact]
     public async Task Leaves_nothing_behind_when_the_archive_cannot_be_reached_at_all()
     {
         var emma = await ReaderWithAWorkAsync();
@@ -425,6 +462,23 @@ public class DownloadWorkerTests : IDisposable
 
         Assert.Equal(DownloadStatus.Complete, (await DownloadAsync()).Status);
         Assert.Empty(_host.Http.Requested);
+    }
+
+    [Fact]
+    public async Task Discards_a_part_file_a_restart_left_behind()
+    {
+        // The fetcher deletes its own when a fetch fails; a killed container leaves one with
+        // nothing to clean it up, and each is worth up to the whole size ceiling. Nothing resumes a
+        // part-file, so anything still there at startup is rubbish by definition.
+        var partial = Path.Combine(
+            _host.DataDirectory, DownloadPaths.PartialsRoot.Replace('/', Path.DirectorySeparatorChar));
+
+        Directory.CreateDirectory(partial);
+        await File.WriteAllTextAsync(Path.Combine(partial, "abandoned.part"), "half an epub");
+
+        await _host.NewDownloadWorker().ReleaseInterruptedFetchesAsync(default);
+
+        Assert.Empty(FilesUnder(DownloadPaths.PartialsRoot));
     }
 
     [Fact]

@@ -226,10 +226,6 @@ public class DownloadsController : ControllerBase
     }
 
     /// <summary>
-    /// Points a request at the bytes for the work's current version, or at the queue when there are
-    /// none. The one place a request becomes complete without a fetch.
-    /// </summary>
-    /// <summary>
     /// Tells <see cref="DownloadWorker"/> there is something to fetch, when there is.
     /// </summary>
     /// <remarks>
@@ -243,6 +239,16 @@ public class DownloadsController : ControllerBase
         if (download.Status == DownloadStatus.Pending) _wake.Wake();
     }
 
+    /// <summary>
+    /// Points a request at the bytes for the work's current version, or at the queue when there are
+    /// none. The one place a request becomes complete without a fetch.
+    /// </summary>
+    /// <remarks>
+    /// A request re-armed onto no file loses the reference to the copy it previously held, which is
+    /// deliberate — a row reporting Complete beside bytes of a different version is worse than one
+    /// reporting Pending — but it does mean a reader whose refetch then fails is left with neither.
+    /// T59 owns that trade.
+    /// </remarks>
     private static void Arm(Download download, WorkDownloadFile? onDisk)
     {
         // The foreign key rather than the navigation: File is not loaded on this path, and

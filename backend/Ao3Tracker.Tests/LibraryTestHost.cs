@@ -244,7 +244,8 @@ internal sealed class LibraryTestHost : IDisposable
         _provider.GetRequiredService<IServiceScopeFactory>(),
         _provider.GetRequiredService<ILogger<DownloadWorker>>(),
         _provider.GetRequiredService<IOptions<Ao3HttpClientOptions>>(),
-        DownloadWake);
+        DownloadWake,
+        _provider.GetRequiredService<StoragePaths>());
 
     /// <summary>Where this fixture's instance keeps everything it persists, downloads included.</summary>
     public string DataDirectory => _dataDirectory;
@@ -510,6 +511,13 @@ internal sealed class FakeAo3Http : IRateLimitedHttpClient
     /// </summary>
     public bool DownloadsExceedTheSizeLimit { get; set; }
 
+    /// <summary>
+    /// Where a download request ends up, when that is not where it was sent. The real transport
+    /// follows redirects, so AO3 declining a download answers 200 from somewhere else entirely —
+    /// which is the one case a status code cannot describe.
+    /// </summary>
+    public string? DownloadsLandOn { get; set; }
+
     /// <summary>Set to make the transport itself fail, the way an unreachable archive does.</summary>
     public Exception? Fails { get; set; }
 
@@ -579,7 +587,7 @@ internal sealed class FakeAo3Http : IRateLimitedHttpClient
         return new ScrapeDownloadResponse(
             status,
             status == HttpStatusCode.OK ? body.Length : 0,
-            url,
+            DownloadsLandOn ?? url,
             ExceededSizeLimit: DownloadsExceedTheSizeLimit);
     }
 }

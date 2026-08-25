@@ -1458,3 +1458,24 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
     right *because* it is right, not because two errors cancelled.
   A test cannot prove AO3 honours the new parameter; no test may touch the archive. Pin the URL the
   builder emits, and record in `DECISIONS.md` that the semantics rest on the captured filter form.
+
+## T59 — A refetch must not cost a reader the copy they already have
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: Re-requesting a work whose version has moved on keeps the reader pointed at the copy
+  they hold until a replacement is on disk, so a failed refetch leaves them with the old file rather
+  than with nothing.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Download`
+- notes: From T12's review. `DownloadsController.Arm` nulls `WorkDownloadFileId` when it re-arms a
+  stale request, which was T11's deliberate choice — "a row reporting Complete beside bytes of a
+  different version is worse than one reporting Pending", in the 2026-08-24 T11 entry in
+  `DECISIONS.md`. The review's objection is the half that decision did not weigh: the file is not
+  deleted, so after a failed refetch the old bytes are still on disk under a row nothing references,
+  and the reader who could have read them cannot reach them. **This is a re-decision, not a bug
+  fix** — do not simply revert T11's rule. Whatever replaces it has to keep "Complete never means
+  bytes of another version" true, which probably means the row remembering its previous file
+  separately from the one it currently reports, and it has to say what the Downloads UI shows for a
+  request that failed while still holding a readable older copy. T14 renders that state, so decide
+  this before or with T14 rather than after.
+  `DownloadFetcher.FailAsync` carries a comment pointing here.

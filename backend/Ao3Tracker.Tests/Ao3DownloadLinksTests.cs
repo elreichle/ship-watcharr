@@ -91,6 +91,26 @@ public class Ao3DownloadLinksTests
     }
 
     [Fact]
+    public void Ignores_a_link_pointing_at_another_host()
+    {
+        // Whatever comes out of here is fetched with the instance's AO3 session cookie attached and
+        // written to the instance's disk, and a work page renders author-supplied HTML. One href
+        // that survived AO3's sanitiser inside the download menu would otherwise hand this
+        // deployment's login to whoever wrote it.
+        var links = Ao3DownloadLinks.Parse(
+            Menu("<li><a href=\"https://elsewhere.example/downloads/1/x.epub\">EPUB</a></li>"), WorkPageUrl);
+
+        Assert.Empty(links);
+    }
+
+    [Fact]
+    public void Reads_nothing_when_there_is_no_page_address_to_check_a_link_against()
+    {
+        // A link with nothing to compare its host to is not a link this app may fetch.
+        Assert.Empty(Ao3DownloadLinks.Parse(Fixtures.Load(Fixtures.WorkPage), "not a url"));
+    }
+
+    [Fact]
     public void Reads_only_the_download_menu()
     {
         // A work's page links to plenty that is not a download of it — related works, the series,

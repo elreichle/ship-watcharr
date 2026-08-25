@@ -1271,10 +1271,10 @@ build. Not something a task should chase.
   `Api/Controllers/DownloadsController.cs`, `Api/Program.cs`,
   `Tests/{DownloadWorkerTests,Ao3DownloadLinksTests,Ao3DownloadTransportTests}.cs` (new),
   `Tests/LibraryTestHost.cs`, `.devloop/{tasks,DECISIONS,JOURNAL}.md`
-- ran: `dotnet test --filter FullyQualifiedName~DownloadWorker` → 25 passed (0 before — new class,
-  and the filter matches exactly those 25); `--filter ~Download` → 67 (26 before, T11's);
-  `dotnet test` → 628 passed (587 before); `npm run build` + `npm run lint` → clean, the two known
-  fast-refresh warnings only. Eighteen mutations applied one at a time. Also booted a throwaway
+- ran: `dotnet test --filter FullyQualifiedName~DownloadWorker` → 28 passed (0 before — new class,
+  and the filter matches exactly those 28); `--filter ~Download` → 72 (26 before, T11's);
+  `dotnet test` → 633 passed (587 before); `npm run build` + `npm run lint` → clean, the two known
+  fast-refresh warnings only. Twenty-three mutations applied one at a time, every one red by the end. Also booted a throwaway
   instance on :5193 with a scratch data directory: it starts, both workers come up, and the download
   worker's startup reconciliation runs.
 - commit: 7766481
@@ -1321,15 +1321,38 @@ build. Not something a task should chase.
   the filename's extension; `ErrorMessage` on a failed row already names the half that failed, so the
   UI should show it rather than a generic failure; and re-requesting a queued format answers with the
   existing row, so the button needs no guard against a second click.
-- **`/code-review high` was launched over this diff and had not reported when the iteration ended.**
-  Unlike T5's and T44's entries there is therefore no review paragraph here, and that is a gap rather
-  than a clean bill: what stands behind this commit is my own reading of the diff, the eighteen
-  mutations, and the live boot. **The next iteration should run `/code-review high` over `7766481`
-  before starting T13** — the two places I would look first are the fetcher's failure paths (a file
-  moved into place before `StoreFileAsync` throws leaves bytes nothing names, which T11's decisions
-  already say is a separate reclamation job) and whether `File.Move(overwrite: true)` racing a
-  reader is really as harmless as the same-bytes argument claims.
-  Filters checked to bite, per T22's lesson: `~DownloadWorker` matches 25 and covers every new test
-  in the worker's own file; `~Ao3DownloadLinks` matches 11 and `~Ao3DownloadTransport` 5, which are
-  the two seams that file does not reach. Still zero and still suspect: T31 `~TotalWorks`,
+- **`/code-review high` reported after `7766481` was committed; its fixes are in a second commit.**
+  Eight findings. Its two highest were the gate stall I had already fixed before committing (the
+  reviewer read the pre-fix tree, and **confirmed the mechanism empirically** — with
+  `ResponseHeadersRead` and a 2s `HttpClient.Timeout`, a body taking 10s completes without throwing,
+  which is the fact the deadline exists for) and T49, which is not this diff's. Five were real and
+  are fixed; one is queued as T59.
+- **The serious one: a 200 is not evidence that what arrived is the file.** The transport follows
+  redirects, so AO3 declining a download — a restricted work whose session dies in the seconds
+  between reading the work's page and fetching the link, which `DownloadAsync` cannot notice because
+  it deliberately never reads session state off a file body — answers by redirecting to the login
+  form, which is a 200 carrying HTML. It was being stored, hashed, moved into place, given a row and
+  reported `Complete`: a login page on disk under a name saying it is an EPUB, with a checksum
+  agreeing. `LandedOnTheFile` now checks where the request ended up, on the extension rather than the
+  whole address so a redirect that still serves the file is not refused for moving it. A
+  Content-Type check would not have worked — the HTML download format really is `text/html`.
+- **The security one: the instance's session cookie was on offer to whatever host the markup named.**
+  `Resolve` took any absolute http(s) URL and `DownloadAsync` attaches the session to whatever it is
+  handed. Unreachable in practice today thanks to the `li.download` scoping, but a work page renders
+  author-supplied HTML. A link must now name the page's own host, and `pageUrl` stopped being
+  optional. **Anywhere in this codebase a URL read out of markup is then fetched with credentials,
+  the host is the check that matters** — the scheme check that was already there is the other half.
+- **T59 is a re-decision the review found, not a bug.** `Arm` nulls `WorkDownloadFileId` on a stale
+  re-request, which T11 chose deliberately; the half that choice did not weigh is that the file is
+  not deleted, so a reader whose refetch fails is left with neither a working row nor a reachable
+  copy of bytes still on disk. Queued rather than changed, because reverting T11's rule reintroduces
+  the worse failure it was written against and because T14 renders whatever state the answer invents.
+- **Two of the eight were documentation, both mine.** Inserting `WakeTheWorker` above `Arm` left two
+  `<summary>` blocks on one member and stranded `Arm`'s documentation; and a comment in `FailAsync`
+  described a guarantee about `WorkDownloadFileId` the controller does not provide. Worth counting
+  as findings rather than tidying: the second was a comment asserting the exact behaviour T59 exists
+  because the code does not have.
+  Filters checked to bite, per T22's lesson: `~DownloadWorker` matches 28 after the review's fixes
+  (25 at the first commit) and covers every new test in the worker's own file; `~Ao3DownloadLinks`
+  matches 13 and `~Ao3DownloadTransport` 5, which are the two seams that file does not reach. Still zero and still suspect: T31 `~TotalWorks`,
   T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.

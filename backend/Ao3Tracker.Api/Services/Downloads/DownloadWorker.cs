@@ -1,6 +1,7 @@
 using Ao3Tracker.Api.Data;
 using Ao3Tracker.Api.Models;
 using Ao3Tracker.Api.Services.Scraping;
+using Ao3Tracker.Api.Services.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -32,6 +33,7 @@ public class DownloadWorker : BackgroundService
     private readonly ILogger<DownloadWorker> _logger;
     private readonly Ao3HttpClientOptions _httpOptions;
     private readonly DownloadWakeSignal _wake;
+    private readonly StoragePaths _paths;
 
     /// <summary>Last logged held/allowed state; null until the first drain with something queued.</summary>
     private bool? _allowed;
@@ -40,12 +42,14 @@ public class DownloadWorker : BackgroundService
         IServiceScopeFactory scopeFactory,
         ILogger<DownloadWorker> logger,
         IOptions<Ao3HttpClientOptions> httpOptions,
-        DownloadWakeSignal wake)
+        DownloadWakeSignal wake,
+        StoragePaths paths)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
         _httpOptions = httpOptions.Value;
         _wake = wake;
+        _paths = paths;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -107,6 +111,50 @@ public class DownloadWorker : BackgroundService
         {
             _logger.LogError(ex, "Failed to re-queue interrupted downloads");
         }
+        finally
+        {
+            DiscardPartialFiles();
+        }
+    }
+
+    /// <summary>
+    /// Deletes whatever is left in the partials directory.
+    /// </summary>
+    /// <remarks>
+    /// The fetcher removes its own part-file when a fetch fails, but a hard crash or a killed
+    /// container leaves one behind with nothing to clean it up — and each is worth up to
+    /// <see cref="Ao3HttpClientOptions.MaxDownloadBytes"/>. Nothing reads this directory and nothing
+    /// resumes a part-file, so anything in it at startup is rubbish by definition: the run that
+    /// created it is gone, and the row it belonged to has just been re-queued to start again.
+    /// </remarks>
+    private void DiscardPartialFiles()
+    {
+        var partials = DownloadPaths.Absolute(_paths.DataDirectory, DownloadPaths.PartialsRoot);
+        if (!Directory.Exists(partials)) return;
+
+        var discarded = 0;
+
+        foreach (var path in Directory.GetFiles(partials))
+        {
+            try
+            {
+                File.Delete(path);
+                discarded++;
+            }
+            catch (IOException ex)
+            {
+                // One undeletable file is not worth failing startup over, and saying so is what
+                // stops the directory growing unnoticed.
+                _logger.LogWarning(ex, "Could not delete the abandoned partial download {Path}", path);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger.LogWarning(ex, "Could not delete the abandoned partial download {Path}", path);
+            }
+        }
+
+        if (discarded > 0)
+            _logger.LogWarning("Discarded {Count} partial download(s) left by a restart", discarded);
     }
 
     internal async Task DrainQueueAsync(CancellationToken ct)

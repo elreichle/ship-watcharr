@@ -195,6 +195,15 @@ public sealed class DownloadFetcher : IDownloadFetcher
                     download, $"AO3 answered {(int)result.StatusCode} for the file itself.", ct);
             }
 
+            if (!LandedOnTheFile(result.FinalUrl, download.Format))
+            {
+                return await FailAsync(
+                    download,
+                    "AO3 answered the download with a different page — most likely the login form, "
+                    + "which is what a session that died mid-fetch looks like. Nothing was stored.",
+                    ct);
+            }
+
             await using (var written = File.OpenRead(partialPath))
             {
                 sha256 = Convert.ToHexStringLower(await SHA256.HashDataAsync(written, ct));
@@ -285,10 +294,11 @@ public sealed class DownloadFetcher : IDownloadFetcher
 
         download.Status = DownloadStatus.Failed;
         download.ErrorMessage = message;
-
-        // Left where it was. The version this request holds is what "has it gone stale" is measured
-        // against, and a failed fetch says nothing about the copy a previous one may have made.
         download.CompletedAt = _time.GetUtcNow().UtcDateTime;
+
+        // WorkDownloadFileId is left exactly as it was found, which for a request the controller
+        // re-armed means null — see T59 in .devloop/tasks.md, which owns whether re-arming should
+        // hold on to the reader's previous copy until a replacement exists.
 
         await _db.SaveChangesAsync(ct);
         return DownloadFetchOutcome.Failed;
@@ -301,6 +311,31 @@ public sealed class DownloadFetcher : IDownloadFetcher
         await _db.SaveChangesAsync(ct);
 
         return DownloadFetchOutcome.Held;
+    }
+
+    /// <summary>
+    /// Whether the response we are about to call a copy of the work is really the file we asked
+    /// for, judged by where the request ended up.
+    /// </summary>
+    /// <remarks>
+    /// A 200 is not enough. This transport follows redirects, so an AO3 that declines a download —
+    /// a restricted work whose session died in the seconds between reading the page and fetching
+    /// the link — answers by redirecting to the login form, which is a 200 carrying HTML. Stored,
+    /// that becomes a login page on disk under a name saying it is an EPUB, with a row and a
+    /// checksum agreeing.
+    ///
+    /// Judged on the extension rather than on the whole address, so a redirect that still serves
+    /// the file (a mirror, a CDN) is not refused for moving it; and judged not at all when the
+    /// transport reported no final URL, because "no evidence" is not evidence — the same rule the
+    /// session reading follows.
+    /// </remarks>
+    private static bool LandedOnTheFile(string? finalUrl, Ao3DownloadFormat format)
+    {
+        if (finalUrl is null) return true;
+        if (!Uri.TryCreate(finalUrl, UriKind.Absolute, out var uri)) return true;
+
+        var extension = Path.GetExtension(uri.AbsolutePath).TrimStart('.');
+        return string.Equals(extension, DownloadPaths.Extension(format), StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
