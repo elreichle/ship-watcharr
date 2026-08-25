@@ -9,8 +9,23 @@ a dependency cannot be met — needs a human).
 
 Empty, and deleted with T28: the audit that stood in this slot is done, every pre-loop scraper
 defect this loop inherited is closed, and nothing left is more urgent than file order. The next task
-is the first `todo` in file order whose `blocked-by` are all `done` — T6. `.devloop/scraper-audit.md`
-is what that section's reasoning turned into; read it before touching the walk.
+is the first `todo` in file order whose `blocked-by` are all `done` — **T5**.
+`.devloop/scraper-audit.md` is what that section's reasoning turned into; read it before touching
+the walk.
+
+**2026-08-24: nothing is `blocked` any more.** Emma saved the three AO3 captures the plan was
+parked on (`ao3-login-page.html`, `ao3-work-page.html`, `ao3-empty-listing.html`, under
+`backend/Ao3Tracker.Tests/Fixtures/`), which released T5, T10, T13 and T39. Reading them answered
+three open questions ahead of the tasks that were going to ask them, and **two of the answers change
+work that has not started yet** — see the 2026-08-24 entry in `DECISIONS.md`:
+
+- **Read T13's notes before starting T12.** AO3's download URLs cannot be constructed from a work
+  id, so T12's original "isolate the URL construction" design is withdrawn. Building T12 to the old
+  note ships a guess T13 then has to undo.
+- **T39 shrank and its premise held.** `HasListing` needs no fix; the task is now the test that
+  pins it.
+- **T58 is new**, from a defect Emma found in the browser: the incremental pass sends a filter
+  parameter the tag-listing endpoint discards. Not a correctness bug — a politeness one.
 
 Read `.devloop/spec.md` before starting any task. Every task additionally has to leave
 `cd backend && PATH="$HOME/.dotnet:$PATH" dotnet test`, `cd frontend && npm run build` and
@@ -91,16 +106,20 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   purpose `Ao3Tracker.Ao3Credentials.v1`). Do not delete or rewrite that earlier migration.
 
 ## T5 — Authenticate to AO3 and reuse the session
-- status: blocked
+- status: todo
 - attempts: 0
-- blocked-by: **fixture** — needs `backend/Ao3Tracker.Tests/Fixtures/ao3-login-page.html`, a real
-  capture of `https://archiveofourown.org/users/login`. A human must save this file; the loop has
-  no network. Leave this task `blocked` until the file exists.
+- blocked-by: none — **the fixture has landed.**
+  `backend/Ao3Tracker.Tests/Fixtures/ao3-login-page.html` is a real logged-out capture of
+  `https://archiveofourown.org/users/login`, saved by Emma on 2026-08-24.
 - delivers: The scraper logs in with the stored credential, caches the resulting session cookie,
   attaches it to subsequent requests, and re-authenticates when it expires.
 - verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ao3Login`
 - notes: Parse the `authenticity_token` hidden input out of the captured page — Rails rejects a
-  login POST without it. Build it as three pieces the way `Ao3ShipIndexScraper` is built: a pure
+  login POST without it. **The capture carries two forms that each hold one**: the header dropdown
+  (`form#new_user_session_small`) and the real login form (`form#new_user`), both posting to
+  `/users/login`. Select `#new_user` explicitly — "the first `authenticity_token` on the page" is
+  the header's, and a parser written that way passes the fixture for the wrong reason. The fields
+  to post are `user[login]`, `user[password]` and `user[remember_me]`, read off the same form. Build it as three pieces the way `Ao3ShipIndexScraper` is built: a pure
   parser (HTML in, token out), a session establisher, and the caller. Store the cookie through
   `IAo3InstanceCredentialStore.SetSessionAsync` — encrypted, and treated as a **cache**: losing it
   must cost a re-login, never the credential. Go through `IRateLimitedHttpClient` like everything
@@ -183,11 +202,14 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   have it read as "not fetched yet" rather than as empty or absent.
 
 ## T10 — Per-work detail fetch
-- status: blocked
+- status: todo
 - attempts: 0
-- blocked-by: T9, T51, and **fixture** — needs `backend/Ao3Tracker.Tests/Fixtures/ao3-work-page.html`,
-  a real capture of an `https://archiveofourown.org/works/<id>` page (ideally one that is
-  multi-chapter, in a series, and has a long freeform tag list). A human must save this file.
+- blocked-by: T51 only. T9 is done, and **the fixture has landed**:
+  `backend/Ao3Tracker.Tests/Fixtures/ao3-work-page.html`, saved by Emma on 2026-08-24 — work
+  70441196, 5/5 chapters, in a series, 34 tags across all seven categories
+  (`rating`/`warning`/`category`/`fandom`/`relationship`/`character`/`freeform`, each a
+  `<dd class="... tags">`), with `<dd class="published">` and `<dd class="status">` both present.
+  Every selector this task needs is in it.
 - delivers: A scraper that reads a work's own page for what a blurb does not carry — publication
   date and the complete tag list — writing `Work.PublishedAt` and `Work.DetailFetchedAt`, with the
   detail page showing them.
@@ -237,9 +259,18 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   rate limiting or the instance User-Agent. Paths stored **relative** to the data directory (see
   `Services/Storage/StoragePaths.cs`); an absolute path breaks the moment the Docker volume mounts
   elsewhere. Write to a temp name and move into place, so a crash mid-fetch cannot leave a
-  truncated file recorded as complete. Isolate the AO3 download URL construction in **one** small
-  function with a comment saying it is unverified against real markup until T13 — that is the seam
-  T13 replaces. Test against a local stub serving bytes, never the real archive. Downloads and
+  truncated file recorded as complete.
+  **Read T13's "What the capture says" before designing this — the plan it replaces is wrong.**
+  This task's original instruction was to isolate a URL *construction* function taking a work id,
+  as a seam T13 would later correct. The captured work page says there is nothing to construct:
+  the real URLs are `/downloads/{workId}/{slug}.{ext}?updated_at={unix}`, where the slug is an
+  unstated truncation of the title and `updated_at` is AO3's own timestamp. Both have to be **read
+  off the work's page**, so a download is two rate-gated requests (fetch the page, then the file),
+  and the seam takes a fetched page rather than an id. Build it that way from the start; T13 then
+  pins the extraction against the fixture instead of undoing a guess.
+  A worker that cannot get a URL without a page fetch also has a new failure mode the original
+  plan did not: the page fetch can fail on its own. That is a `Failed` request with a message
+  saying which half failed, not a retry loop. Test against a local stub serving bytes, never the real archive. Downloads and
   scrapes share one global rate gate by design; do not add a second one.
   T11 left the queue with **no wake signal** — a request is a row and nothing tells anyone about it,
   so this task owns however the worker learns of one. `ScrapeWakeSignal` and the way
@@ -249,11 +280,12 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   no `Ready` — the completed state is `Complete`, which T11's wire format already reports.
 
 ## T13 — Confirm AO3's real download URLs
-- status: blocked
+- status: todo
 - attempts: 0
-- blocked-by: T12, and **fixture** — the same
-  `backend/Ao3Tracker.Tests/Fixtures/ao3-work-page.html` T10 needs. The download menu on that page
-  is what carries the real URLs.
+- blocked-by: T12 only — **the fixture has landed**, and it has already answered this task's
+  question. See "What the capture says" below: the answer is that the URLs **cannot be
+  constructed**, which is a finding T12 has to be built around rather than one T13 can clean up
+  afterwards. Read this task before starting T12.
 - delivers: The URL construction from T12 replaced by what the captured page actually contains, for
   every format in `Ao3DownloadFormat`, with a test pinning each one.
 - verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~DownloadUrl`
@@ -261,6 +293,35 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   serves them from a different host or with a token, that is a finding to record in
   `.devloop/DECISIONS.md`, not something to work around silently. If some formats need a logged-in
   session, note the dependency on T5 rather than pretending they are anonymous.
+
+  **What the capture says (2026-08-24): the URLs cannot be constructed from a work id.** The
+  download menu on `ao3-work-page.html` carries five absolute links, all on the same host:
+  ```
+  https://archiveofourown.org/downloads/70441196/we_chose_to_wait.azw3?updated_at=1767140797
+  https://archiveofourown.org/downloads/70441196/we_chose_to_wait.epub?updated_at=1767140797
+  https://archiveofourown.org/downloads/70441196/we_chose_to_wait.mobi?updated_at=1767140797
+  https://archiveofourown.org/downloads/70441196/we_chose_to_wait.pdf?updated_at=1767140797
+  https://archiveofourown.org/downloads/70441196/we_chose_to_wait.html?updated_at=1767140797
+  ```
+  The shape is `/downloads/{workId}/{slug}.{ext}?updated_at={unix}`, and **two of those four parts
+  are not derivable from anything the library holds**: the slug is a truncation of the title whose
+  rule is not stated anywhere on the page (the work is titled "we chose to wait! marriage only after
+  sex" and the slug is `we_chose_to_wait` — punctuation dropped, then cut, at a length this one
+  example cannot pin), and `updated_at` is a Unix timestamp AO3 stamps, not `Work.UpdatedAt`. So a
+  download **requires reading the work's own page first**. Do not try to reverse-engineer the slug
+  rule from this single example; read the href.
+  Two consequences for T12, which is why that task now points here:
+  - A download costs **two** AO3 requests, not one, unless the work page was fetched recently
+    enough for its links to still be good. Both go through the rate gate.
+  - The "one small function taking a work id" seam this task was meant to replace is the wrong
+    seam. It takes a *fetched work page* — which makes T10's parser and this one the same fetch,
+    and worth extracting the download links in `Ao3WorkPageParser` while it is already in there.
+  Unanswered by the capture and still open: whether an `updated_at` that has gone stale is rejected
+  or merely redirected, and whether these links work anonymously (the capture was taken logged in).
+  Neither can be settled without a request; decide them against a local stub and record the
+  assumption rather than guessing at AO3's behaviour.
+  **AZW3 is offered and is not in `Ao3DownloadFormat`** (spec lists EPUB/MOBI/PDF/HTML). Adding it
+  is not in scope here — noted so the omission reads as a choice.
 
 ## T14 — Downloads in the UI
 - status: todo
@@ -797,15 +858,17 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   work.
 
 ## T39 — Confirm what AO3 serves for a works index with no results
-- status: blocked
+- status: todo
 - attempts: 0
-- blocked-by: **fixture** — needs `backend/Ao3Tracker.Tests/Fixtures/ao3-empty-listing.html`, a real
-  capture of a relationship-tag works index that matches nothing (either a tag with no works, or any
-  tag under a `work_search[revised_at]` bound far in the future — the second is easy to produce and
-  is the shape a quiet incremental pass actually sends). A human must save this file; the loop has no
-  network. Leave this task `blocked` until it exists.
-- delivers: A parser test over captured markup pinning whether AO3's zero-result index renders
-  `ol.work.index.group`, and `Ao3ListingPage.HasListing` corrected if it does not.
+- blocked-by: none — **the fixture has landed.**
+  `backend/Ao3Tracker.Tests/Fixtures/ao3-empty-listing.html`, saved by Emma on 2026-08-24: the
+  `Dina/Ellie (The Last of Us)` index under `work_search[date_from]=2026-08-31`, a filtered request
+  matching nothing. **It answers every question this task was asked to settle, and the premise
+  holds — see "What the capture says" below. This task is now writing the tests that pin what the
+  fixture already shows, not an investigation with an open outcome.**
+- delivers: Parser tests over captured markup pinning that AO3's zero-result index renders
+  `ol.work.index.group` and a `0 Works in <tag>` heading, so the premises `HasListing` and
+  `PlausiblyTheEndOfTheListing` rest on are held by a test rather than assumed.
 - verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Listing`
 - notes: Found by `/code-review` during T37, against T34's committed code. `HasListing` is what
   `PlausiblyTheEndOfTheListing` uses to tell an empty tag from a page that is not a results page at
@@ -830,6 +893,33 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   opposite rule one page later: no heading is no evidence, and no evidence is not permission. Page 1
   can only be held to that standard once this capture says a genuinely empty listing carries a
   heading to be held to.
+
+  **What the capture says (2026-08-24) — all three questions answered, no code change indicated.**
+  The zero-result page renders, in full:
+  ```html
+  <h2 class="heading">
+    0 Works in <a class="tag" href="...">Dina/Ellie (The Last of Us)</a>
+  </h2>
+  <ol class="work index group">
+  </ol>
+  ```
+  1. **The container is present**, empty. `HasListing` is correct as written and needs no fix; the
+     failure this task feared — a quiet incremental pass reading zero blurbs, `HasListing` false,
+     the run stopping `Error`, the watermark frozen and every scheduled run on every quiet ship
+     recorded failed forever — **does not exist.** The tests that proved the premise by assuming it
+     were assuming something true.
+  2. **The class is `work index group`**, not the bare `index group` the sibling question guessed
+     at. `Ao3ListingPage` needs no second selector.
+  3. **A genuinely empty listing does carry a heading, and it reads `0 Works`** — which closes
+     T28's §C7 the other way from the fear recorded there. An unfiltered page 1 with the container,
+     no works, no Next link and a `0 Works` heading is *evidence* of an empty result set, not the
+     absence of evidence T47 refused to act on. The `page == 1` short-circuit in
+     `PlausiblyTheEndOfTheListing` is sound, and holding page 1 to T47's standard is the right rule
+     rather than a risk — a page 1 with **no heading at all** is still no evidence, and still not
+     permission.
+  Note the capture is a *filtered* empty listing, which is the case this task said to check
+  specifically. An unfiltered empty tag is not captured and is not needed: the heading and container
+  are rendered by the index template, not by the filter.
 
 ## T40 — An unreadable page must not be counted as a page that was read
 - status: todo
@@ -1272,3 +1362,42 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   reader who closes the editor mid-save and reopens it has it slammed shut by the resolving write.
   The same captured-draft guard does not cover this one — the close needs its own condition, or the
   two need to be decided together.
+
+## T58 — The incremental pass sends a filter AO3 discards
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: `BuildUrl`'s date bound expressed in a parameter the tag-listing endpoint actually
+  accepts, so a routine incremental pass fetches the filtered result set it was written to fetch
+  rather than the whole tag; and `RecordTotal`'s `listingWasFiltered` telling the truth about the
+  request it sat beside.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~BuildUrl`
+  (confirm the filter is non-zero first — T22's lesson), plus the full suite.
+- notes: Found on 2026-08-24 by Emma, in a browser, while capturing T39's fixture: she applied the
+  bound this code sends to a real tag index and **AO3 served the unfiltered listing anyway.**
+  `Ao3ShipIndexScraper.BuildUrl` adds `work_search%5Brevised_at%5D={"> yyyy-MM-dd"}` (line ~727,
+  from `RevisedAtBound`). The captured page settles why: the tag listing's own filter form
+  (`form#work-filters` in `ao3-empty-listing.html`) offers `work_search[date_from]` and
+  `work_search[date_to]` and **has no `revised_at` field at all**. `revised_at` on this endpoint is
+  a *value* for `work_search[sort_column]`, which the capture confirms is applied correctly — the
+  sort half of the URL is right and only the bound is not. `work_search[revised_at]` with a `>`
+  prefix belongs to the advanced search at `/works/search`, a different endpoint. Rails discards an
+  unknown nested key silently, which is why nothing ever failed.
+  **This is not a correctness bug and must not be fixed as if it were.** `RevisedAtBound`'s own doc
+  says the exact cut is made client-side against the watermark, and it is — the pass reads a
+  newest-first listing and stops at the right place either way. What is lost is the thing the
+  parameter exists for: "asking AO3 to exclude what we already have is what keeps a routine pass to
+  one request on a large tag." A quiet ship's scheduled run has been pulling the full first page of
+  the whole tag instead. On this project's own terms that is the serious half — it is load on
+  volunteer infrastructure that the code claims in a comment to be avoiding.
+  Two things to settle rather than assume:
+  - **`date_from` is a day-granular lower bound with different semantics than `> date`.** Keep
+    `RevisedAtBound`'s deliberate day of slack, and keep the client-side cut exactly as it is; this
+    task changes which parameter carries the hint, not what decides the boundary.
+  - **`listingWasFiltered` currently means "we sent a bound", not "a bound applied".** With the
+    bound discarded, every incremental page has been treated as filtered while being unfiltered, so
+    `RecordTotal` has been refusing headings it could have trusted (see T30, and T44's flag). Once
+    the parameter works the flag becomes true again by accident — check that the total logic is
+    right *because* it is right, not because two errors cancelled.
+  A test cannot prove AO3 honours the new parameter; no test may touch the archive. Pin the URL the
+  builder emits, and record in `DECISIONS.md` that the semantics rest on the captured filter form.

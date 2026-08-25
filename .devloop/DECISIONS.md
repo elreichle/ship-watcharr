@@ -1367,3 +1367,64 @@ fix, derived from scratch by a third reader. The task now says so.
 draft being replaced, the success handler closes the editor unconditionally — so a reader who closes
 mid-save and reopens has it slammed shut by the resolving write. `WorkDetailPage`'s captured-draft
 guard does not cover that half, which T57's notes now record.
+
+## 2026-08-24 — the three AO3 captures land, and two of them change the plan
+
+Emma saved `ao3-login-page.html`, `ao3-work-page.html` and `ao3-empty-listing.html` under
+`backend/Ao3Tracker.Tests/Fixtures/`, which is the human step T5, T10, T13 and T39 were parked on
+since the initial plan. **No task is `blocked` any more** — the four that were are now `todo`, two
+of them (T5, T39) with no dependency at all and two (T10 on T51, T13 on T12) waiting only on
+ordinary loop work. Reading the captures before writing any parser against them settled three
+questions, and two of the answers are not what the tasks assumed.
+
+**T39's premise holds, and the failure it was written to catch does not exist.** A zero-result tag
+index renders `<ol class="work index group">` — empty, but present — above a `0 Works in <tag>`
+heading. `Ao3ListingPage.HasListing` is correct as written and gets no fix. The scenario T39
+described, where a quiet incremental pass reads no blurbs, `HasListing` goes false, the run stops
+`Error` and every scheduled run on every quiet ship is recorded failed forever, was a real risk
+against a premise nothing tested; the premise turns out to be true. T39 shrinks from an
+investigation to a test that pins it, which is worth keeping rather than dropping — the tests that
+covered this path went through a helper emitting the container unconditionally, so they proved the
+premise by assuming it.
+
+The same capture closes **T28's §C7** in the direction that makes `PlausiblyTheEndOfTheListing`
+sound: an empty listing *does* carry a heading, so an unfiltered page 1 with the container, no
+works, no Next link and a `0 Works` heading is evidence of an empty result set rather than the
+absence of evidence T47 refused to act on. A page 1 with no heading at all remains no evidence and
+remains not permission — that rule is unchanged, it simply now has a case it can distinguish from.
+
+**T13's answer arrived before T12 was built, and it invalidates T12's design.** The download menu
+carries `/downloads/{workId}/{slug}.{ext}?updated_at={unix}`. The slug is an unstated truncation of
+the title — "we chose to wait! marriage only after sex" becomes `we_chose_to_wait` — and
+`updated_at` is AO3's own Unix timestamp, not `Work.UpdatedAt`. Neither is derivable from anything
+the library stores, so **a download requires fetching the work's page first**: two rate-gated
+requests, not one, and a second failure mode when the page fetch is the half that fails. T12's
+instruction to isolate "URL construction from a work id" as a seam T13 would later replace is
+therefore withdrawn — there is nothing to construct, the seam takes a fetched page, and T12 is
+built that way from the start rather than shipping a guess for T13 to undo. It also merges work
+with T10: both want `Ao3WorkPageParser`, and the download links come out of the same parse.
+
+**A finding neither task was looking for: the incremental pass has never been filtered (T58, new).**
+Emma applied the bound `BuildUrl` sends to a live tag index and AO3 returned the unfiltered
+listing. The captured filter form says why — the tag-listing endpoint offers
+`work_search[date_from]` and `work_search[date_to]` and has no `revised_at` key; `revised_at` there
+is a *sort column value*, and `work_search[revised_at]` with a `>` prefix belongs to the advanced
+search at `/works/search`. Rails drops the unknown nested key without complaint, so this failed
+silently for the whole life of the scraper.
+
+Filed as a new task rather than folded into an existing one, because it is nobody's defect in the
+current list and because **it is not a correctness bug**: the exact cut is made client-side against
+the watermark and always was, so the pass has read the right works throughout. What was lost is the
+only thing the parameter was for — `RevisedAtBound`'s own comment calls it "what keeps a routine
+pass to one request on a large tag" — meaning every scheduled run on every quiet ship has pulled
+the full tag listing while a comment claimed otherwise. On this project's terms that is the serious
+half, and it is exactly the kind of claim the verify-don't-guess rule exists to stop the codebase
+making about itself. It also means `listingWasFiltered` has been describing an intent rather than a
+fact, which entangles it with T30 and T44; T58 says to re-derive the total logic once the parameter
+works rather than let two cancelling errors read as correct.
+
+**One capture detail worth writing down because it will bite a parser.** `ao3-login-page.html`
+holds *two* forms carrying an `authenticity_token`, the header dropdown `#new_user_session_small`
+and the real `#new_user`, both posting to `/users/login`. "The first token on the page" is the
+header's. T5's notes now say to select `#new_user` explicitly, so the fixture cannot be passed for
+the wrong reason.
