@@ -1019,7 +1019,7 @@ build. Not something a task should chase.
   `--list-tests` confirms the filter matches exactly those 26); `dotnet test` → 488 passed (462
   before); `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only.
   Sixteen mutations applied one at a time, every one red.
-- commit: (see below)
+- commit: 872026a
 - next: **Two mutations survived the first pass and both were the same mistake — a guard whose case
   the fixture never constructs.** Dropping `existing.WorkDownloadFileId == onDisk.Id` from the
   staleness check left the suite green, because the only stale test moved the work on *without*
