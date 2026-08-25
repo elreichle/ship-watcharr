@@ -426,6 +426,70 @@ public class Ao3ShipIndexScraperTests : IDisposable
     }
 
     [Fact]
+    public async Task Does_not_let_a_later_pages_session_stamp_a_total_read_anonymously()
+    {
+        // The flag describes *the request that read the total*, not "was anything in this run
+        // authenticated". A run mixes the two as soon as it reads more than one page: the session
+        // can be absent on the page whose heading is stored and present on a later one — a cached
+        // page 1, or a session that only starts being honoured partway through — and an OR across
+        // the run then stamps "counted while logged in" on a number demonstrably fetched without a
+        // session. That is a total short by however many restricted works the tag holds, wearing
+        // the flag that tells T15's sweep to allow for an invisibility it does not have.
+        //
+        // Page 2 carries no heading, so it writes no total and has nothing to say about the one on
+        // the ship. It is only where the session appears.
+        _host.Http.Responds = url =>
+        {
+            var page = Pages(
+                Page(1, [Blurb(1)], nextPage: true, total: 4317),
+                Page(2, [Blurb(2)]))(url);
+
+            return url.Contains("page=2", StringComparison.Ordinal)
+                ? page with { Authenticated = true }
+                : page;
+        };
+
+        var shipId = await FollowAsync();
+
+        await _host.ScrapeAsync(shipId);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(4317, ship.LastKnownTotalWorks);
+        Assert.False(ship.LastKnownTotalWasAuthenticated);
+    }
+
+    [Fact]
+    public async Task Takes_the_Authenticated_flag_from_the_last_page_that_wrote_the_total()
+    {
+        // The same rule from the other side, and the reachable half after T5: a session can die
+        // mid-run — the client discards it the moment a page comes back logged out — so page 1
+        // reads the tag with a cookie and page 2 re-reads the heading without one. Every page of an
+        // unfiltered pass writes the total, so the stored number is page 2's, short by the
+        // restricted works page 1 could see. The flag has to fall with it.
+        //
+        // Both pages carry a heading here, which is what makes the last writer the question rather
+        // than the only writer.
+        _host.Http.Responds = url =>
+        {
+            var page = Pages(
+                Page(1, [Blurb(1)], nextPage: true, total: 4317),
+                Page(2, [Blurb(2)], total: 4000))(url);
+
+            return url.Contains("page=2", StringComparison.Ordinal)
+                ? page
+                : page with { Authenticated = true };
+        };
+
+        var shipId = await FollowAsync();
+
+        await _host.ScrapeAsync(shipId);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(4000, ship.LastKnownTotalWorks);
+        Assert.False(ship.LastKnownTotalWasAuthenticated);
+    }
+
+    [Fact]
     public async Task Records_the_tags_total_from_a_backfill_of_a_ship_that_has_a_watermark()
     {
         // The gate is on the filter, not on the mode. A backfill asks for the whole listing

@@ -130,18 +130,6 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         string? retreatBecause = null;
         DateTime? newestSeen = null;
 
-        // Whether this run read the listing while logged in, which is what the flag beside the
-        // total records. Taken from the transport and from nothing else: the question is what this
-        // run *sent*, and the client is the only thing that knows. False for every run until T5
-        // teaches it to log in, which is the true answer rather than a placeholder.
-        var readWhileLoggedIn = false;
-
-        // Whether any page of this run put a number in Ship.LastKnownTotalWorks. Not the same
-        // question as "was the listing unfiltered": an unfiltered pass whose heading would not
-        // parse is entitled to write a total and writes none, and the flag it must then leave alone
-        // belongs to whichever earlier run did write one.
-        var wroteTotal = false;
-
         string stopReason;
 
         // Set alongside a stopReason that reports trouble, so the run history says what the trouble
@@ -337,8 +325,6 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
             blurbsRead += listing.Works.Count;
 
-            readWhileLoggedIn |= response.Authenticated;
-
             // A restricted work is documented as invisible to a logged-out request, so one arriving
             // on a response the client says it did not authenticate means one of those two beliefs
             // is wrong. Reported, never acted on: letting the page overrule the transport about what
@@ -360,7 +346,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                     page, ship.Id, ship.CanonicalTagName);
             }
 
-            wroteTotal |= RecordTotal(ship, listing, listingWasFiltered);
+            RecordTotal(ship, listing, listingWasFiltered, response.Authenticated);
 
             if (listing.Works.Count == 0)
             {
@@ -493,7 +479,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         }
 
         await FinishAsync(
-            context, ship, stopReason, startPage, firstPage, newestSeen, wroteTotal, readWhileLoggedIn,
+            context, ship, stopReason, startPage, firstPage, newestSeen,
             askedStaleCursor: retreatedFrom is not null, ct);
 
         return new ScrapeOutcome(
@@ -771,17 +757,35 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// Gated on the filter rather than on the mode, so the rule survives the filter's conditions
     /// changing — a backfill of a ship that has a watermark still asks for the whole listing, and
     /// its heading still counts the tag.
+    ///
+    /// <see cref="Ship.LastKnownTotalWasAuthenticated"/> is written here, from
+    /// <paramref name="authenticated"/>, because Ship documents it as whether the request that
+    /// produced *the stored total* was logged in — so the two have to be assigned in the same
+    /// breath or the pair says something no request did. A run mixes both answers across its pages:
+    /// a cached page preserves <c>Authenticated: false</c>, a page carrying no evidence either way
+    /// (a 404, a file body) reads false as well, and after T5 a session can die mid-run, so every
+    /// later page goes out anonymous. Accumulated over the run instead, the flag would stamp
+    /// "counted while logged in" on a heading demonstrably read without a session.
+    ///
+    /// Assignment, not a latch, and in two senses. Within a run, every unfiltered page with a
+    /// readable heading rewrites the total, so the last one to write owns the flag. Across runs, a
+    /// logged-in run stamps the flag, the session lapses, and a later anonymous run reads a fresh
+    /// total short by however many restricted works the tag holds — left true, the flag would tell
+    /// T15's sweep to allow for an invisibility the stored number no longer has. A filtered pass,
+    /// or an unfiltered one whose heading will not parse, writes neither and leaves both to
+    /// whichever run's number is still on the ship.
     /// </summary>
-    /// <returns>Whether the total on the ship is now this page's, which is what decides the
-    /// ownership of <see cref="Ship.LastKnownTotalWasAuthenticated"/> beside it.</returns>
-    private bool RecordTotal(Ship ship, Ao3ListingPage listing, bool listingWasFiltered)
+    /// <param name="authenticated">Whether the response this heading was read from was served to a
+    /// session, as the transport read it back off that page and off no other.</param>
+    private void RecordTotal(
+        Ship ship, Ao3ListingPage listing, bool listingWasFiltered, bool authenticated)
     {
-        if (listingWasFiltered) return false;
-        if (listing.TotalWorks is not { } total) return false;
+        if (listingWasFiltered) return;
+        if (listing.TotalWorks is not { } total) return;
 
         ship.LastKnownTotalWorks = total;
         ship.LastKnownTotalWorksAt = _time.GetUtcNow().UtcDateTime;
-        return true;
+        ship.LastKnownTotalWasAuthenticated = authenticated;
     }
 
     /// <summary>
@@ -877,8 +881,6 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         int startPage,
         int? firstPage,
         DateTime? newestSeen,
-        bool wroteTotal,
-        bool readWhileLoggedIn,
         bool askedStaleCursor,
         CancellationToken ct)
     {
@@ -929,19 +931,6 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         {
             ship.IncrementalWatermarkUtc = newest;
         }
-
-        // Assigned by whichever run wrote the total, and by no other. Ship documents this as
-        // whether the run that produced *the stored total* was logged in, so the two travel
-        // together or the pair says something neither run did: a filtered pass, or an unfiltered
-        // one whose heading would not parse, leaves the flag to the run whose number is still on
-        // the ship.
-        //
-        // Assignment, not a latch. A logged-in run stamps the flag; the session lapses; a later
-        // anonymous run reads a fresh total that is short by however many restricted works the tag
-        // holds. Left true, the flag tells T15's sweep to allow for an invisibility the stored
-        // number no longer has — so a run that replaces the total replaces the flag, downwards
-        // included.
-        if (wroteTotal) ship.LastKnownTotalWasAuthenticated = readWhileLoggedIn;
 
         await _db.SaveChangesAsync(ct);
     }

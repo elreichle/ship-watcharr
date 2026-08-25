@@ -105,13 +105,15 @@ public class Ship
     public DateTime? LastKnownTotalWorksAt { get; set; }
 
     /// <summary>
-    /// Whether the run that produced the total was logged in. Restricted works are invisible to an
-    /// anonymous scrape, so a sweep must not conclude works have disappeared when it simply ran at
-    /// a lower auth level than the run that first saw them.
+    /// Whether the request that produced the total was logged in. Restricted works are invisible to
+    /// an anonymous scrape, so a sweep must not conclude works have disappeared when it simply ran
+    /// at a lower auth level than the run that first saw them.
     ///
-    /// Belongs to <see cref="LastKnownTotalWorks"/>, not to the ship's history: whichever run
-    /// writes that number writes this beside it, so a later anonymous run reading a fresh total
-    /// clears the flag rather than leaving an earlier session's claim over a number it never saw.
+    /// Belongs to <see cref="LastKnownTotalWorks"/>, not to the ship's history and not to the run:
+    /// whichever *request* reads that number carries this beside it, so a later anonymous read of a
+    /// fresh total clears the flag rather than leaving an earlier session's claim over a number it
+    /// never saw. A single run reads pages at both auth levels — a cached page, an unparseable one,
+    /// a session that dies partway — so "the run" is not fine-grained enough to be the answer.
     /// </summary>
     public bool LastKnownTotalWasAuthenticated { get; set; }
 

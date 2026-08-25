@@ -1525,3 +1525,47 @@ Discarding the cookie and caching the page meant the next poll logged in success
 same `session:` key, and was served the dead session's anonymous copy for the rest of the cache
 window: fifteen minutes reading the logged-out archive immediately after re-authenticating to avoid
 precisely that.
+
+## 2026-08-25 — T44: the flag belongs to a request, and "the run" was never fine-grained enough
+
+**Taken out of file order, as the run-order note asked.** T12 was next by position; T44 was taken
+first because five readers had independently derived the same two-line fix and T5 had just turned it
+from latent into live. No plan change beyond the ordering — T44 was always in the list.
+
+**The fix is where the assignment lives, not what it computes.** T30 moved
+`Ship.LastKnownTotalWasAuthenticated` from the run's filter state to `wroteTotal`, which settled
+*which run* may assign it. It left *which request* it describes alone: `readWhileLoggedIn` ORed
+`response.Authenticated` across every page while `RecordTotal` wrote `LastKnownTotalWorks` per page.
+Both now happen in one place — `RecordTotal` takes the response's own reading and writes the number
+and the flag in the same three lines. `wroteTotal`, `readWhileLoggedIn` and two `FinishAsync`
+parameters are gone; there is no longer a value that can drift from the thing it describes because
+there is no longer a value at all.
+
+**Why a single run mixes both answers**, which is the part that makes this reachable rather than
+theoretical, and it took T5 to make every clause true:
+
+- A cached page preserves `Authenticated: false` regardless of the session the run holds.
+- A page carrying no evidence either way — a 404, a file body, an AO3 soft error — reads false too.
+  Not "anonymous", *unknown*, deliberately collapsed to false by T5 so that a 404 cannot throw away a
+  working session.
+- A session can die mid-run. `RateLimitedAo3HttpClient` discards a cookie AO3 has stopped honouring
+  the moment a page comes back logged out, and every later `GetAsync` in that run goes out anonymous.
+
+So an unfiltered multi-page pass can write its total from an anonymous page 1 and reach a
+session on page 5, or the reverse. Under the OR, the first stamped "counted while logged in" on a
+number short by however many restricted works the tag holds — and that number is precisely what
+T15's sweep checks itself against before concluding works have left a tag.
+
+**Within a run, the last unfiltered page with a readable heading owns the flag**, because it also
+owns the total: `RecordTotal` rewrites both on every such page. That is not a new rule, it is the
+old rule ("the flag belongs to the total beside it") applied one scope further in, which is exactly
+what T30's own note predicted would be needed.
+
+**`Ship.LastKnownTotalWasAuthenticated`'s own doc was one word wrong** and has been corrected: it
+said "the run that produced the total". A run is not fine-grained enough to be the answer, and the
+comment saying otherwise is how three of the five readers who re-derived this defect found it in the
+first place. It now says *request*, and says why "run" is not.
+
+**Not changed, and deliberately:** the restricted-work warning still refuses to overrule the
+transport about what a request sent. A restricted blurb on a response the client says was anonymous
+is logged and acted on by nothing. That premise is still T39's business.

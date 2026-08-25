@@ -1195,3 +1195,46 @@ build. Not something a task should chase.
   Filters checked to bite, per T22's lesson: `~Ao3Login` matches 97 and covers every new test in all
   nine new classes. Still zero and still suspect: T31 `~TotalWorks`, T32 `~Monotonic`. T40's
   `~PagesFetched` is zero by design.
+
+## 2026-08-25 — T44 The authenticated-total flag must come from the request that read the total — done
+
+- did: `Ship.LastKnownTotalWasAuthenticated` is now written inside `RecordTotal`, from the
+  `ScrapeHttpResponse.Authenticated` of the very page whose heading became the total, in the same
+  three lines that write the number and its timestamp. The run-scoped `readWhileLoggedIn` OR and the
+  `wroteTotal` accumulator are gone, along with two `FinishAsync` parameters and the assignment that
+  used to sit at the end of the walk. Nothing computes the flag any more, so nothing can drift from
+  what it describes.
+- files: `Api/Services/Scraping/Ao3ShipIndexScraper.cs`, `Api/Models/Ship.cs`,
+  `Tests/Ao3ShipIndexScraperTests.cs`, `.devloop/{tasks,DECISIONS,JOURNAL,scraper-audit}.md`
+- ran: `dotnet test --filter FullyQualifiedName~Ao3ShipIndexScraper` → 69 passed (2 of them new and
+  red before the fix, for the right reason both times); `dotnet test` → 587 passed (585 before);
+  `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only. Two mutations,
+  both killed: `= authenticated` → `|= authenticated` kills the two "a later read replaces the flag"
+  tests, and hardcoding `authenticated: true` at the call site kills four.
+- commit: <pending>
+- next: **Taken ahead of T12's turn in file order, on the run-order note's own instruction**, and
+  that note is now rewritten — file order is plain again and T12 is next. Read T13's "What the
+  capture says" before starting T12; that instruction has not been consumed by anything yet.
+- **The two-line fix was the easy half; the doc comment was the load-bearing half.** `Ship`'s own
+  summary said the flag records "the run that produced the total". That sentence is why five readers
+  in a row derived the same defect and none of them could point at a line that was wrong — the code
+  matched its documentation exactly, and the documentation was one word too coarse. It now says
+  *request*, and says why a run is not fine-grained enough to be the answer. Anywhere else in this
+  codebase a field is documented against "the run", check whether it means the request.
+- **The three ways a single run mixes both auth answers** are worth keeping together, because no one
+  of them alone makes the case obvious: a cached page preserves `Authenticated: false` whatever
+  session the run holds; a page carrying no evidence either way (a 404, a file body, an AO3 soft
+  error) also reads false, because T5 deliberately collapses *unknown* to false so a 404 cannot
+  discard a working session; and after T5 a session can die mid-run, so page 1 can be logged in and
+  every page after it anonymous. The last of those needs no cache entry and no unparseable page, and
+  is the one that makes this reachable on an ordinary healthy instance.
+- **`RecordTotal` rewrites the total on every unfiltered page with a readable heading**, which is
+  easy to miss when reading the walk — it looks like a once-per-run write. So within a run the *last*
+  such page owns both the number and the flag, and the new test
+  `Takes_the_Authenticated_flag_from_the_last_page_that_wrote_the_total` is the one that pins it.
+  Anything later that wants "the total as page 1 read it" has to say so; today the code says the
+  opposite and now has a test agreeing with itself.
+- **The audit's D13 gap is closed** — `.devloop/scraper-audit.md` row D13 and its findings table both
+  updated rather than left claiming an open gap. The audit is a document future tasks read as current;
+  a closed gap it still lists is a re-derivation waiting to happen, which is the exact failure this
+  task existed to end.

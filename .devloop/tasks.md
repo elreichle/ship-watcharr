@@ -14,12 +14,10 @@ the file but is blocked by T51, which is still `todo`.) **Read T13's notes befor
 the capture withdrew T12's original URL-construction design, and building to T11's handoff ships a
 guess T13 then has to undo.
 
-**2026-08-25: T44 stopped being latent.** T5 landed, so `ScrapeHttpResponse.Authenticated` now
-carries a real value and `Ship.LastKnownTotalWasAuthenticated` can be stamped onto a total that was
-demonstrably read without a session. It is a small fix that four separate readers have now derived
-from the same two lines; take it early rather than let a fifth re-derive it.
-`.devloop/scraper-audit.md` is what that section's reasoning turned into; read it before touching
-the walk.
+**2026-08-25: T44 is done** — taken ahead of file order for the reason this note used to give, that
+five readers had derived the same two-line fix. It is closed; the run order is plain file order
+again. `.devloop/scraper-audit.md` is what that section's reasoning turned into; read it before
+touching the walk.
 
 **2026-08-24: nothing is `blocked` any more.** Emma saved the three AO3 captures the plan was
 parked on (`ao3-login-page.html`, `ao3-work-page.html`, `ao3-empty-listing.html`, under
@@ -1008,7 +1006,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   rule about what a stop may conclude, so it belongs in T28's table either way.
 
 ## T44 — The authenticated-total flag must come from the request that read the total
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: `Ship.LastKnownTotalWasAuthenticated` describes the request whose heading was stored,
