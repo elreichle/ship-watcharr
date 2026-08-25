@@ -1321,6 +1321,14 @@ build. Not something a task should chase.
   the filename's extension; `ErrorMessage` on a failed row already names the half that failed, so the
   UI should show it rather than a generic failure; and re-requesting a queued format answers with the
   existing row, so the button needs no guard against a second click.
+- **`/code-review high` was launched over this diff and had not reported when the iteration ended.**
+  Unlike T5's and T44's entries there is therefore no review paragraph here, and that is a gap rather
+  than a clean bill: what stands behind this commit is my own reading of the diff, the eighteen
+  mutations, and the live boot. **The next iteration should run `/code-review high` over `7766481`
+  before starting T13** — the two places I would look first are the fetcher's failure paths (a file
+  moved into place before `StoreFileAsync` throws leaves bytes nothing names, which T11's decisions
+  already say is a separate reclamation job) and whether `File.Move(overwrite: true)` racing a
+  reader is really as harmless as the same-bytes argument claims.
   Filters checked to bite, per T22's lesson: `~DownloadWorker` matches 25 and covers every new test
   in the worker's own file; `~Ao3DownloadLinks` matches 11 and `~Ao3DownloadTransport` 5, which are
   the two seams that file does not reach. Still zero and still suspect: T31 `~TotalWorks`,
