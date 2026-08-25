@@ -1096,3 +1096,102 @@ build. Not something a task should chase.
 - next: T5 is the first `todo` in file order with no blockers, and its fixture is in place. Its one
   trap is in the notes: the capture holds two forms carrying an `authenticity_token`, and the first
   one on the page is the header dropdown's, not the login form's.
+
+## 2026-08-25 — T5 Authenticate to AO3 and reuse the session — done
+
+- did: The scraper logs in. Three seams the way the index scraper is three seams — `Ao3LoginPage`
+  (pure: reads `form#new_user`'s token, action and *field names*, and reads any AO3 page for whether
+  it was served to a session), `Ao3SessionEstablisher` (the two-request round trip), and
+  `Ao3SessionProvider` (decides whether one is needed). `IRateLimitedHttpClient` grew a logged-out
+  uncached GET and a form POST; `RateLimitedAo3HttpClient` now attaches the cached cookie to every
+  scrape, reads back off each page whether AO3 honoured it, and discards a session AO3 has stopped
+  accepting. `ScrapeWorker` establishes a session before running due jobs, and holds them when the
+  login is refused, exactly as it holds them when no login is stored.
+- files: `Api/Services/Scraping/{Ao3LoginPage,Ao3Cookies,Ao3SessionEstablisher,Ao3SessionProvider}.cs`
+  (new), `Api/Services/Credentials/IAo3SessionCache.cs` (new),
+  `Api/Services/Scraping/{IRateLimitedHttpClient,RateLimitedAo3HttpClient,ScrapeWorker}.cs`,
+  `Api/Services/Credentials/IAo3InstanceCredentialStore.cs`, `Api/Program.cs`,
+  `Tests/Ao3Login{Page,Establisher,Cookie,Provider,Transport,Worker}Tests.cs` + `Tests/Fixtures.cs`
+  (new), `Tests/{LibraryTestHost,JitterTests,Ao3Tracker.Tests.csproj}`,
+  `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter FullyQualifiedName~Ao3Login` → 97 passed (0 before — all new classes,
+  and the filter matches exactly those 97, nothing pre-existing); `dotnet test` → 585 passed (488
+  before); `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only.
+  Thirty-nine mutations applied one at a time, every one red by the end. Also booted a throwaway
+  instance on :5187 with a scratch data directory: it starts, both workers come up, and the gate
+  holds with both reasons.
+- commit: (see below)
+- next: **Two mutations survived the first sweep and one of them was the trap the task notes were
+  written to prevent.** The capture holds the `authenticity_token` in *three* places, not the two
+  the notes name — there is a `<meta name="csrf-token">` in the head at offset 2556, before either
+  form. The guard test replaced "the first occurrence" believing it to be the header dropdown's; it
+  was the meta tag's, both forms kept the real value, and `QuerySelector("form")` passed the test
+  that exists to catch exactly that. **This is the fifth arrival of the lesson the last four entries
+  name, and the first time it landed on a test written on purpose to construct the case.** Knowing
+  the trap was not enough; running the mutation is what caught it. The test now distinguishes all
+  three sites and a sibling asserts the capture really holds three copies, so the day AO3 stops
+  repeating the token the guard says so instead of silently stopping.
+  The second survivor was a harness artefact worth remembering: both `HttpClient`s wrapped the *same*
+  stub handler, so "the login goes through the transport that does not follow redirects" was
+  unobservable — a stub handler replaces precisely the component whose configuration is under test.
+  Two stubs now, and the assertion is which one received the POST.
+- **Two real defects found by reading the diff rather than by a test.** (1) `Uri.TryCreate(path,
+  UriKind.Absolute, …)` **succeeds on Linux** for `/users/login`, yielding `file:///users/login` — a
+  form action read off the page was being resolved against local disk. Caught by the first
+  establisher test to assert the posted URL; the scheme is now checked explicitly, and this is worth
+  remembering anywhere else in this codebase resolves a path out of markup. (2) The session cache is
+  reached from inside the shared HTTP client, which runs in the *scrape job's* scope — so discarding
+  a dead session called `SaveChangesAsync` on the walk's own `DbContext` and would have committed
+  whatever the ingestor had tracked at that moment. `Ao3SessionCache` is now a singleton that owns
+  the scope it reads and writes in, and `Ao3LoginSessionScopeTests` constructs the case (an unsaved
+  `Ship` in the caller's context that must still be unsaved afterwards). Both mutations kill.
+  **Anything reached from inside a walk that writes needs its own scope** — this is T27's lesson
+  arriving from a new direction.
+- **T44 has stopped being latent and its task now says so.** `ScrapeHttpResponse.Authenticated` was
+  a hardcoded `false` and is now read off each page's own markup, so a logged-in run genuinely mixes
+  true and false pages and `LastKnownTotalWasAuthenticated` can now be stamped onto a total read
+  without a session. Four readers have derived that fix from the same two lines; take it early.
+  One detail T5 adds: `Authenticated` is false for a page carrying **no** evidence either way, not
+  only for an anonymous one, so one unparseable page in a logged-in run is enough to reach it —
+  no cache entry required.
+- **The expiry mechanism is a markup reading, and that is not a shortcut.** AO3 answers a dead
+  session with a 200 and the anonymous view, never a 401, so nothing at the transport level can
+  notice. `nav#greeting` vs `#new_user_session_small` is validated from both sides against real
+  captures — the work page and the empty listing were saved logged in, the login page logged out.
+  A page carrying neither marker is `Unknown` and changes nothing, deliberately: treating "no
+  evidence" as "logged out" would throw a working session away over every 404.
+- **`/code-review high` found six, four of them in this diff and one of them serious.** The high one
+  is the politeness bug this project cares most about: a *refused* login was retried on every poll
+  for ever. Held jobs deliberately do not advance `NextRunAt`, so they stay due, so the next poll
+  asks again — two AO3 requests a minute, half of them failed POSTs to `/users/login`, from an
+  instance whose stored password will not become correct by being retried. Roughly 2,880 a day, and
+  indistinguishable from credential stuffing at the archive's end. `Ao3LoginBackoff` now climbs
+  5 → 15 → 30 → 60 minutes and stays there (48/day at the cap). **The hard part was not the backoff
+  but not punishing the operator with it**: a cooldown on a configuration error is a cooldown on the
+  person fixing it. So the admin credential endpoint calls `Reset()` on save and on clear, and the
+  next poll tries immediately — the wait only ever applies to something nobody has touched. Three
+  tests, one per path (backs off, lifts on its own, lifts at once when the credential is saved).
+  The other three in this diff were all in cookie handling and all real: (a) a page AO3 served logged
+  out was still cached under the `session:` key, so the run that re-authenticated found the dead
+  session's anonymous copy waiting under the key its fresh cookie computes — fifteen minutes of
+  reading the logged-out archive immediately after logging in to avoid exactly that; (b) `ExpiresAt`
+  was computed over the raw `Set-Cookie` headers, which include *deletions*, so a
+  `Set-Cookie: x=1; Max-Age=0` alongside the session dated the whole session to that instant and sent
+  the instance back to log in on every poll — the jar now carries each cookie's expiry and the
+  lifetime is read off what survived; (c) "AO3 set no cookies" could never fire, because the form
+  fetch had already put the anonymous pre-login cookie in the jar — so a POST that set nothing at all
+  was accepted and that anonymous cookie stored as the instance's session. Each is now pinned and
+  each mutation dies.
+  The two findings outside this diff: T44 (see above), and the transport-exception containment I had
+  already fixed while waiting for the review — arrived at independently from the same reading, which
+  is the second time on this branch that a defect and its fix have been derived twice.
+- **What the next tasks inherit.** T10 and T12 both fetch pages that are richer when logged in, and
+  they get that for free — `GetAsync` attaches the session and nothing else has to know. T12 in
+  particular should note that a download response is a *file*, so `ReadSessionState` will read
+  `Unknown` on it and `Authenticated` will be false; that is correct and not a bug to work around.
+  The login POST is the only write this software makes to AO3 and the spec's non-goals list is now
+  load-bearing rather than aspirational — `IRateLimitedHttpClient.PostFormAsync`'s doc comment says
+  so at the seam where someone would be tempted.
+  Filters checked to bite, per T22's lesson: `~Ao3Login` matches 97 and covers every new test in all
+  nine new classes. Still zero and still suspect: T31 `~TotalWorks`, T32 `~Monotonic`. T40's
+  `~PagesFetched` is zero by design.

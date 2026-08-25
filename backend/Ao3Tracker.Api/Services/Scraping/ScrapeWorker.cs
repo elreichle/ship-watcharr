@@ -39,6 +39,9 @@ public class ScrapeWorker : BackgroundService
     /// <summary>Last logged scraping-enabled state; null until the first check. See RunDueJobsAsync.</summary>
     private bool? _scrapingEnabled;
 
+    /// <summary>Last logged login state; null until the first attempt. See HasSessionAsync.</summary>
+    private bool? _loggedIn;
+
     public ScrapeWorker(
         IServiceScopeFactory scopeFactory,
         ILogger<ScrapeWorker> logger,
@@ -164,6 +167,13 @@ public class ScrapeWorker : BackgroundService
             .Select(j => j.Id)
             .ToListAsync(ct);
 
+        // Nothing is due, so nothing needs a session. Checked before logging in rather than after:
+        // an idle instance re-authenticating on a timer would be two requests an hour that read
+        // nothing, which is exactly the load this scraper exists to avoid putting on AO3.
+        if (dueJobIds.Count == 0) return;
+
+        if (!await HasSessionAsync(scope.ServiceProvider, ct)) return;
+
         foreach (var jobId in dueJobIds)
         {
             ct.ThrowIfCancellationRequested();
@@ -186,6 +196,41 @@ public class ScrapeWorker : BackgroundService
                 _logger.LogError(ex, "ScrapeJob {JobId} could not be run", jobId);
             }
         }
+    }
+
+    /// <summary>
+    /// Establishes the AO3 session the due jobs are about to scrape as, if there is not already a
+    /// usable one cached. Normally this sends nothing: the session outlives many polls.
+    ///
+    /// A login that fails holds the jobs exactly as the configuration gates do — no run recorded, no
+    /// NextRunAt advanced, no breaker touched. A wrong password and an archive that is down are both
+    /// states someone has to fix, and burning the jobs against either would turn one problem into a
+    /// schedule full of failures. Logged on transition only, for the same reason RunDueJobsAsync
+    /// logs its gates that way.
+    /// </summary>
+    private async Task<bool> HasSessionAsync(IServiceProvider services, CancellationToken ct)
+    {
+        var result = await services.GetRequiredService<IAo3SessionProvider>().EnsureSessionAsync(ct);
+
+        if (!result.Success)
+        {
+            if (_loggedIn != false)
+            {
+                _logger.LogError(
+                    "Scraping is held: this instance is not logged in to AO3.\n\n{Error}", result.Error);
+                _loggedIn = false;
+            }
+
+            return false;
+        }
+
+        if (_loggedIn != true)
+        {
+            _logger.LogInformation("Scraping as AO3 account {Ao3Username}", result.Username ?? "(stored login)");
+            _loggedIn = true;
+        }
+
+        return true;
     }
 
     /// <summary>

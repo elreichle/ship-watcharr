@@ -16,9 +16,11 @@ public class JitterTests
 
     private static RateLimitedAo3HttpClient Client(Ao3HttpClientOptions options) =>
         new(new HttpClient(),
+            new Ao3LoginHttpClient(new HttpClient()),
             new MemoryCache(new MemoryCacheOptions()),
             Options.Create(options),
             userAgents: null!,   // not reached: these tests exercise delay maths only
+            sessions: null!,     // likewise
             NullLogger<RateLimitedAo3HttpClient>.Instance);
 
     [Fact]

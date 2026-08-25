@@ -132,7 +132,43 @@ builder.Services
         // No default User-Agent here on purpose — see RateLimitedAo3HttpClient.SendWithRetryAsync,
         // which sets it per request so a settings change takes effect immediately.
         client.Timeout = TimeSpan.FromSeconds(30);
+    })
+    // Cookies off, redirects on. The instance's AO3 session lives in a database row shared by every
+    // process reading this deployment's data, so a per-handler cookie jar would be a second copy of
+    // it that quietly diverged; the client sets the header itself. Redirects stay automatic because
+    // a synonym tag is recognised by where the request ended up.
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        UseCookies = false,
+        AllowAutoRedirect = true,
     });
+
+// The login POST's transport, differing in exactly one setting: it does not follow redirects. A
+// successful login answers with a 302 whose Set-Cookie *is* the session, and following it spends
+// that cookie on a page nobody asked for. Same gate and same User-Agent — see Ao3LoginHttpClient.
+builder.Services
+    .AddHttpClient<Ao3LoginHttpClient>(client => client.Timeout = TimeSpan.FromSeconds(30))
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        UseCookies = false,
+        AllowAutoRedirect = false,
+    });
+
+// ---- The instance's AO3 session ----
+// Three seams rather than one, and the split is what keeps them acyclic: the HTTP client reads the
+// cached cookie through IAo3SessionCache (which cannot log in), the establisher performs the round
+// trip through the HTTP client, and the provider decides whether one is needed. Nothing that logs
+// in is reachable from the thing that attaches cookies.
+// Singleton, unlike its two neighbours: it owns the scope it reads and writes the session in,
+// precisely so that a cookie check reached from inside a scrape does not save through the scrape's
+// own DbContext. See Ao3SessionCache.
+builder.Services.AddSingleton<IAo3SessionCache, Ao3SessionCache>();
+builder.Services.AddScoped<IAo3SessionEstablisher, Ao3SessionEstablisher>();
+
+// Singleton, like ScrapeWakeSignal and for the same reason: the worker that backs off and the admin
+// request that cancels the backoff are the two things that have to agree about it.
+builder.Services.AddSingleton<Ao3LoginBackoff>();
+builder.Services.AddScoped<IAo3SessionProvider, Ao3SessionProvider>();
 
 // ---- Scrapers (add new IAo3Scraper implementations here; ScraperRegistry picks them up automatically) ----
 // Scoped rather than singleton: a scraper holds the DbContext it writes through, and the worker

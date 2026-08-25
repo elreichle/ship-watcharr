@@ -1428,3 +1428,100 @@ holds *two* forms carrying an `authenticity_token`, the header dropdown `#new_us
 and the real `#new_user`, both posting to `/users/login`. "The first token on the page" is the
 header's. T5's notes now say to select `#new_user` explicitly, so the fixture cannot be passed for
 the wrong reason.
+
+## 2026-08-25 — T5: the login is three seams, and the capture had a third token nobody counted
+
+**The token trap was worse than the fixture note said, and the note's own advice would not have
+caught it.** `ao3-login-page.html` carries the `authenticity_token` in *three* places, not two: a
+`<meta name="csrf-token">` in the head at offset 2556, then the header dropdown's hidden input, then
+the real form's. All three hold the same value in the capture, so no parser can be told from another
+by reading it. The first draft of the guard test replaced "the first occurrence" believing that to be
+the header dropdown's; it was the meta tag's, both forms kept the real token, and a parser mutated to
+`QuerySelector("form")` passed the test that exists to catch precisely that. The test now gives all
+three sites distinct values, and a sibling test asserts the capture really does hold three copies —
+because the moment AO3 stops repeating it, the guard test silently stops distinguishing anything.
+**This is the fifth arrival of the lesson the last four journal entries name**, and the first time it
+landed on a test written specifically to construct the case it then failed to construct. Writing the
+mutation first is the detector; running it is what actually catches this.
+
+**Session attachment lives in the HTTP client, and the cycle that implies is broken by narrowing,
+not by laziness.** The obvious wiring — client asks a session provider, provider logs in, login goes
+through the client — is a DI cycle. It is broken by splitting the session into two interfaces with
+opposite directions: `IAo3SessionCache` (read the cookie, discard it) is what the client depends on
+and cannot log in, while `IAo3SessionProvider` → `IAo3SessionEstablisher` → `IRateLimitedHttpClient`
+is the login path and nothing in it is reachable from the client. The consequence is deliberate: an
+expired session is re-established *between* runs by the worker, never re-entrantly in the middle of a
+request. The narrow cache also means the component that attaches cookies to outbound requests cannot
+read the deployment's password, which is now a fact about the type rather than a habit.
+
+**`Authenticated` is read off the page, not off "we sent a cookie".** AO3 answers a dead session with
+a 200 and the anonymous view — never a 401 — so the transport cannot tell, and a flag set from the
+request would be a lie a full sweep acts on. `Ao3LoginPage.ReadSessionState` reads AO3's own header:
+`nav#greeting` for a signed-in reader, `#new_user_session_small` for everyone else. Both markers are
+validated against real captures from both sides — the work page and the empty listing were saved
+logged in, the login page logged out. A page carrying neither is `Unknown` and changes nothing: a 404
+or a file body is not evidence, and treating "no evidence" as "logged out" would discard a working
+session over every miss. This is also the whole expiry mechanism — an explicit `LoggedOut` reading is
+what drops the cached cookie so the next poll logs in again.
+
+**Two transports, because exactly one request must not follow redirects.** A successful login answers
+with a 302 whose `Set-Cookie` *is* the session; following it spends that cookie on a page nobody
+asked for and the caller never sees it. Rather than turn redirects off for the whole scraper — they
+are how a synonym tag is recognised — the login POST gets a second `HttpClient` with
+`AllowAutoRedirect = false`. Both share the one static rate gate and the one User-Agent, so this is a
+differently-configured transport and never a second way out of the rate limit. Both handlers also run
+with `UseCookies = false`: the session is a database row shared by every process reading this
+deployment's data, so a per-handler cookie jar would be a second copy of it that quietly diverged.
+
+**The cache key gained the session, and it had to.** Anonymous and logged-in views of one URL are
+different pages — AO3 hides restricted works from nobody-in-particular — so a shared entry would hand
+a logged-in run the anonymous copy for the whole 15-minute window. Keyed by *whether* a session was
+sent rather than by which one: a re-login does not change what the archive will show this account.
+
+**A bug the tests found that no amount of reading would have.** `Uri.TryCreate("/users/login",
+UriKind.Absolute, …)` **succeeds on Linux**, producing `file:///users/login`. The form action read off
+the page was therefore being resolved against the local disk rather than against the archive. The
+scheme is now checked explicitly. Worth remembering anywhere else in this codebase resolves a path
+read out of markup.
+
+**The worker logs in only when something is due**, checked after the due-job query rather than
+before. An idle instance re-authenticating on a timer would be two requests an hour that read nothing
+at all, which is the load this scraper exists not to put on AO3. A login AO3 refuses holds the due
+jobs exactly as a missing credential does — no run recorded, no `NextRunAt` advanced, no breaker
+touched — because a wrong password is something a person has to fix, and burning the schedule against
+it would turn one problem into a job history full of failures.
+
+**A refused login must back off, and the backoff must not apply to the person fixing it.** Found by
+`/code-review high` at this task's review step, and it is the politeness defect this project cares
+most about: held jobs deliberately leave `NextRunAt` alone, so they stay due, so a refused login was
+re-attempted on every sixty-second poll — around 2,880 AO3 requests a day, half of them failed POSTs
+to `/users/login`, from an instance whose stored password will not become correct by being retried.
+`Ao3LoginBackoff` (singleton, the `ScrapeWakeSignal` shape) climbs 5 → 15 → 30 → 60 minutes and stays
+there. The design difficulty is that a cooldown on a *configuration error* is a cooldown on whoever is
+correcting it, which would contradict the gate design's own rule that saving a setting starts scraping
+on the next tick rather than at the next restart. Resolved by making the reset explicit rather than
+temporal: `AdminAo3CredentialController` clears the backoff whenever the credential is saved or
+cleared, so the wait only ever applies to a credential nobody has touched. The same schedule covers an
+unreachable archive as well as a refusal — neither is helped by being asked again in a minute.
+
+**The session's lifetime is read off the cookie jar, never off the `Set-Cookie` headers.** Also from
+the review. Those are not the same set: a header can announce a *deletion*, whose date is in the past
+by construction, so `Set-Cookie: banner=1; Max-Age=0` arriving beside the session dated the entire
+session to that instant and sent the instance back to log in on every single poll. `Ao3Cookies` now
+carries each cookie's expiry beside its value and `EarliestExpiry` takes the jar, so only cookies the
+instance is actually holding can shorten the session. The same change fixes the milder version — an
+unrelated short-lived cookie capping a fortnight-long login at a few minutes.
+
+**"The login set no cookies" has to be asked of the POST, not of the merged jar.** Third from the
+review. The form fetch already puts an anonymous `_otwarchive_session` in the jar, so the merged jar
+is non-empty however little the POST did — meaning a response that set nothing at all was accepted and
+that *anonymous* cookie encrypted and stored as the instance's session, with every later run believing
+it was logged in until some page happened to read `LoggedOut`. Rails rotates the session on sign-in, so
+a login that establishes no cookie of its own has signed nothing in, whatever its status line says.
+
+**A page proved to be logged-out is not cached.** Fourth from the review, and the subtlest. The
+request carried a cookie, so the response was keyed `session:` — but the session it named was dead.
+Discarding the cookie and caching the page meant the next poll logged in successfully, computed the
+same `session:` key, and was served the dead session's anonymous copy for the rest of the cache
+window: fifteen minutes reading the logged-out archive immediately after re-authenticating to avoid
+precisely that.

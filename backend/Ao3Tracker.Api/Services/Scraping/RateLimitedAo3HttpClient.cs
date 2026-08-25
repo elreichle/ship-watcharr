@@ -1,14 +1,36 @@
 using System.Net;
+using Ao3Tracker.Api.Services.Credentials;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 
 namespace Ao3Tracker.Api.Services.Scraping;
 
 /// <summary>
+/// The redirect-following half of the transport is wrong for exactly one request — the login POST,
+/// which answers success with a 302 whose <c>Set-Cookie</c> is the session itself. Follow that
+/// redirect and the cookie is spent on a page nobody asked for. So the login gets a second
+/// <see cref="HttpClient"/> configured not to follow redirects, rather than the whole scraper
+/// losing the automatic redirect that is how a synonym tag is recognised.
+///
+/// Same gate, same User-Agent, same options: this is a differently-configured transport, never a
+/// second way out of the rate limit.
+/// </summary>
+public sealed class Ao3LoginHttpClient
+{
+    public Ao3LoginHttpClient(HttpClient client) => Client = client;
+
+    public HttpClient Client { get; }
+}
+
+/// <summary>
 /// Single choke point for all outbound scraping traffic. Requests are serialized through
 /// one semaphore so that no matter how many scrapers/users run concurrently, requests to
 /// AO3 never go out faster than <see cref="Ao3HttpClientOptions.MinDelayBetweenRequests"/>
 /// apart. This is a hard constraint, not a tunable-away nicety.
+///
+/// It is also where the instance's AO3 session is attached, and the only place that decides a
+/// session has stopped working. Both belong here for the same reason the rate gate does: a scraper
+/// that had to remember to attach a cookie would eventually forget.
 /// </summary>
 public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
 {
@@ -16,33 +38,131 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
     private static DateTimeOffset _lastRequestAt = DateTimeOffset.MinValue;
 
     private readonly HttpClient _httpClient;
+    private readonly Ao3LoginHttpClient _loginClient;
     private readonly IMemoryCache _cache;
     private readonly Ao3HttpClientOptions _options;
     private readonly Ao3UserAgentProvider _userAgents;
+    private readonly IAo3SessionCache _sessions;
     private readonly ILogger<RateLimitedAo3HttpClient> _logger;
 
     public RateLimitedAo3HttpClient(
         HttpClient httpClient,
+        Ao3LoginHttpClient loginClient,
         IMemoryCache cache,
         IOptions<Ao3HttpClientOptions> options,
         Ao3UserAgentProvider userAgents,
+        IAo3SessionCache sessions,
         ILogger<RateLimitedAo3HttpClient> logger)
     {
         _httpClient = httpClient;
+        _loginClient = loginClient;
         _cache = cache;
         _options = options.Value;
         _userAgents = userAgents;
+        _sessions = sessions;
         _logger = logger;
     }
 
     public async Task<ScrapeHttpResponse> GetAsync(string url, CancellationToken ct = default)
     {
-        if (_cache.TryGetValue<ScrapeHttpResponse>(CacheKey(url), out var cached) && cached is not null)
+        var session = await _sessions.GetUsableAsync(ct);
+        var cookie = session?.SessionCookie;
+
+        // Anonymous and logged-in views of one URL are different pages — AO3 hides adult and
+        // restricted works from nobody-in-particular — so they cannot share a cache entry. Keyed by
+        // whether a session was sent rather than by which one: a re-login does not change what the
+        // archive is willing to show this account.
+        var cacheKey = CacheKey(url, authenticated: cookie is not null);
+
+        if (_cache.TryGetValue<ScrapeHttpResponse>(cacheKey, out var cached) && cached is not null)
         {
             _logger.LogDebug("Cache hit for {Url}", url);
             return cached with { FromCache = true };
         }
 
+        var response = await SendAsync(
+            _httpClient,
+            () => new HttpRequestMessage(HttpMethod.Get, url),
+            cookie,
+            ct);
+
+        // Dropped rather than carried: no scraper reads them, and a shared process-wide cache is no
+        // place to keep cookie material for fifteen minutes for no purpose. It also makes the
+        // interface's "empty for ordinary scraping requests" true rather than nearly true.
+        response = response with { SetCookieHeaders = null };
+
+        var reading = cookie is null ? null : await ReadSessionStateAsync(response, ct);
+        if (reading is not null)
+        {
+            response = response with { Authenticated = reading.State == Ao3SessionState.LoggedIn };
+        }
+
+        // A page AO3 served logged out while we held a session is the *dead* session's copy of it,
+        // and it must not be cached under the session key. The session is discarded, the next poll
+        // logs in again, and the very next request for this URL would then find that anonymous copy
+        // still sitting under the key the fresh session computes — reading the logged-out half of
+        // the archive for the rest of the cache window, having just re-authenticated to avoid
+        // exactly that.
+        if (response.StatusCode == HttpStatusCode.OK && reading?.State != Ao3SessionState.LoggedOut)
+        {
+            _cache.Set(cacheKey, response, _options.CacheDuration);
+        }
+
+        return response;
+    }
+
+    public Task<ScrapeHttpResponse> GetLoggedOutAsync(string url, CancellationToken ct = default) =>
+        SendAsync(_httpClient, () => new HttpRequestMessage(HttpMethod.Get, url), cookieHeader: null, ct);
+
+    public Task<ScrapeHttpResponse> PostFormAsync(
+        string url,
+        IReadOnlyDictionary<string, string> fields,
+        string? cookieHeader,
+        CancellationToken ct = default) =>
+        SendAsync(
+            _loginClient.Client,
+            () => new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = new FormUrlEncodedContent(fields),
+            },
+            cookieHeader,
+            ct);
+
+    /// <summary>
+    /// Reads back off the page whether AO3 actually served it to our session, and drops the cached
+    /// cookie when it plainly did not.
+    ///
+    /// This is the whole expiry mechanism. AO3 does not answer a dead session with a 401 — it
+    /// answers with a 200 and the anonymous view — so nothing at the transport level notices, and a
+    /// scraper would go on quietly reading the logged-out half of the archive for as long as the
+    /// row survived. Discarding costs one login; not discarding costs every restricted work.
+    ///
+    /// <see cref="Ao3SessionState.Unknown"/> changes nothing on purpose. A 404 or a file body is not
+    /// evidence, and throwing away a working session over one would re-login on every miss.
+    /// </summary>
+    private async Task<Ao3SessionReading> ReadSessionStateAsync(
+        ScrapeHttpResponse response, CancellationToken ct)
+    {
+        var reading = Ao3LoginPage.ReadSessionState(response.Content);
+
+        if (reading.State == Ao3SessionState.LoggedOut)
+        {
+            _logger.LogWarning(
+                "AO3 served {Url} logged out despite a stored session; discarding it so the next run logs in again.",
+                response.FinalUrl);
+
+            await _sessions.DiscardAsync(ct);
+        }
+
+        return reading;
+    }
+
+    private async Task<ScrapeHttpResponse> SendAsync(
+        HttpClient client,
+        Func<HttpRequestMessage> newRequest,
+        string? cookieHeader,
+        CancellationToken ct)
+    {
         await Gate.WaitAsync(ct);
         try
         {
@@ -50,14 +170,7 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
 
             try
             {
-                var response = await SendWithRetryAsync(url, ct);
-
-                if (response.StatusCode == HttpStatusCode.OK)
-                {
-                    _cache.Set(CacheKey(url), response, _options.CacheDuration);
-                }
-
-                return response;
+                return await SendWithRetryAsync(client, newRequest, cookieHeader, ct);
             }
             finally
             {
@@ -107,7 +220,11 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
         return min + (max - min) * Random.Shared.NextDouble();
     }
 
-    private async Task<ScrapeHttpResponse> SendWithRetryAsync(string url, CancellationToken ct)
+    private async Task<ScrapeHttpResponse> SendWithRetryAsync(
+        HttpClient client,
+        Func<HttpRequestMessage> newRequest,
+        string? cookieHeader,
+        CancellationToken ct)
     {
         var backoff = _options.InitialBackoff;
 
@@ -119,10 +236,15 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
 
         for (var attempt = 0; ; attempt++)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            using var request = newRequest();
             request.Headers.UserAgent.ParseAdd(userAgent);
 
-            using var response = await _httpClient.SendAsync(request, ct);
+            // Set by hand rather than through a CookieContainer: the session lives in the database
+            // and is shared by every process reading this deployment's data, so a per-handler
+            // cookie jar would be a second, divergent copy of it.
+            if (cookieHeader is not null) request.Headers.Add("Cookie", cookieHeader);
+
+            using var response = await client.SendAsync(request, ct);
             var isRetryable = response.StatusCode == HttpStatusCode.TooManyRequests ||
                                (int)response.StatusCode >= 500;
 
@@ -139,10 +261,11 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
                     FromCache: false,
                     FinalUrl: response.RequestMessage?.RequestUri?.ToString(),
 
-                    // Nothing attaches a session cookie yet, so every page this client fetches is
-                    // the logged-out view of it and saying otherwise would be a lie a full sweep
-                    // acts on. T5 is where the request gains a session and this gains a source.
-                    Authenticated: false);
+                    // Set by the caller that knows whether a session was attached, and only from
+                    // the page's own evidence. Nothing here can tell.
+                    Authenticated: false,
+                    SetCookieHeaders: SetCookies(response),
+                    Location: response.Headers.Location?.ToString());
             }
 
             // Retry-After is AO3 telling us exactly what it wants; honor it verbatim and do not
@@ -152,12 +275,15 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
 
             _logger.LogWarning(
                 "Scrape request to {Url} got {StatusCode}, retrying in {Delay} (attempt {Attempt}/{MaxRetries})",
-                url, response.StatusCode, delay, attempt + 1, _options.MaxRetries);
+                request.RequestUri, response.StatusCode, delay, attempt + 1, _options.MaxRetries);
 
             await Task.Delay(delay, ct);
             backoff *= 2;
         }
     }
+
+    private static IReadOnlyList<string> SetCookies(HttpResponseMessage response) =>
+        response.Headers.TryGetValues("Set-Cookie", out var values) ? [.. values] : [];
 
     /// <summary>
     /// Spreads a computed backoff by ±<see cref="Ao3HttpClientOptions.BackoffJitterFactor"/>, so
@@ -172,5 +298,6 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
         return value * multiplier;
     }
 
-    private static string CacheKey(string url) => $"ao3http:{url}";
+    private static string CacheKey(string url, bool authenticated) =>
+        $"ao3http:{(authenticated ? "session" : "anon")}:{url}";
 }

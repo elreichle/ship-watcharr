@@ -64,6 +64,13 @@ internal sealed class LibraryTestHost : IDisposable
     /// </summary>
     public FixedClock Clock { get; } = new();
 
+    /// <summary>
+    /// The cooldown after a refused AO3 login, shared with the app the way the real singleton is —
+    /// so a test can watch a second poll decline to try again, and watch saving a credential undo
+    /// that.
+    /// </summary>
+    public Ao3LoginBackoff LoginBackoff { get; } = new();
+
     public LibraryTestHost(params IAo3Scraper[] scrapers) : this(null, scrapers) { }
 
     /// <summary>
@@ -130,6 +137,15 @@ internal sealed class LibraryTestHost : IDisposable
         services.AddScoped<Ao3UserAgentProvider>();
 
         services.AddSingleton<IRateLimitedHttpClient>(Http);
+
+        // The real login stack over the fake transport, rather than a stub provider: whether a due
+        // job runs now depends on an actual round trip through the actual login parser, so a stub
+        // would assert only that the worker asked something.
+        services.AddSingleton<IAo3SessionCache, Ao3SessionCache>();
+        services.AddScoped<IAo3SessionEstablisher, Ao3SessionEstablisher>();
+        services.AddSingleton(LoginBackoff);
+        services.AddScoped<IAo3SessionProvider, Ao3SessionProvider>();
+
         services.AddScoped<IShipVerifier, Ao3ShipVerifier>();
         services.AddSingleton(ScrapeWake);
 
@@ -212,6 +228,30 @@ internal sealed class LibraryTestHost : IDisposable
         using var scope = _provider.CreateScope();
         await scope.ServiceProvider.GetRequiredService<IAo3InstanceCredentialStore>()
             .SetCredentialAsync(username, password);
+    }
+
+    /// <summary>
+    /// Runs <paramref name="work"/> inside one request-shaped scope, so a test can hold that scope's
+    /// own <c>AppDbContext</c> and watch what a service reached from inside it does to it.
+    /// </summary>
+    public async Task WithScopeAsync(Func<IServiceProvider, Task> work)
+    {
+        using var scope = _provider.CreateScope();
+        await work(scope.ServiceProvider);
+    }
+
+    /// <summary>One AO3 login round trip, in a scope of its own the way the worker performs it.</summary>
+    public async Task<Ao3LoginResult> LogInToAo3Async()
+    {
+        using var scope = _provider.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<IAo3SessionEstablisher>().LogInAsync();
+    }
+
+    /// <summary>"Make sure there is a session", which is what the worker actually calls.</summary>
+    public async Task<Ao3LoginResult> EnsureAo3SessionAsync()
+    {
+        using var scope = _provider.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<IAo3SessionProvider>().EnsureSessionAsync();
     }
 
     /// <summary>The gate as the worker reads it, in a scope of its own.</summary>
@@ -337,6 +377,7 @@ internal sealed class LibraryTestHost : IDisposable
         return Build(new AdminAo3CredentialController(
             scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>(),
             scope.ServiceProvider.GetRequiredService<IAo3InstanceCredentialStore>(),
+            scope.ServiceProvider.GetRequiredService<Ao3LoginBackoff>(),
             scope.ServiceProvider.GetRequiredService<ILogger<AdminAo3CredentialController>>()),
             user, scope.ServiceProvider);
     }
@@ -398,10 +439,39 @@ internal sealed class FakeAo3Http : IRateLimitedHttpClient
     /// <summary>Every URL asked for, in order — so a test can assert nothing was fetched at all.</summary>
     public List<string> Requested { get; } = [];
 
+    /// <summary>
+    /// Login-page fetches, kept apart from <see cref="Requested"/> on purpose: that list means
+    /// "pages the scraper asked for", and folding an authentication round trip into it would change
+    /// what every existing assertion over it is saying.
+    /// </summary>
+    public List<string> LoginPagesRequested { get; } = [];
+
+    /// <summary>Every form posted, in order. The login POST is the only one this app makes.</summary>
+    public List<PostedForm> Posted { get; } = [];
+
     /// <summary>Set to make the transport itself fail, the way an unreachable archive does.</summary>
     public Exception? Fails { get; set; }
 
     public Func<string, ScrapeHttpResponse>? Responds { get; set; }
+
+    /// <summary>
+    /// What AO3's login page answers. Defaults to the real capture, so a test that is about
+    /// something else still authenticates through the actual parser rather than around it.
+    /// </summary>
+    public Func<string, ScrapeHttpResponse> RespondsToLoginPage { get; set; } =
+        url => new ScrapeHttpResponse(
+            Fixtures.Load(Fixtures.LoginPage), HttpStatusCode.OK, FromCache: false, FinalUrl: url,
+            SetCookieHeaders: ["_otwarchive_session=before-login; path=/; HttpOnly"]);
+
+    /// <summary>
+    /// What the login POST answers. Defaults to what a successful one looks like: a redirect away
+    /// from the login page, carrying the session it just established.
+    /// </summary>
+    public Func<string, ScrapeHttpResponse> RespondsToPost { get; set; } =
+        url => new ScrapeHttpResponse(
+            "", HttpStatusCode.Found, FromCache: false, FinalUrl: url,
+            SetCookieHeaders: ["_otwarchive_session=logged-in; path=/; HttpOnly"],
+            Location: "https://ao3.test/users/shipwatcharr");
 
     public Task<ScrapeHttpResponse> GetAsync(string url, CancellationToken ct = default)
     {
@@ -411,7 +481,30 @@ internal sealed class FakeAo3Http : IRateLimitedHttpClient
         return Task.FromResult(Responds?.Invoke(url)
             ?? new ScrapeHttpResponse("", HttpStatusCode.OK, FromCache: false, FinalUrl: url));
     }
+
+    public Task<ScrapeHttpResponse> GetLoggedOutAsync(string url, CancellationToken ct = default)
+    {
+        LoginPagesRequested.Add(url);
+        if (Fails is not null) throw Fails;
+
+        return Task.FromResult(RespondsToLoginPage(url));
+    }
+
+    public Task<ScrapeHttpResponse> PostFormAsync(
+        string url,
+        IReadOnlyDictionary<string, string> fields,
+        string? cookieHeader,
+        CancellationToken ct = default)
+    {
+        Posted.Add(new PostedForm(url, fields, cookieHeader));
+        if (Fails is not null) throw Fails;
+
+        return Task.FromResult(RespondsToPost(url));
+    }
 }
+
+internal sealed record PostedForm(
+    string Url, IReadOnlyDictionary<string, string> Fields, string? CookieHeader);
 
 /// <summary>Reports whatever contact the host currently holds, re-read on every call.</summary>
 internal sealed class StubContacts(Func<string?> contact) : IOperatorContactResolver

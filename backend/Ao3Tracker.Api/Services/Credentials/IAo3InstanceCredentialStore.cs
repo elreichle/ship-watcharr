@@ -4,7 +4,16 @@ namespace Ao3Tracker.Api.Services.Credentials;
 /// A logged-in AO3 session: the cookie, when it was obtained, and when AO3 said it stops working.
 /// A cache of the credential, never a substitute for it — losing one costs a re-login.
 /// </summary>
-public record Ao3Session(string SessionCookie, DateTime EstablishedAt, DateTime? ExpiresAt);
+public record Ao3Session(string SessionCookie, DateTime EstablishedAt, DateTime? ExpiresAt)
+{
+    /// <summary>
+    /// Whether this session is worth attaching to a request. A null expiry is a session AO3 gave no
+    /// end date for, which is usable until it demonstrably is not — the page it comes back on is
+    /// what settles that, not a guess made here.
+    /// </summary>
+    public bool IsUsableAt(DateTime utcNow) =>
+        !string.IsNullOrWhiteSpace(SessionCookie) && (ExpiresAt is null || ExpiresAt > utcNow);
+}
 
 /// <summary>
 /// Reads/writes the one AO3 account this deployment scrapes as, and its cached session.

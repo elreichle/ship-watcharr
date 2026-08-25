@@ -1,6 +1,7 @@
 using Ao3Tracker.Api.Dtos;
 using Ao3Tracker.Api.Models;
 using Ao3Tracker.Api.Services.Credentials;
+using Ao3Tracker.Api.Services.Scraping;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -27,15 +28,18 @@ public class AdminAo3CredentialController : ControllerBase
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IAo3InstanceCredentialStore _credentials;
+    private readonly Ao3LoginBackoff _loginBackoff;
     private readonly ILogger<AdminAo3CredentialController> _logger;
 
     public AdminAo3CredentialController(
         UserManager<ApplicationUser> userManager,
         IAo3InstanceCredentialStore credentials,
+        Ao3LoginBackoff loginBackoff,
         ILogger<AdminAo3CredentialController> logger)
     {
         _userManager = userManager;
         _credentials = credentials;
+        _loginBackoff = loginBackoff;
         _logger = logger;
     }
 
@@ -56,6 +60,11 @@ public class AdminAo3CredentialController : ControllerBase
         // typo; the password is passed through untouched, since whitespace in one is meaningful.
         await _credentials.SetCredentialAsync(request.Ao3Username.Trim(), request.Ao3Password, ct);
 
+        // The credential just changed, so whatever the last login was backing off from is no longer
+        // what would be tried. An operator correcting a password is owed an attempt on the next
+        // poll, not a wait for a cooldown that was measuring the old one.
+        _loginBackoff.Reset();
+
         _logger.LogInformation(
             "Instance AO3 credential saved by {UserId}; any cached session was discarded",
             _userManager.GetUserId(User));
@@ -72,6 +81,9 @@ public class AdminAo3CredentialController : ControllerBase
         // "a login is configured" to the scraping gate, which is exactly the half-configured state
         // clearing it is meant to leave behind.
         await _credentials.RemoveCredentialAsync(ct);
+
+        // Same reasoning as saving one: whatever the backoff was measuring is gone.
+        _loginBackoff.Reset();
 
         _logger.LogInformation("Instance AO3 credential cleared by {UserId}", _userManager.GetUserId(User));
 

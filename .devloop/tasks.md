@@ -9,7 +9,15 @@ a dependency cannot be met — needs a human).
 
 Empty, and deleted with T28: the audit that stood in this slot is done, every pre-loop scraper
 defect this loop inherited is closed, and nothing left is more urgent than file order. The next task
-is the first `todo` in file order whose `blocked-by` are all `done` — **T5**.
+is the first `todo` in file order whose `blocked-by` are all `done` — **T12**. (T10 is earlier in
+the file but is blocked by T51, which is still `todo`.) **Read T13's notes before starting T12** —
+the capture withdrew T12's original URL-construction design, and building to T11's handoff ships a
+guess T13 then has to undo.
+
+**2026-08-25: T44 stopped being latent.** T5 landed, so `ScrapeHttpResponse.Authenticated` now
+carries a real value and `Ship.LastKnownTotalWasAuthenticated` can be stamped onto a total that was
+demonstrably read without a session. It is a small fix that four separate readers have now derived
+from the same two lines; take it early rather than let a fifth re-derive it.
 `.devloop/scraper-audit.md` is what that section's reasoning turned into; read it before touching
 the walk.
 
@@ -106,7 +114,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   purpose `Ao3Tracker.Ao3Credentials.v1`). Do not delete or rewrite that earlier migration.
 
 ## T5 — Authenticate to AO3 and reuse the session
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none — **the fixture has landed.**
   `backend/Ao3Tracker.Tests/Fixtures/ao3-login-page.html` is a real logged-out capture of
@@ -1022,11 +1030,21 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   Reported a **third** time by `/code-review high` at T11's review step, again off
   `Ao3ShipIndexScraper.cs:944`, again with the same fix. Three independent readers have now derived
   it from the same two lines; the next one should fix it rather than re-derive it.
-  Latent until T5 teaches the client to authenticate — nothing sets `Authenticated` before then —
-  so this is cheap now and a live wrong answer the day T5 lands. The fix is to capture the flag
-  beside the write, in `RecordTotal`, rather than to OR it across the run; T30's own note that the
-  pair "travel together or the pair says something neither run did" is the argument, one scope
-  further in. Add it to T5's reading, since T5 is what makes it reachable.
+  Was latent until T5 taught the client to authenticate. **T5 has landed, so this is now live.**
+  `ScrapeHttpResponse.Authenticated` is no longer a constant: it is read off each page's own markup
+  (`nav#greeting` vs the login dropdown) by `RateLimitedAo3HttpClient`, so a run over a logged-in
+  instance genuinely mixes true and false pages and the OR across the run genuinely mis-stamps the
+  total. The fix is unchanged — capture the flag beside the write, in `RecordTotal`, rather than
+  ORing it across the run; T30's own note that the pair "travel together or the pair says something
+  neither run did" is the argument, one scope further in.
+  One detail T5 adds to the scenario: `Authenticated` is false for any page carrying **no** evidence
+  either way (a 404, a file body), not merely for anonymous ones. So the mixed run is reachable
+  without a cache entry at all — one unparseable page in a logged-in run is enough.
+  T5's review added a **fourth** independent derivation and a new reachability path with it: a session
+  can now *die mid-run* — `RateLimitedAo3HttpClient` discards it the moment a page comes back logged
+  out, and every later `GetAsync` in that run then goes out anonymous. So page 1 sets the latch, the
+  session dies, page 5 writes a short anonymous total, and the flag is stored `true` over it. No
+  cache entry and no unparseable page needed.
 
 ## T45 — An incremental pass that cannot get past page 1 has no bound
 - status: todo
