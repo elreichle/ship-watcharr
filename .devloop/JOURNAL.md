@@ -1277,7 +1277,7 @@ build. Not something a task should chase.
   fast-refresh warnings only. Twenty-three mutations applied one at a time, every one red by the end. Also booted a throwaway
   instance on :5193 with a scratch data directory: it starts, both workers come up, and the download
   worker's startup reconciliation runs.
-- commit: 7766481
+- commit: 7766481, with the review's fixes in f397956
 - next: **T13 has no blocker any more and is next in file order.** It was written expecting to undo
   T12's URL construction; there is none to undo, because T12 was built to the capture. What is left
   is a test per format and the two questions no capture can answer — a stale `updated_at`, and
