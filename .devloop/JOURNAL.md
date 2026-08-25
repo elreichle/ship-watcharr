@@ -1211,7 +1211,7 @@ build. Not something a task should chase.
   `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only. Two mutations,
   both killed: `= authenticated` → `|= authenticated` kills the two "a later read replaces the flag"
   tests, and hardcoding `authenticated: true` at the call site kills four.
-- commit: <pending>
+- commit: f083538
 - next: **Taken ahead of T12's turn in file order, on the run-order note's own instruction**, and
   that note is now rewritten — file order is plain again and T12 is next. Read T13's "What the
   capture says" before starting T12; that instruction has not been consumed by anything yet.
@@ -1238,3 +1238,17 @@ build. Not something a task should chase.
   updated rather than left claiming an open gap. The audit is a document future tasks read as current;
   a closed gap it still lists is a re-derivation waiting to happen, which is the exact failure this
   task existed to end.
+- **T44's `/code-review high` found two, neither in this diff, and both escalate a task already on
+  the list rather than adding one.** (1) T49 was filed as a cosmetic placeholder bug; the review
+  checked it empirically against a real logging provider and it **throws** — six placeholders over
+  five arguments makes `string.Format` fail, `Logger.Log` rethrows as `AggregateException`, and the
+  exception unwinds before `ship.BackfillNextPage = page - 1`, so the stale-cursor retreat never
+  retreats and the ship re-sends the same failing request every run for ever. The suite is blind to
+  it because `LibraryTestHost` registers no logging providers. T49's title and notes now say so.
+  (2) `BackfillStalledRuns` increments for any backfill that read no page, not only for a stale
+  cursor — `firstPage ??= page` runs before the `unreadable` break — so an AO3 outage retires every
+  followed ship's back catalogue through a `Failed` state nothing can leave. Added to T38, which
+  owns the exit, because fixing one half without the other leaves the bug.
+  **The lesson for this loop: a warning the build has been printing since T37 was triaged as
+  cosmetic by three passes and is a hang.** CA2017 is the one warning in this build; it was read as
+  a formatting nit and never run. Nothing in the suite formats a log message.

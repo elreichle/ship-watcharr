@@ -854,6 +854,19 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   first stalled run rather than its twelfth.
   T26's, T30's and now T8's review have each arrived at this same missing reset independently —
   three reports, one defect. The fourth reader does not need to re-derive it; it needs to fix it.
+  **2026-08-25, T44's review: the counter also counts the wrong thing, which changes how urgent the
+  exit is.** `Ship.LastKnownTotal`-style documentation on `Ship.cs:90-97` says `BackfillStalledRuns`
+  counts "consecutive backfill runs whose *first request landed on a cursor the listing could not
+  answer*", reset "by any run that reads a page". The code does neither: it resets only on forward
+  progress (`ship.BackfillNextPage > startPage`), and `askedStaleCursor` is only one of the two ways
+  past the increment guard — the other is `firstPage is not null`. Because `firstPage ??= page` runs
+  *before* the `if (unreadable)` break, a backfill that fetched its own `startPage` and could not
+  parse it — an AO3 soft-error page served as 200, or a listing markup change — increments with no
+  cursor staleness involved. So a site-wide transient retires the back catalogue of **every**
+  followed ship after twelve runs, and the full sweep the log points operators at does not exist yet.
+  Decide both halves here: narrow the increment to `askedStaleCursor` to match the documented intent,
+  *and* ship the recovery path. Fixing only the exit leaves the over-counting; fixing only the
+  counting leaves `Failed` a one-way door.
   T30's review adds the same fact from the other end, and it is what makes the missing exit airtight
   rather than merely inconvenient: **both** sites that reset `BackfillStalledRuns` sit on paths a
   `Failed` ship no longer reaches (`ScrapeWorker` only backfills `NotStarted`/`InProgress`), and
@@ -1165,12 +1178,26 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   when a fix turns one signal into a conclusion, ask what else in the same document can produce that
   signal — and the answer here is the same heading, four people's names and a title.
 
-## T49 — The stale-cursor retreat's warning renders a placeholder instead of a page number
+## T49 — The stale-cursor retreat's warning throws instead of retreating
 - status: todo
 - attempts: 0
 - blocked-by: none
 - delivers: `RetreatFromStaleCursor`'s log message names both page numbers it means, and the build
   stops emitting CA2017 for it.
+- **2026-08-25, T44's review: this is not a cosmetic defect and the title was wrong.** Reported by
+  `/code-review high` with an empirical check against `Microsoft.Extensions.Logging.Console` on
+  net10.0: six placeholders over five arguments makes `LogValuesFormatter` rewrite the template to
+  `{5}` and call `string.Format` with five values, so **any provider that formats the message
+  throws**, and `Logger.Log` rethrows it as an `AggregateException`. The exception unwinds out of
+  `ScrapeAsync` *before* `ship.BackfillNextPage = page - 1` runs and past `FinishAsync`, so the
+  retreat this code exists to perform never happens: the cursor does not step back,
+  `BackfillStalledRuns` never increments, and the ship re-sends the identical failing request every
+  scheduled run for ever, with a run history reading "An error occurred while writing to logger(s)".
+  That is precisely the T37/T43 case this path was built for — a cursor landing on a 404 or an empty
+  page — so the defect is on the recovery path for the failure it is meant to recover from.
+  **The suite cannot see it**: `LibraryTestHost` calls `services.AddLogging()` with no providers, so
+  no test ever formats a message. Whatever test this task adds has to make a provider format the
+  line, or it pins nothing — and that seam is worth having for every other template in the file.
 - verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Backfill` — 13
   today; name the new test so it matches — plus a build with no CA2017 in the output.
 - notes: Noticed at T47's baseline, not caused by it; the warning has been in every build since
