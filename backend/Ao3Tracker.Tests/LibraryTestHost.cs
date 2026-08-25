@@ -300,6 +300,23 @@ internal sealed class LibraryTestHost : IDisposable
             scope.ServiceProvider);
     }
 
+    /// <summary>
+    /// A downloads controller on a scope of its own, for the same reason as
+    /// <see cref="NewWorksRequest"/>: these tests queue through one "request" and read the queue
+    /// back through the next, and a shared context would answer the second out of the change
+    /// tracker the first warmed.
+    /// </summary>
+    public DownloadsController NewDownloadsRequest(ApplicationUser user)
+    {
+        var scope = _provider.CreateScope();
+        _perRequestScopes.Add(scope);
+
+        return Build(
+            new DownloadsController(scope.ServiceProvider.GetRequiredService<AppDbContext>()),
+            user,
+            scope.ServiceProvider);
+    }
+
     public SavedFiltersController SavedFilters(ApplicationUser user) => Build(new SavedFiltersController(
         _request.ServiceProvider.GetRequiredService<AppDbContext>()), user);
 

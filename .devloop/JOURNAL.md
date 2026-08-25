@@ -1001,3 +1001,62 @@ build. Not something a task should chase.
   Filters checked to bite, per T22's lesson: `~WorkDetail` matches 33 and covers every new test in
   both new classes (`--list-tests` grepped case-insensitively, per T28's note). Still zero and still
   suspect: T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.
+
+## 2026-08-24 — T11 Requesting a download — done
+
+- did: `DownloadsController` — `POST /api/works/{id}/downloads` queues a format, `GET
+  /api/downloads` lists the caller's, `DELETE /api/downloads/{id}` drops one. A request finds one of
+  four things and only two of them write: nothing (queued), this exact version already on disk
+  (complete on the spot, no AO3 request), a fetch already `Downloading` (left alone — the worker
+  owns that row), or a failed/stale request (re-armed, which completes it instantly if the current
+  version's bytes turned up meanwhile). Idempotent per (reader, work, format) on the model's own
+  unique index, so a second ask is the first row rather than a second queue entry. No migration:
+  `Download` and `WorkDownloadFile` were in `InitialCreate` on both providers already.
+- files: `Api/Controllers/DownloadsController.cs` (new), `Api/Dtos/DownloadDtos.cs` (new),
+  `Tests/DownloadsControllerTests.cs` (new), `Tests/LibraryTestHost.cs`,
+  `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter FullyQualifiedName~Download` → 26 passed (0 before — new class, and
+  `--list-tests` confirms the filter matches exactly those 26); `dotnet test` → 488 passed (462
+  before); `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only.
+  Sixteen mutations applied one at a time, every one red.
+- commit: (see below)
+- next: **Two mutations survived the first pass and both were the same mistake — a guard whose case
+  the fixture never constructs.** Dropping `existing.WorkDownloadFileId == onDisk.Id` from the
+  staleness check left the suite green, because the only stale test moved the work on *without*
+  seeding bytes for the version it moved to — so `onDisk` was null and the id comparison never ran.
+  Fixed by `Re_arms_a_stale_request_onto_the_version_another_reader_already_has`, which is the real
+  shape: the request holds v1, the work is at v2, and another reader's fetch already put v2 on disk.
+  The second was the size guard on the leave-alone branch, unreachable until the in-flight test
+  seeded a file. **This is T6's, T8's and T9's lesson a fourth time**, and the detector the last
+  three entries name works: write the mutation first, and if you cannot say which assertion breaks,
+  the assertion is not there yet.
+- **One design decision changed under mutation pressure and is better for it.** The first cut left
+  a `Pending` request alone alongside a `Downloading` one. That mutation was behaviourally
+  invisible, which is what exposed it as wrong rather than merely unpinned: re-arming a `Pending`
+  row writes nothing *unless* the bytes appeared on disk since it was made, in which case it stops
+  being a fetch anyone has to perform. Only `Downloading` is untouchable now — the worker owns that
+  row. `ToDto`'s `Status == Complete ? size : null` guard went the same way: once the leave-alone
+  call site passed the size only when the row actually holds the file, the guard was redundant, and
+  a redundant guard is an unpinned branch.
+- **What T12 needs from this, now in its notes.** The queue has **no wake signal** — a request is a
+  row and nothing tells anyone about it, so T12 owns however the worker learns of one
+  (`ScrapeWakeSignal` and `ShipsController`'s use of it are the shape). A row T12 may touch is one
+  whose status is `Pending`; `Downloading` means someone already holds it. And `DownloadStatus` has
+  no `Ready` despite T12's `delivers` line saying so — the completed state is `Complete`, already on
+  the wire.
+- **The downloads list is the one list in this app not scoped to watched ships**, and it is worth
+  knowing before T14 renders it. A download is something the reader asked for, not a view of the
+  library; hiding it when they unfollow the ship would hide the only handle able to delete it and
+  strand the file. `Keeps_listing_a_request_whose_ship_the_reader_has_stopped_watching` pins it.
+- **The review found nothing in this diff and two things on the branch, both already queued.**
+  `LastKnownTotalWasAuthenticated` is **T44**, now its *third* independent arrival from the same two
+  lines — the pattern T8's entry noted about T38 repeating itself, and the answer is again in the
+  task list rather than the code. The feed's note editor is **T57**, and the review added half a
+  symptom the task did not have: the success handler also closes the editor unconditionally, so a
+  reader who closes mid-save and reopens has it slammed shut. T57's notes now say the captured-draft
+  guard does not cover that half.
+- **No live check, and that is not a gap here.** T11 ships no UI; T14 is the task that drives these
+  endpoints through a browser, and `t9-live.sh` in the scratchpad is what it should copy.
+  Filters checked to bite, per T22's lesson: `~Download` matches 26 and covers every new test. Still
+  zero and still suspect: T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by
+  design.

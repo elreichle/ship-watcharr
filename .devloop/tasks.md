@@ -211,7 +211,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   observation wins, and this task then writes through that rule.
 
 ## T11 — Requesting a download
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: `POST /api/works/{id}/downloads` queues a request for a format,
@@ -241,6 +241,12 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   function with a comment saying it is unverified against real markup until T13 — that is the seam
   T13 replaces. Test against a local stub serving bytes, never the real archive. Downloads and
   scrapes share one global rate gate by design; do not add a second one.
+  T11 left the queue with **no wake signal** — a request is a row and nothing tells anyone about it,
+  so this task owns however the worker learns of one. `ScrapeWakeSignal` and the way
+  `ShipsController` sends it are the shape to copy if a poll interval is not good enough.
+  A row this worker may touch is one whose `Status` is `Pending`: `Downloading` means a worker
+  already holds it, and T11's re-request path deliberately leaves those alone. `DownloadStatus` has
+  no `Ready` — the completed state is `Complete`, which T11's wire format already reports.
 
 ## T13 — Confirm AO3's real download URLs
 - status: blocked
@@ -923,6 +929,9 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   `Ao3ShipIndexScraper.cs:944` and with the same fix — the cached-page half of the scenario stated
   the other way round (page 1 live with a cookie, page 5 from the shared cache writing the logged-out
   total). Second arrival; not a second defect.
+  Reported a **third** time by `/code-review high` at T11's review step, again off
+  `Ao3ShipIndexScraper.cs:944`, again with the same fix. Three independent readers have now derived
+  it from the same two lines; the next one should fix it rather than re-derive it.
   Latent until T5 teaches the client to authenticate — nothing sets `Authenticated` before then —
   so this is cheap now and a live wrong answer the day T5 lands. The fix is to capture the flag
   beside the write, in `RecordTotal`, rather than to OR it across the run; T30's own note that the
@@ -1258,3 +1267,8 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   detail page, where it is **already fixed**: `WorkDetailPage.commitNote` captures the draft it
   sent and clears only if the draft is still that. Copy that shape rather than inventing a second
   one, and leave the disabled-buttons behaviour alone — the bug is the reset, not the editing.
+  `/code-review high` at T11's review step found a **second symptom of the same line**: the success
+  handler also runs `setOpenNoteId((open) => (open === workId ? null : open))` unconditionally, so a
+  reader who closes the editor mid-save and reopens it has it slammed shut by the resolving write.
+  The same captured-draft guard does not cover this one — the close needs its own condition, or the
+  two need to be decided together.

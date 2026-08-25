@@ -1295,3 +1295,75 @@ sent and clears only if that is still what the box holds. **`WorksPage.tsx` has 
 not fixed here** — a frontend fix to the feed riding along in the detail page's commit is the
 wandering diff the loop policy forbids. Queued as **T57**, which says to copy this shape rather than
 invent a second one.
+
+## 2026-08-24 — T11: what a second ask costs, and what a request is allowed to hold
+
+**A download request is idempotent per (reader, work, format), so it answers 200 and never 201.**
+The unique index on those three columns is the model's own decision, and it makes "ask again" and
+"ask once" the same row by construction. A caller cannot act on the difference between the two, and
+there is no per-download resource to point a `Location` header at — adding a `GET
+/api/downloads/{id}` purely so a header had somewhere to aim would be a public endpoint nobody
+asked for. What the response carries instead is `Status`, which is the thing that actually differs
+between a request that queued and one that was already complete.
+
+**Four things a request can find, and only two of them write.** Nothing already there, and no file
+for this version: queued. Nothing there, but this exact version already on disk from another
+reader's fetch: complete on the spot, no AO3 request at all — this is the whole point of
+`WorkDownloadFile` being keyed by (work, format, `Work.UpdatedAt`) rather than living on the
+per-user row. A fetch already `Downloading`: left alone, because that row belongs to the worker
+until it finishes with it, and re-arming it is how one request becomes two fetches of identical
+bytes. Anything else — failed, or holding a copy of a version the work has moved past — is
+re-armed.
+
+**A request still `Pending` is re-armed rather than left alone, which is deliberate.** Re-arming it
+writes nothing unless the bytes turned up on disk meanwhile, in which case the request stops being
+a fetch anybody has to perform. Leaving `Pending` in the "don't touch it" set would have cost that
+and bought nothing, so only `Downloading` is untouchable.
+
+**Staleness is decided by which file the row names, not by its status.** A request that says
+`Complete` while the work has moved past the version it holds is not complete, and — the case that
+makes the distinction load-bearing — the bytes for the version it has moved *to* may already be on
+disk from another reader. Reading the status without reading `WorkDownloadFileId` would serve the
+old copy as the new one. Re-arming drops the stale file reference rather than keeping it as a
+fallback: a request that reports `Complete` beside bytes of a different version is worse than one
+that reports `Pending`.
+
+**The downloads list is the one list in this app not scoped to watched ships.** Every other query
+answers "what can this reader see" out of their subscriptions. A download is not a view of the
+library — it is something this reader asked for, and its file is on the instance's disk because
+they asked. Hiding the row when they unfollow the ship would hide the only handle able to delete
+it, stranding bytes nothing can reach. Scoped to `UserId` and nothing else, therefore.
+
+**Deleting a request never deletes the file.** `Download` → `WorkDownloadFile` is many-to-one with
+`OnDelete(SetNull)` on the FK, so dropping one reader's row cannot touch bytes another reader's row
+names. Reclaiming files that nothing references any more is a real job and deliberately not this
+one: it needs a rule about when an unreferenced file stops being worth keeping, and inventing one
+inside a DELETE handler would decide it by accident.
+
+**No migration.** `Download`, `WorkDownloadFile`, their unique indexes and their FK behaviours were
+all in `InitialCreate` on both providers — the model was designed for this and only the code was
+missing. T11 adds no column.
+
+**The unique-index race is handled and unpinned, on T6's precedent.** Two clicks on one format
+button land as two inserts and the loser catches `DbUpdateException`, re-reads the winner and
+answers with it — the same shape as `WorksController.SetWorkState`, minus the merge, because two
+requests for one format of one work cannot have asked for different things. As with T6, there is no
+test: the fixture shares a single SQLite connection, so there is no seam to open the window. Said
+out loud here so the gap reads as a decision rather than an oversight.
+
+## 2026-08-24 — T11's review: nothing in the diff, two already-queued findings
+
+`/code-review high` over the branch and the working tree found nothing in T11's code — it read the
+per-caller scoping, the library 404, the `Enum.IsDefined` guard, the race handling and the
+shared-file delete as sound. Its two findings are both against earlier commits and both already
+have tasks, so neither is fixed here: fixing them in this diff is the wandering diff the loop policy
+forbids.
+
+**`LastKnownTotalWasAuthenticated` is T44, and this is its third independent arrival.** Same two
+lines (`readWhileLoggedIn |=` accumulating per run against `RecordTotal` writing per page), same
+fix, derived from scratch by a third reader. The task now says so.
+
+**The feed's note editor is T57, and the review added a symptom the task did not have.** Beside the
+draft being replaced, the success handler closes the editor unconditionally — so a reader who closes
+mid-save and reopens has it slammed shut by the resolving write. `WorkDetailPage`'s captured-draft
+guard does not cover that half, which T57's notes now record.
