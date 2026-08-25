@@ -4,6 +4,7 @@ using Ao3Tracker.Api.Controllers;
 using Ao3Tracker.Api.Data;
 using Ao3Tracker.Api.Models;
 using Ao3Tracker.Api.Services.Credentials;
+using Ao3Tracker.Api.Services.Downloads;
 using Ao3Tracker.Api.Services.Scraping;
 using Ao3Tracker.Api.Services.Settings;
 using Ao3Tracker.Api.Services.Storage;
@@ -55,6 +56,13 @@ internal sealed class LibraryTestHost : IDisposable
     /// tests, so a pending wake stays pending — which is what lets a test assert one was sent.
     /// </summary>
     public ScrapeWakeSignal ScrapeWake { get; } = new();
+
+    /// <summary>
+    /// The signal a download request uses to wake the download worker. Its own rather than the
+    /// scraper's, which is the thing a test asserting "asking for a file did not start a scrape"
+    /// depends on.
+    /// </summary>
+    public DownloadWakeSignal DownloadWake { get; } = new();
 
     /// <summary>
     /// The clock every service in this fixture reads, registered as the container's TimeProvider.
@@ -148,6 +156,11 @@ internal sealed class LibraryTestHost : IDisposable
 
         services.AddScoped<IShipVerifier, Ao3ShipVerifier>();
         services.AddSingleton(ScrapeWake);
+        services.AddSingleton(DownloadWake);
+
+        // The real fetcher over the same database and the same fake archive: what these tests are
+        // about is which rows and which files a drain leaves behind.
+        services.AddScoped<IDownloadFetcher, DownloadFetcher>();
 
         // The real ingestor and the real ship-index scraper, over the same in-memory database as
         // everything else here: what these tests are about is which rows a walk leaves behind, and a
@@ -222,6 +235,20 @@ internal sealed class LibraryTestHost : IDisposable
         _provider.GetRequiredService<IOptions<Ao3HttpClientOptions>>(),
         ScrapeWake);
 
+    /// <summary>
+    /// One poll of the download worker, without a host or a timer — the same call its loop makes.
+    /// Returned rather than constructed per call so a test can drain twice through the same worker,
+    /// which is what "the next poll picks up what the last one left queued" means.
+    /// </summary>
+    public DownloadWorker NewDownloadWorker() => new(
+        _provider.GetRequiredService<IServiceScopeFactory>(),
+        _provider.GetRequiredService<ILogger<DownloadWorker>>(),
+        _provider.GetRequiredService<IOptions<Ao3HttpClientOptions>>(),
+        DownloadWake);
+
+    /// <summary>Where this fixture's instance keeps everything it persists, downloads included.</summary>
+    public string DataDirectory => _dataDirectory;
+
     /// <summary>Stores an instance AO3 login, the way the admin endpoint does.</summary>
     public async Task SaveAo3LoginAsync(string username = "shipwatcharr", string password = "hunter2")
     {
@@ -276,6 +303,20 @@ internal sealed class LibraryTestHost : IDisposable
 
         return await scope.ServiceProvider.GetRequiredService<Ao3ShipIndexScraper>().ExecuteAsync(
             new ScrapeContext(job, ship, mode, budget ?? new ScrapeBudget(new Ao3HttpClientOptions())));
+    }
+
+    /// <summary>
+    /// One queued download, fetched in a scope of its own the way the worker fetches them — but
+    /// without the worker's own "only Pending rows" query in front of it. That is the point: the
+    /// fetcher decides what it may claim, and a test that could only reach it through the worker
+    /// would be asserting the query rather than the rule.
+    /// </summary>
+    public async Task<DownloadFetchOutcome> FetchDownloadAsync(int downloadId, ScrapeBudget? budget = null)
+    {
+        using var scope = _provider.CreateScope();
+
+        return await scope.ServiceProvider.GetRequiredService<IDownloadFetcher>()
+            .FetchAsync(downloadId, budget ?? new ScrapeBudget(new Ao3HttpClientOptions()));
     }
 
     /// <summary>
@@ -352,7 +393,9 @@ internal sealed class LibraryTestHost : IDisposable
         _perRequestScopes.Add(scope);
 
         return Build(
-            new DownloadsController(scope.ServiceProvider.GetRequiredService<AppDbContext>()),
+            new DownloadsController(
+                scope.ServiceProvider.GetRequiredService<AppDbContext>(),
+                scope.ServiceProvider.GetRequiredService<DownloadWakeSignal>()),
             user,
             scope.ServiceProvider);
     }
@@ -449,6 +492,24 @@ internal sealed class FakeAo3Http : IRateLimitedHttpClient
     /// <summary>Every form posted, in order. The login POST is the only one this app makes.</summary>
     public List<PostedForm> Posted { get; } = [];
 
+    /// <summary>
+    /// Every file fetched, in order. Kept apart from <see cref="Requested"/> for the same reason
+    /// the login page is: that list means "pages", and a download is two requests of which only the
+    /// first is one.
+    /// </summary>
+    public List<string> FilesRequested { get; } = [];
+
+    /// <summary>What AO3 serves for a download. Defaults to a small file that arrives intact.</summary>
+    public Func<string, (HttpStatusCode Status, byte[] Body)> RespondsToDownload { get; set; } =
+        _ => (HttpStatusCode.OK, "EPUB bytes"u8.ToArray());
+
+    /// <summary>
+    /// Makes every download report that it ran past what the instance will store. The real
+    /// transport decides this by counting bytes against a configured ceiling, which is its own
+    /// business — what a caller has to do about it is this fixture's.
+    /// </summary>
+    public bool DownloadsExceedTheSizeLimit { get; set; }
+
     /// <summary>Set to make the transport itself fail, the way an unreachable archive does.</summary>
     public Exception? Fails { get; set; }
 
@@ -500,6 +561,26 @@ internal sealed class FakeAo3Http : IRateLimitedHttpClient
         if (Fails is not null) throw Fails;
 
         return Task.FromResult(RespondsToPost(url));
+    }
+
+    public async Task<ScrapeDownloadResponse> DownloadAsync(
+        string url, Stream destination, CancellationToken ct = default)
+    {
+        FilesRequested.Add(url);
+        if (Fails is not null) throw Fails;
+
+        var (status, body) = RespondsToDownload(url);
+
+        // Only a 200 writes, the way the real transport only writes a 200: a body explaining a
+        // failure is not the file, and a fake that wrote it anyway would let a test pass on bytes
+        // the app would never have stored.
+        if (status == HttpStatusCode.OK) await destination.WriteAsync(body, ct);
+
+        return new ScrapeDownloadResponse(
+            status,
+            status == HttpStatusCode.OK ? body.Length : 0,
+            url,
+            ExceededSizeLimit: DownloadsExceedTheSizeLimit);
     }
 }
 

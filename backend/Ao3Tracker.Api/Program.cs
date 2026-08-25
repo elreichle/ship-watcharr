@@ -1,6 +1,7 @@
 using Ao3Tracker.Api.Data;
 using Ao3Tracker.Api.Models;
 using Ao3Tracker.Api.Services.Credentials;
+using Ao3Tracker.Api.Services.Downloads;
 using Ao3Tracker.Api.Services.Scraping;
 using Ao3Tracker.Api.Services.Settings;
 using Ao3Tracker.Api.Services.Storage;
@@ -185,12 +186,22 @@ builder.Services.AddScoped<ScraperRegistry>();
 // their canonical tag). Shares the rate-limited client, so it cannot outpace scraping. ----
 builder.Services.AddScoped<IShipVerifier, Ao3ShipVerifier>();
 
+// ---- Downloads ----
+// Scoped for the same reason a scraper is: the fetcher writes through the DbContext of the scope
+// the worker resolved it in, one per queued request.
+builder.Services.AddScoped<IDownloadFetcher, DownloadFetcher>();
+
 // ---- Background workers ----
 // Singleton, and registered before the worker that waits on it: the signal is the one piece of
 // state a scoped request and the long-lived worker have to share.
 builder.Services.AddSingleton<ScrapeWakeSignal>();
+builder.Services.AddSingleton<DownloadWakeSignal>();
 builder.Services.AddHostedService<ScrapeWorker>();
 builder.Services.AddHostedService<ShipVerificationWorker>();
+
+// Shares the rate gate with the two above, so a queue of downloads cannot outpace scraping or be
+// outpaced by it — one instance, one stream of requests to AO3.
+builder.Services.AddHostedService<DownloadWorker>();
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();

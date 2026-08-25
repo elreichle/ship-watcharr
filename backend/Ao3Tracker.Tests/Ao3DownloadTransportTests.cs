@@ -1,0 +1,161 @@
+using System.Net;
+using Ao3Tracker.Api.Services.Credentials;
+using Ao3Tracker.Api.Services.Scraping;
+using Ao3Tracker.Api.Services.Storage;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+
+namespace Ao3Tracker.Tests;
+
+/// <summary>
+/// What fetching a file rather than a page actually puts on the wire, over the real
+/// <see cref="RateLimitedAo3HttpClient"/> and a handler standing in for AO3.
+///
+/// The fake the rest of the suite uses implements the interface, so it cannot answer any of this:
+/// whether the instance's session and User-Agent really travel with a download, whether a body that
+/// is not a 200 is kept off the disk, or whether a response with no end is allowed to run forever.
+/// Those are decided by the transport, so they are tested against the transport.
+/// </summary>
+public class Ao3DownloadTransportTests : IDisposable
+{
+    private const string Url = "https://ao3.test/downloads/1/we_chose_to_wait.epub?updated_at=1767140797";
+
+    private static readonly byte[] Body = "EPUB bytes"u8.ToArray();
+
+    private readonly string _dataDirectory =
+        Directory.CreateTempSubdirectory("ship-watcharr-downloads-").FullName;
+
+    private readonly StubArchive _archive = new();
+    private readonly StubSessionCache _sessions = new();
+
+    public void Dispose()
+    {
+        try
+        {
+            Directory.Delete(_dataDirectory, recursive: true);
+        }
+        catch (IOException)
+        {
+            // A temp directory that outlives the test is untidy, never a failure.
+        }
+
+        GC.SuppressFinalize(this);
+    }
+
+    [Fact]
+    public async Task Writes_the_body_to_the_caller_s_stream()
+    {
+        _archive.Answers = _ => File(HttpStatusCode.OK, Body);
+
+        using var destination = new MemoryStream();
+        var result = await Client().DownloadAsync(Url, destination);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(Body.Length, result.BytesWritten);
+        Assert.Equal(Body, destination.ToArray());
+    }
+
+    [Fact]
+    public async Task Writes_nothing_at_all_for_a_response_that_is_not_a_200()
+    {
+        // AO3's explanation of a failure is not a copy of the work. Written to the stream it would
+        // become an error page on disk under a name saying it was an EPUB.
+        _archive.Answers = _ => File(HttpStatusCode.NotFound, "<html>Not found</html>"u8.ToArray());
+
+        using var destination = new MemoryStream();
+        var result = await Client().DownloadAsync(Url, destination);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(HttpStatusCode.NotFound, result.StatusCode);
+        Assert.Equal(0, result.BytesWritten);
+        Assert.Empty(destination.ToArray());
+    }
+
+    [Fact]
+    public async Task Abandons_a_response_that_runs_past_what_this_instance_will_store()
+    {
+        // A chunked response has no length until it has finished arriving, so without a ceiling
+        // "how much disk does one click cost" is a question only the remote end answers.
+        _archive.Answers = _ => File(HttpStatusCode.OK, new byte[4096]);
+
+        using var destination = new MemoryStream();
+        var result = await Client(maxDownloadBytes: 1024).DownloadAsync(Url, destination);
+
+        Assert.True(result.ExceededSizeLimit);
+
+        // Reported as a failure, so the caller never names a truncated file a copy of the work.
+        Assert.False(result.IsSuccess);
+    }
+
+    [Fact]
+    public async Task Attaches_the_instance_session_and_identity_to_a_file_request()
+    {
+        _sessions.Session = new Ao3Session("_otwarchive_session=abc123", DateTime.UtcNow, null);
+        _archive.Answers = _ => File(HttpStatusCode.OK, Body);
+
+        using var destination = new MemoryStream();
+        await Client().DownloadAsync(Url, destination);
+
+        var sent = Assert.Single(_archive.Received);
+        Assert.Equal("_otwarchive_session=abc123", sent.Cookie);
+
+        // The same honest header every other request carries. A download is not a request this app
+        // makes anonymously while the rest of it identifies itself.
+        Assert.Contains("ShipWatcharr", sent.UserAgent);
+    }
+
+    [Fact]
+    public async Task Fetches_the_same_file_twice_rather_than_serving_it_from_the_page_cache()
+    {
+        // The response cache exists to stop a *page* being re-read within fifteen minutes. Holding
+        // whole files in it would put an EPUB in memory for a quarter of an hour to save a fetch
+        // the row naming those bytes has already saved.
+        _archive.Answers = _ => File(HttpStatusCode.OK, Body);
+
+        var client = Client();
+
+        using var first = new MemoryStream();
+        using var second = new MemoryStream();
+        await client.DownloadAsync(Url, first);
+        await client.DownloadAsync(Url, second);
+
+        Assert.Equal(2, _archive.Received.Count);
+    }
+
+    private static HttpResponseMessage File(HttpStatusCode status, byte[] body) =>
+        new(status) { Content = new ByteArrayContent(body) };
+
+    private RateLimitedAo3HttpClient Client(long maxDownloadBytes = 64L * 1024 * 1024)
+    {
+        var options = Options.Create(new Ao3HttpClientOptions
+        {
+            BaseUrl = "https://ao3.test",
+            MinDelayBetweenRequests = TimeSpan.Zero,
+            MaxDelayBetweenRequests = TimeSpan.Zero,
+            MaxDownloadBytes = maxDownloadBytes,
+        });
+
+        var storagePaths = new StoragePaths(
+            _dataDirectory,
+            Path.Combine(_dataDirectory, "test.db"),
+            Path.Combine(_dataDirectory, "settings.json"),
+            Path.Combine(_dataDirectory, "keys"));
+
+        // The real User-Agent provider over a stub contact, as the login transport tests do: what
+        // goes in the header is decided by that provider's rules rather than by this test.
+        var userAgents = new Ao3UserAgentProvider(
+            options,
+            InstanceIdentity.LoadOrCreate(storagePaths),
+            new StubContacts(() => "emma@example.com"));
+
+        return new RateLimitedAo3HttpClient(
+            new HttpClient(_archive),
+            new Ao3LoginHttpClient(new HttpClient(new StubArchive())),
+            new MemoryCache(new MemoryCacheOptions()),
+            options,
+            userAgents,
+            _sessions,
+            NullLogger<RateLimitedAo3HttpClient>.Instance);
+    }
+}

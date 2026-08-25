@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Ao3Tracker.Api.Data;
 using Ao3Tracker.Api.Dtos;
 using Ao3Tracker.Api.Models;
+using Ao3Tracker.Api.Services.Downloads;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -29,10 +30,12 @@ namespace Ao3Tracker.Api.Controllers;
 public class DownloadsController : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly DownloadWakeSignal _wake;
 
-    public DownloadsController(AppDbContext db)
+    public DownloadsController(AppDbContext db, DownloadWakeSignal wake)
     {
         _db = db;
+        _wake = wake;
     }
 
     private string CurrentUserId => User.FindFirstValue(ClaimTypes.NameIdentifier)
@@ -144,6 +147,7 @@ public class DownloadsController : ControllerBase
             // case it stops being a fetch anyone has to perform.
             Arm(existing, onDisk);
             await _db.SaveChangesAsync(ct);
+            WakeTheWorker(existing);
 
             return Ok(ToDto(existing, work.Title, onDisk?.SizeBytes));
         }
@@ -179,9 +183,11 @@ public class DownloadsController : ControllerBase
             // Rethrowing keeps that a 500 carrying its own cause.
             if (winner is null) throw;
 
+            WakeTheWorker(winner);
             return Ok(ToDto(winner, work.Title, onDisk?.SizeBytes));
         }
 
+        WakeTheWorker(download);
         return Ok(ToDto(download, work.Title, onDisk?.SizeBytes));
     }
 
@@ -223,6 +229,20 @@ public class DownloadsController : ControllerBase
     /// Points a request at the bytes for the work's current version, or at the queue when there are
     /// none. The one place a request becomes complete without a fetch.
     /// </summary>
+    /// <summary>
+    /// Tells <see cref="DownloadWorker"/> there is something to fetch, when there is.
+    /// </summary>
+    /// <remarks>
+    /// Without this a queued request waits out the worker's poll interval before it even starts
+    /// waiting on the rate gate. Nothing is sent for a request that completed off a file already on
+    /// disk, and nothing for one already in flight — the worker holds that row and re-reading the
+    /// queue would tell it nothing new.
+    /// </remarks>
+    private void WakeTheWorker(Download download)
+    {
+        if (download.Status == DownloadStatus.Pending) _wake.Wake();
+    }
+
     private static void Arm(Download download, WorkDownloadFile? onDisk)
     {
         // The foreign key rather than the navigation: File is not loaded on this path, and

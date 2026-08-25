@@ -43,6 +43,31 @@ public record ScrapeHttpResponse(
 }
 
 /// <summary>
+/// What a fetch of a file rather than a page came back with. The bytes are not here: they went to
+/// the stream the caller supplied, so that nothing buffers a whole download in memory on the way to
+/// disk.
+/// </summary>
+/// <param name="BytesWritten">
+/// How much reached the destination stream. Zero on any non-OK status — a body AO3 sent to explain
+/// an error is not a copy of the work, and writing it would leave an error page on disk under a
+/// name saying it was an EPUB.
+/// </param>
+/// <param name="ExceededSizeLimit">
+/// True when the response ran past <see cref="Ao3HttpClientOptions.MaxDownloadBytes"/> and the copy
+/// was abandoned. Reported rather than thrown because it is an outcome the caller records against
+/// one request, the same as a 404 — and because whatever was written is not a whole file, which is
+/// exactly what the caller needs to know before naming it one.
+/// </param>
+public record ScrapeDownloadResponse(
+    HttpStatusCode StatusCode,
+    long BytesWritten,
+    string? FinalUrl = null,
+    bool ExceededSizeLimit = false)
+{
+    public bool IsSuccess => StatusCode == HttpStatusCode.OK && !ExceededSizeLimit;
+}
+
+/// <summary>
 /// Shared HTTP entry point for every scraper. Enforces a minimum delay between requests,
 /// retries with backoff on throttling/server errors, and serves unchanged pages from cache
 /// instead of re-fetching them. Scrapers must not construct their own HttpClient — going
@@ -80,4 +105,22 @@ public interface IRateLimitedHttpClient
         IReadOnlyDictionary<string, string> fields,
         string? cookieHeader,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Fetches a file into <paramref name="destination"/>, as the instance's AO3 account when a
+    /// session is cached.
+    /// </summary>
+    /// <remarks>
+    /// Downloads go through this rather than a client of their own for the reason every other
+    /// request does: this is where the global 5-8s spacing lives, and a second way out of it would
+    /// be a second load this instance puts on AO3 without saying so. A download and a scrape
+    /// therefore queue behind one another, by design.
+    ///
+    /// Streamed rather than returned, because the caller is writing to disk and a
+    /// <see cref="ScrapeHttpResponse"/> would mean holding an entire EPUB as a string first.
+    /// Nothing is cached either — the cache exists to stop a page being re-read within fifteen
+    /// minutes, and the same file's bytes are already de-duplicated by the row that names them.
+    /// </remarks>
+    Task<ScrapeDownloadResponse> DownloadAsync(
+        string url, Stream destination, CancellationToken ct = default);
 }

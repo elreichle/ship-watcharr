@@ -1252,3 +1252,76 @@ build. Not something a task should chase.
   **The lesson for this loop: a warning the build has been printing since T37 was triaged as
   cosmetic by three passes and is a hang.** CA2017 is the one warning in this build; it was read as
   a formatting nit and never run. Nothing in the suite formats a log message.
+
+## 2026-08-25 — T12 The download worker — done
+
+- did: Downloads are fetched. Four seams: `Ao3DownloadLinks` (pure — reads the download menu off a
+  work's page, because AO3's addresses cannot be constructed), `IRateLimitedHttpClient.DownloadAsync`
+  (streams a file through the same rate gate, size-capped and deadline-bounded), `DownloadFetcher`
+  (page → link → temp file → SHA-256 → atomic move → shared row), and `DownloadWorker` (a
+  `BackgroundService` beside `ScrapeWorker`: the same two gates, one `ScrapeBudget` per drain, woken
+  by `DownloadWakeSignal`, and re-queues fetches a restart interrupted). The transport's send path
+  became generic over *how* a response is read, so a download and a page share one gate, one retry
+  policy and one User-Agent by construction rather than by being written twice. `ScrapeWakeSignal`
+  and the new `DownloadWakeSignal` now share a `WakeSignal` base. No migration — `Download` and
+  `WorkDownloadFile` were in `InitialCreate` on both providers already.
+- files: `Api/Services/Downloads/{DownloadWorker,DownloadFetcher,DownloadPaths,DownloadWakeSignal}.cs`
+  (new), `Api/Services/Scraping/Ao3DownloadLinks.cs` (new), `Api/Services/WakeSignal.cs` (new),
+  `Api/Services/Scraping/{IRateLimitedHttpClient,RateLimitedAo3HttpClient,Ao3HttpClientOptions,ScrapeWakeSignal}.cs`,
+  `Api/Controllers/DownloadsController.cs`, `Api/Program.cs`,
+  `Tests/{DownloadWorkerTests,Ao3DownloadLinksTests,Ao3DownloadTransportTests}.cs` (new),
+  `Tests/LibraryTestHost.cs`, `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter FullyQualifiedName~DownloadWorker` → 25 passed (0 before — new class,
+  and the filter matches exactly those 25); `--filter ~Download` → 67 (26 before, T11's);
+  `dotnet test` → 628 passed (587 before); `npm run build` + `npm run lint` → clean, the two known
+  fast-refresh warnings only. Eighteen mutations applied one at a time. Also booted a throwaway
+  instance on :5193 with a scratch data directory: it starts, both workers come up, and the download
+  worker's startup reconciliation runs.
+- commit: <pending>
+- next: **T13 has no blocker any more and is next in file order.** It was written expecting to undo
+  T12's URL construction; there is none to undo, because T12 was built to the capture. What is left
+  is a test per format and the two questions no capture can answer — a stale `updated_at`, and
+  whether the links work anonymously. **Its verification filter was `~DownloadUrl`, which matched
+  nothing**; it is now `~Ao3DownloadLinks`. T13 also claimed AZW3 is not in `Ao3DownloadFormat` —
+  the enum has carried `Azw3 = 5` since `InitialCreate`, and that note is corrected rather than left
+  as a choice nobody made.
+- **One mutation survived, and it was the same shape as the four entries before this one.** Removing
+  the fetcher's own `Status != Pending` guard left the suite green, because the worker's query
+  already selects only `Pending` rows — so no test could ever hand the fetcher anything else. The
+  guard is not redundant: the worker reads ids in one scope and fetches in another, and a concurrent
+  request can settle a row in between (another reader's fetch lands, and their next request completes
+  this one off the bytes now on disk). Claiming it anyway would re-fetch a file the instance already
+  has. Pinned by `Refuses_a_request_that_stopped_being_queued_while_it_waited`, which reaches the
+  fetcher directly through a new `LibraryTestHost.FetchDownloadAsync` — going through the worker
+  would have been asserting the query rather than the rule.
+- **The serious defect I found was in reading my own diff, not in a test: a stalled download holds
+  the global rate gate.** The transfer happens *inside* the gate semaphore, and `HttpClient.Timeout`
+  stops applying once `ResponseHeadersRead` has the headers — so a socket that goes quiet mid-file
+  would block every outbound request this instance makes, for as long as it stayed open. One hung
+  download would stop the scraper entirely rather than merely failing. `DownloadTimeout` (5 minutes)
+  is now a linked deadline over the whole send, and the fetcher turns it into a `Failed` request
+  saying AO3 stopped sending, rather than the bare "the operation was canceled" the worker's
+  catch-all would otherwise have written. **Anything this codebase does inside that gate has to be
+  bounded in time** — the gate is process-wide and static.
+- **The size cap is the other thing worth remembering.** This is the first code in the project that
+  writes a remote body to disk, and a chunked response has no length until it has finished arriving,
+  so "how much disk does one click cost" was a question only AO3 could answer. `MaxDownloadBytes`
+  (64 MB, far above any real AO3 download) bounds it; a response past it is abandoned and reported,
+  never stored. Both halves of that matter: a truncated file that got a row would be served to
+  readers as a copy of the work.
+- **Every failure names which half failed, and none of them retries.** A download is two requests
+  now, so "it failed" is ambiguous in a way it never was for a scrape: the page can 404 while the
+  file would have been fine, and the page can parse to a menu offering no such format. Each is one
+  `Failed` row with a message, and a work AO3 has taken down is asked for once rather than on every
+  poll for ever. The one thing that is *not* a failure is the drain's budget running out — that
+  releases the request back to `Pending`, and the page it needs is still in the response cache when
+  the next poll picks it up.
+- **What T14 inherits, now in its notes.** `RelativePath` is relative to the data directory and must
+  be resolved with `DownloadPaths.Absolute`, never treated as a path; `DownloadPaths.Extension` gives
+  the filename's extension; `ErrorMessage` on a failed row already names the half that failed, so the
+  UI should show it rather than a generic failure; and re-requesting a queued format answers with the
+  existing row, so the button needs no guard against a second click.
+  Filters checked to bite, per T22's lesson: `~DownloadWorker` matches 25 and covers every new test
+  in the worker's own file; `~Ao3DownloadLinks` matches 11 and `~Ao3DownloadTransport` 5, which are
+  the two seams that file does not reach. Still zero and still suspect: T31 `~TotalWorks`,
+  T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.

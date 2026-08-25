@@ -61,6 +61,27 @@ public class Ao3HttpClientOptions
     public TimeSpan MaxRunDuration { get; set; } = TimeSpan.FromHours(2);
 
     /// <summary>
+    /// Ceiling on a single downloaded file. A response longer than this is abandoned part-way and
+    /// the request that asked for it fails with a message.
+    ///
+    /// 64 MB is far above any real AO3 download — the longest works on the archive are a few
+    /// megabytes as EPUB — and the number is not a guess at what AO3 sends. It is a bound on what
+    /// one click may cost this instance's disk, since a chunked response has no length until it has
+    /// finished arriving.
+    /// </summary>
+    public long MaxDownloadBytes { get; set; } = 64L * 1024 * 1024;
+
+    /// <summary>
+    /// How long one download may take in total, gate wait included.
+    ///
+    /// Separate from <c>HttpClient.Timeout</c>, which only bounds the wait for response *headers*
+    /// once a body is being streamed. Without this a stalled transfer holds the global rate gate —
+    /// the semaphore every outbound request queues behind — for as long as the socket stays open,
+    /// so one hung download would stop this instance scraping at all rather than merely failing.
+    /// </summary>
+    public TimeSpan DownloadTimeout { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>
     /// Product token identifying the software, not the operator. Constant and public on purpose:
     /// it is what lets AO3 recognise this tool's traffic as a known, well-behaved client.
     /// </summary>

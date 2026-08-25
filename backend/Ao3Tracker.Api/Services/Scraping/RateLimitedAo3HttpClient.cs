@@ -84,6 +84,7 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
             _httpClient,
             () => new HttpRequestMessage(HttpMethod.Get, url),
             cookie,
+            ReadPageAsync,
             ct);
 
         // Dropped rather than carried: no scraper reads them, and a shared process-wide cache is no
@@ -112,7 +113,12 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
     }
 
     public Task<ScrapeHttpResponse> GetLoggedOutAsync(string url, CancellationToken ct = default) =>
-        SendAsync(_httpClient, () => new HttpRequestMessage(HttpMethod.Get, url), cookieHeader: null, ct);
+        SendAsync(
+            _httpClient,
+            () => new HttpRequestMessage(HttpMethod.Get, url),
+            cookieHeader: null,
+            ReadPageAsync,
+            ct);
 
     public Task<ScrapeHttpResponse> PostFormAsync(
         string url,
@@ -126,7 +132,102 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
                 Content = new FormUrlEncodedContent(fields),
             },
             cookieHeader,
+            ReadPageAsync,
             ct);
+
+    public async Task<ScrapeDownloadResponse> DownloadAsync(
+        string url, Stream destination, CancellationToken ct = default)
+    {
+        var session = await _sessions.GetUsableAsync(ct);
+
+        // The transfer happens inside the global gate, so a socket that goes quiet mid-file would
+        // hold every other outbound request behind it for as long as it stayed open. HttpClient's
+        // own timeout does not cover this: with ResponseHeadersRead it stops applying once the
+        // headers are in. So the whole download gets a deadline of its own.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(_options.DownloadTimeout);
+
+        // ResponseHeadersRead, so the body is still on the socket when the reader gets it: the
+        // whole point of streaming a download is that a large one is never held in memory.
+        //
+        // Nothing here reads the session back off the response, unlike GetAsync. A file body
+        // carries no greeting and no login form, so Ao3LoginPage would read Unknown on every
+        // download and change nothing — asking would only mean parsing an EPUB as HTML.
+        return await SendAsync(
+            _httpClient,
+            () => new HttpRequestMessage(HttpMethod.Get, url),
+            session?.SessionCookie,
+            (response, token) => ReadFileAsync(response, destination, token),
+            deadline.Token,
+            HttpCompletionOption.ResponseHeadersRead);
+    }
+
+    /// <summary>
+    /// Copies a response body to the caller's stream, refusing anything that is not a 200 and
+    /// stopping at <see cref="Ao3HttpClientOptions.MaxDownloadBytes"/>.
+    /// </summary>
+    /// <remarks>
+    /// The cap is not paranoia about AO3. It is that this writes to the instance's disk on behalf of
+    /// whoever clicked a button, and a response with no Content-Length — which is what a chunked
+    /// error page is — has no size until it has finished arriving. Copying without a ceiling makes
+    /// "how much disk does one request cost" a question only the remote end answers.
+    /// </remarks>
+    private async Task<ScrapeDownloadResponse> ReadFileAsync(
+        HttpResponseMessage response, Stream destination, CancellationToken ct)
+    {
+        var finalUrl = response.RequestMessage?.RequestUri?.ToString();
+
+        // Anything but 200 has a body that explains the failure rather than being the file. Writing
+        // it would leave an AO3 error page on disk under a name claiming to be an EPUB.
+        if (response.StatusCode != HttpStatusCode.OK)
+            return new ScrapeDownloadResponse(response.StatusCode, 0, finalUrl);
+
+        await using var body = await response.Content.ReadAsStreamAsync(ct);
+
+        var buffer = new byte[81920];
+        long written = 0;
+
+        while (true)
+        {
+            var read = await body.ReadAsync(buffer, ct);
+            if (read == 0) break;
+
+            written += read;
+            if (written > _options.MaxDownloadBytes)
+            {
+                _logger.LogWarning(
+                    "Download from {Url} passed {Limit} bytes and was abandoned", finalUrl, _options.MaxDownloadBytes);
+
+                return new ScrapeDownloadResponse(
+                    response.StatusCode, written, finalUrl, ExceededSizeLimit: true);
+            }
+
+            await destination.WriteAsync(buffer.AsMemory(0, read), ct);
+        }
+
+        return new ScrapeDownloadResponse(response.StatusCode, written, finalUrl);
+    }
+
+    /// <summary>The whole body as text, which is what every caller but a download wants.</summary>
+    private static async Task<ScrapeHttpResponse> ReadPageAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        var content = await response.Content.ReadAsStringAsync(ct);
+
+        // RequestMessage is the *last* request the handler made, so after an automatic
+        // redirect its Uri is the destination rather than what we asked for. That is
+        // exactly the difference a synonym check needs.
+        return new ScrapeHttpResponse(
+            content,
+            response.StatusCode,
+            FromCache: false,
+            FinalUrl: response.RequestMessage?.RequestUri?.ToString(),
+
+            // Set by the caller that knows whether a session was attached, and only from
+            // the page's own evidence. Nothing here can tell.
+            Authenticated: false,
+            SetCookieHeaders: SetCookies(response),
+            Location: response.Headers.Location?.ToString());
+    }
 
     /// <summary>
     /// Reads back off the page whether AO3 actually served it to our session, and drops the cached
@@ -157,11 +258,19 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
         return reading;
     }
 
-    private async Task<ScrapeHttpResponse> SendAsync(
+    /// <param name="read">
+    /// Turns the response into what the caller wanted — a page as text, or a file copied to a
+    /// stream. Passed in rather than switched on inside, so that a download and a page fetch share
+    /// one rate gate, one retry policy and one User-Agent by construction rather than by being
+    /// written twice.
+    /// </param>
+    private async Task<T> SendAsync<T>(
         HttpClient client,
         Func<HttpRequestMessage> newRequest,
         string? cookieHeader,
-        CancellationToken ct)
+        Func<HttpResponseMessage, CancellationToken, Task<T>> read,
+        CancellationToken ct,
+        HttpCompletionOption completion = HttpCompletionOption.ResponseContentRead)
     {
         await Gate.WaitAsync(ct);
         try
@@ -170,7 +279,7 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
 
             try
             {
-                return await SendWithRetryAsync(client, newRequest, cookieHeader, ct);
+                return await SendWithRetryAsync(client, newRequest, cookieHeader, read, completion, ct);
             }
             finally
             {
@@ -220,10 +329,12 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
         return min + (max - min) * Random.Shared.NextDouble();
     }
 
-    private async Task<ScrapeHttpResponse> SendWithRetryAsync(
+    private async Task<T> SendWithRetryAsync<T>(
         HttpClient client,
         Func<HttpRequestMessage> newRequest,
         string? cookieHeader,
+        Func<HttpResponseMessage, CancellationToken, Task<T>> read,
+        HttpCompletionOption completion,
         CancellationToken ct)
     {
         var backoff = _options.InitialBackoff;
@@ -244,29 +355,11 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
             // cookie jar would be a second, divergent copy of it.
             if (cookieHeader is not null) request.Headers.Add("Cookie", cookieHeader);
 
-            using var response = await client.SendAsync(request, ct);
+            using var response = await client.SendAsync(request, completion, ct);
             var isRetryable = response.StatusCode == HttpStatusCode.TooManyRequests ||
                                (int)response.StatusCode >= 500;
 
-            if (!isRetryable || attempt >= _options.MaxRetries)
-            {
-                var content = await response.Content.ReadAsStringAsync(ct);
-
-                // RequestMessage is the *last* request the handler made, so after an automatic
-                // redirect its Uri is the destination rather than what we asked for. That is
-                // exactly the difference a synonym check needs.
-                return new ScrapeHttpResponse(
-                    content,
-                    response.StatusCode,
-                    FromCache: false,
-                    FinalUrl: response.RequestMessage?.RequestUri?.ToString(),
-
-                    // Set by the caller that knows whether a session was attached, and only from
-                    // the page's own evidence. Nothing here can tell.
-                    Authenticated: false,
-                    SetCookieHeaders: SetCookies(response),
-                    Location: response.Headers.Location?.ToString());
-            }
+            if (!isRetryable || attempt >= _options.MaxRetries) return await read(response, ct);
 
             // Retry-After is AO3 telling us exactly what it wants; honor it verbatim and do not
             // jitter it — the whole value of an explicit instruction is that it isn't guesswork.

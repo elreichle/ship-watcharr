@@ -14,6 +14,11 @@ the file but is blocked by T51, which is still `todo`.) **Read T13's notes befor
 the capture withdrew T12's original URL-construction design, and building to T11's handoff ships a
 guess T13 then has to undo.
 
+**2026-08-25: T12 is done**, and the instruction to read T13 before starting it has been consumed.
+T13 no longer has a blocker: T12 was built to the capture's finding rather than to T11's withdrawn
+handoff, so T13 is now the remaining formats and the two questions a capture cannot answer. Next in
+file order is **T13**.
+
 **2026-08-25: T44 is done** — taken ahead of file order for the reason this note used to give, that
 five readers had derived the same two-line fix. It is closed; the run order is plain file order
 again. `.devloop/scraper-audit.md` is what that section's reasoning turned into; read it before
@@ -254,7 +259,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   This task queues only; T12 does the fetching.
 
 ## T12 — The download worker
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: T11
 - delivers: A `BackgroundService` that drains the queue, fetches through the rate gate, writes
@@ -288,14 +293,21 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 ## T13 — Confirm AO3's real download URLs
 - status: todo
 - attempts: 0
-- blocked-by: T12 only — **the fixture has landed**, and it has already answered this task's
-  question. See "What the capture says" below: the answer is that the URLs **cannot be
-  constructed**, which is a finding T12 has to be built around rather than one T13 can clean up
-  afterwards. Read this task before starting T12.
-- delivers: The URL construction from T12 replaced by what the captured page actually contains, for
-  every format in `Ao3DownloadFormat`, with a test pinning each one.
-- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~DownloadUrl`
-- notes: Read the URLs off the fixture; do not reconstruct them from a remembered pattern. If AO3
+- blocked-by: none — **T12 is done and was built to this task's finding**, so there is no guess left
+  to undo. `Ao3DownloadLinks` reads the addresses off the page and `Ao3DownloadLinksTests` pins the
+  EPUB one against the capture; what is left is the rest of the formats and the two questions no
+  capture can answer.
+- delivers: A test per format in `Ao3DownloadFormat`, each pinned against
+  `ao3-work-page.html`, and the two open behaviours below settled against a local stub and recorded.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ao3DownloadLinks`
+- notes: **The filter changed from `~DownloadUrl`, which matched nothing.** The seam is
+  `Ao3DownloadLinks`; see the 2026-08-25 T12 entry in `DECISIONS.md`.
+  Still open, and neither settleable without a request: whether an `updated_at` that has gone stale
+  is rejected or merely redirected, and whether these links work anonymously (the capture was taken
+  logged in). Decide both against a stub and record the assumption rather than guessing at AO3's
+  behaviour. **AZW3 is offered and is in `Ao3DownloadFormat`** — the enum carries all five, so
+  "every format" means five tests, not four.
+  Read the URLs off the fixture; do not reconstruct them from a remembered pattern. If AO3
   serves them from a different host or with a token, that is a finding to record in
   `.devloop/DECISIONS.md`, not something to work around silently. If some formats need a logged-in
   session, note the dependency on T5 rather than pretending they are anonymous.
@@ -316,18 +328,13 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   example cannot pin), and `updated_at` is a Unix timestamp AO3 stamps, not `Work.UpdatedAt`. So a
   download **requires reading the work's own page first**. Do not try to reverse-engineer the slug
   rule from this single example; read the href.
-  Two consequences for T12, which is why that task now points here:
-  - A download costs **two** AO3 requests, not one, unless the work page was fetched recently
-    enough for its links to still be good. Both go through the rate gate.
-  - The "one small function taking a work id" seam this task was meant to replace is the wrong
-    seam. It takes a *fetched work page* — which makes T10's parser and this one the same fetch,
-    and worth extracting the download links in `Ao3WorkPageParser` while it is already in there.
-  Unanswered by the capture and still open: whether an `updated_at` that has gone stale is rejected
-  or merely redirected, and whether these links work anonymously (the capture was taken logged in).
-  Neither can be settled without a request; decide them against a local stub and record the
-  assumption rather than guessing at AO3's behaviour.
-  **AZW3 is offered and is not in `Ao3DownloadFormat`** (spec lists EPUB/MOBI/PDF/HTML). Adding it
-  is not in scope here — noted so the omission reads as a choice.
+  Both consequences this note drew for T12 are now built, not pending: a download costs **two**
+  rate-gated requests, and the seam takes a fetched page rather than a work id. T10 still merges
+  with this — `Ao3DownloadLinks` and the work-page parser T10 writes read the same fetch, and T10
+  should call the existing seam rather than re-extracting the menu.
+  **The claim that AZW3 is not in `Ao3DownloadFormat` was wrong** — the enum has carried
+  `Azw3 = 5` since `InitialCreate`, and the wire format's own doc comment lists all five. Corrected
+  in the notes above rather than left as a choice nobody made.
 
 ## T14 — Downloads in the UI
 - status: todo
@@ -342,6 +349,13 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   The filename should be the work's title, sanitized — it is attacker-influenced text from AO3 and
   goes into a `Content-Disposition` header. Poll for status while anything is Pending, and stop
   when nothing is.
+  **What T12 leaves for this task.** `WorkDownloadFile.RelativePath` is relative to the data
+  directory — resolve it with `DownloadPaths.Absolute(storagePaths.DataDirectory, …)`, never by
+  treating it as a path. `DownloadPaths.Extension` gives the extension the filename should end in.
+  A row's `Status` is `Pending` / `Downloading` / `Complete` / `Failed`, and `ErrorMessage` on a
+  failed one already names which half failed (the work's page, or the file) — show it rather than a
+  generic "download failed". Requesting a format already queued answers with the existing row, so
+  the button does not need to guard against a second click.
 
 ## T15 — The full-sweep pass
 - status: todo

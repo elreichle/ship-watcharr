@@ -1569,3 +1569,80 @@ first place. It now says *request*, and says why "run" is not.
 **Not changed, and deliberately:** the restricted-work warning still refuses to overrule the
 transport about what a request sent. A restricted blurb on a response the client says was anonymous
 is logged and acted on by nothing. That premise is still T39's business.
+
+## 2026-08-25 — T12: a download is two requests, and the seam takes a page rather than an id
+
+**Built to T13's capture, not to T11's handoff.** The instruction T12 inherited was to isolate a URL
+*construction* function taking a work id, as a placeholder seam T13 would later correct. The captured
+work page withdrew that: `/downloads/{workId}/{slug}.{ext}?updated_at={unix}` has two parts nothing
+in the library can produce, so the address is *read* rather than built. `Ao3DownloadLinks` therefore
+takes a fetched page, and a download costs two rate-gated requests — the work's page, then the file.
+Nothing was shipped for T13 to undo.
+
+**Both halves fail independently, and a reader is told which.** The page fetch can 404 while the
+file would have been fine, and the page can parse to a menu that offers no such format. Each is one
+`Failed` request carrying a message naming the half that failed, never a retry: a work AO3 has taken
+down would otherwise be asked for on every poll for ever, which is precisely the load this project
+exists not to produce. The one thing that is *not* a failure is a drain running out of budget — that
+releases the request back to `Pending`, because nothing is wrong with it.
+
+**`view_adult=true` on the work page.** Without it AO3 answers an explicit work with an interstitial
+that carries no download menu, and the request would fail saying "no EPUB offered" when what was
+offered was a warning. It is the archive's own Proceed link, not a way around anything: the instance
+is logged in and may read the page either way.
+
+**Streamed, capped, and never cached.** `IRateLimitedHttpClient` grew `DownloadAsync(url, stream)`
+rather than returning bytes, so an EPUB is never held in memory on its way to disk, and the send
+path became generic over "how the response is read" so that a download and a page share one gate,
+one retry policy and one User-Agent *by construction* rather than by being written twice. A new
+`MaxDownloadBytes` (64 MB) bounds what one click costs the instance's disk — a chunked response has
+no length until it has finished arriving — and a response past it is abandoned and reported, not
+stored. Downloads are not put in the response cache: that cache exists to stop a *page* being
+re-read within fifteen minutes, and the row keyed by (work, format, version) already de-duplicates
+the bytes.
+
+**Written to a temp name and moved into place, under a path carrying the version.** A crash or a
+truncated response mid-fetch would otherwise leave a partial file at the exact path a row calls a
+complete copy. The partial lives under `downloads/partial/` rather than the system temp directory,
+so the move is a rename within one filesystem and therefore atomic. The stored path is
+`downloads/{workId}/{workId}-{ticks}.{ext}` — relative, because the data directory is a Docker
+volume, and carrying `Work.UpdatedAt` in ticks because two versions of one work are two files and a
+path that collapsed them would serve the new bytes to every request still pointing at the old row.
+
+**The download worker is a sibling of `ScrapeWorker`, not a mode of it.** What is due to be scraped
+is decided by a schedule; what is due to be downloaded by someone having asked. They share the one
+thing that matters — the global rate gate — so a download and a scrape queue behind each other
+rather than doubling this instance's load. It applies the *same two gates*: no honest User-Agent and
+no stored AO3 login mean the queue is held, nothing attempted and nothing failed, exactly as due
+jobs are held. A download made without an identifying header is the thing this project refuses to
+send, whoever clicked the button.
+
+**One budget per drain, and the drain stops on the first held request.** A queue of two hundred
+files is a real amount of load however it was asked for, so `ScrapeBudget` bounds a drain the way it
+bounds a run; what it stops stays `Pending` for the next poll. Whatever held one request holds
+everything behind it, so carrying on would claim and release each in turn for nothing.
+
+**`Downloading` is re-queued on startup.** It means "a worker holds this row", which is what stops
+the controller re-arming a fetch in flight — so after a crash nothing holds it and nothing will ever
+touch it again. Every such row is stale by definition: one process, and the sweep runs before the
+first drain claims anything.
+
+**`WakeSignal` is now a base class.** `ScrapeWakeSignal` and the new `DownloadWakeSignal` are the
+same semaphore-of-one mechanism with different policies, and one nudge must not spend the other's:
+asking for a file has no business sweeping a schedule nothing changed. Subclasses rather than two
+registrations of one type, so they stay separable by type in the container like everything else.
+
+**No migration.** `Download`, `WorkDownloadFile`, their unique indexes and their FK behaviours were
+all in `InitialCreate` on both providers. T12 adds no column, as T11 did not.
+
+**The unique-index race on `WorkDownloadFile` is handled and unpinned, on T11's precedent.** Two
+drains fetching the same (work, format, version) both find nothing on disk; the loser catches
+`DbUpdateException` and keeps the winner's row. Its bytes are identical and were written to the same
+deterministic path, so nothing is lost. As with T6 and T11 there is no test: the fixture shares one
+SQLite connection and there is no seam to open the window. Said here so the gap reads as a decision.
+
+**T13's verification filter changes.** It was `~DownloadUrl`, which matches nothing — the seam is
+`Ao3DownloadLinks` and its tests are `Ao3DownloadLinksTests`. T13's filter is now
+`~Ao3DownloadLinks`, and its remaining job is what the capture left open: a test per format, and the
+two questions no capture can answer (whether a stale `updated_at` is rejected or redirected, and
+whether these links work anonymously), decided against a local stub and recorded as assumptions.
