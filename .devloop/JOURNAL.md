@@ -1060,3 +1060,39 @@ build. Not something a task should chase.
   Filters checked to bite, per T22's lesson: `~Download` matches 26 and covers every new test. Still
   zero and still suspect: T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by
   design.
+
+## 2026-08-24 — the three AO3 captures land — not a task
+
+- did: Nothing to a line of code. Emma saved `ao3-login-page.html`, `ao3-work-page.html` and
+  `ao3-empty-listing.html` under `backend/Ao3Tracker.Tests/Fixtures/`; I verified each is the page
+  it claims to be, read the answers out of them, and moved the plan to match. T5, T10, T13 and T39
+  came off `blocked` — **the list has nothing blocked for the first time.**
+- files: the three fixtures (new), `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test` → 488 passed, unchanged; the fixtures are not in the `.csproj` yet and the
+  tasks that consume them will add them.
+- commit: 1347c59
+- **If you are picking up T12, the entry above this one is out of date — read T13 first.** T11's
+  handoff told you to isolate a URL-construction function taking a work id, as a placeholder seam
+  T13 would replace. The capture says there is nothing to construct: the real URLs are
+  `/downloads/{workId}/{slug}.{ext}?updated_at={unix}`, the slug an unstated truncation of the
+  title and `updated_at` AO3's own stamp, so a download reads the work's page first and costs two
+  rate-gated requests. Build to T13's notes, not to T11's. Everything else in T11's handoff — the
+  queue having no wake signal, `Pending` being the only status T12 may touch, `Complete` rather
+  than `Ready` — still holds.
+- **T39 got smaller and its premise held.** `HasListing` is right; a zero-result index does render
+  `ol.work.index.group`, above a `0 Works in <tag>` heading. The task is now the test that pins it,
+  and it is still worth writing — the existing tests reached that path through a helper that emits
+  the container unconditionally, so they proved the premise by assuming it. This is the same
+  detector the last four entries keep naming, arriving from the other side: an assertion that
+  cannot fail is not evidence, even when the thing it assumes turns out to be true.
+- **T58 is new and is not a correctness bug.** The incremental pass sends
+  `work_search[revised_at]`, which the tag-listing endpoint discards — Emma found it in a browser,
+  and the captured filter form confirms it (`date_from`/`date_to`, no `revised_at`). The
+  client-side cut means the right works were always read; what was lost is the load reduction
+  `RevisedAtBound`'s comment claims. Fix it as a politeness bug and leave the watermark logic
+  alone. It also means `listingWasFiltered` has been describing an intent rather than a fact, which
+  entangles it with T30 and T44 — once the parameter works, check the total logic is right because
+  it is right, not because two errors cancelled.
+- next: T5 is the first `todo` in file order with no blockers, and its fixture is in place. Its one
+  trap is in the notes: the capture holds two forms carrying an `authenticity_token`, and the first
+  one on the page is the header dropdown's, not the login form's.
