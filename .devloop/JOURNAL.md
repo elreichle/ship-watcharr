@@ -1120,7 +1120,7 @@ build. Not something a task should chase.
   Thirty-nine mutations applied one at a time, every one red by the end. Also booted a throwaway
   instance on :5187 with a scratch data directory: it starts, both workers come up, and the gate
   holds with both reasons.
-- commit: (see below)
+- commit: dcf6258
 - next: **Two mutations survived the first sweep and one of them was the trap the task notes were
   written to prevent.** The capture holds the `authenticity_token` in *three* places, not the two
   the notes name — there is a `<meta name="csrf-token">` in the head at offset 2556, before either
