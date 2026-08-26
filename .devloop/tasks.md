@@ -54,6 +54,22 @@ into **T63**, which it verified.
 **2026-08-26: T14 is done.** Everything between T14 and T18 is blocked: T15 still waits on T38, T40,
 T46 and T52, and T16/T17 wait on T15. T10 is earlier still and still blocked by T51.
 
+**2026-08-26: T32 is done.** Next in plain file order is **T33** (`LoadExistingWorksAsync` reads a
+cartesian product), `blocked-by: none` — the cheapest task on the list, a single `.AsSplitQuery()`
+whose verification is that the existing ingest tests stay green. Check that `~Ingest` bites before
+trusting it; T32's own `~Monotonic` matched nothing until this iteration wrote a test for it, which
+is the third verification filter in a row to turn out to be a guess. The build's one remaining code
+warning, **CA2017** on `Ao3ShipIndexScraper.cs:536`, is **T49's**, not T32's — six placeholders over
+five arguments in `RetreatFromStaleCursor`, and it was left alone deliberately. T32's review found
+nothing in its diff; of its four findings three were already listed (**T70**, **T64**, **T74**, each
+re-derived independently) and one is new, **T75**.
+
+**A log-capture seam now exists.** `backend/Ao3Tracker.Tests/CapturingLoggerProvider.cs` keeps every
+log record as its structured values and never formats one, so a test can assert on what a placeholder
+was bound to. **T49 needs the opposite** — a provider that *does* render, because the defect it is
+chasing only appears at format time — so T49 should add that as a second, opt-in seam rather than
+change this one.
+
 **T14's review did not run.** `/code-review high` was launched and died on the account's monthly
 spend limit before reading anything, so this task's diff was reviewed by reading it rather than by
 an agent — see the journal entry for what that pass found and changed. A later iteration re-running
@@ -800,11 +816,13 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   parser test over a heading string, so it does **not** wait on a fixture.
 
 ## T32 — The non-monotonic-boundary warning names the wrong page
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: The warning names the page where the shift was seen.
-- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Monotonic`
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Monotonic` —
+  matched **nothing** until this iteration wrote `Names_the_page_it_saw_a_non_monotonic_boundary_on`,
+  exactly as T31's entry predicted. It bites now: 1 test.
 - notes: Found by `/code-review` during T27, in pre-loop code, and verified.
   `ship.BackfillNextPage = page + 1` runs at ~line 319 and `TrackBackfillFloor` at ~line 320 logs
   `ship.BackfillNextPage` as `{Page}` (~line 412), so the message is off by one. Cosmetic in the
@@ -1833,3 +1851,24 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   period rebuilds exactly the shape the earlier line exists to prevent. `TrimEnd('.', ' ')` after
   the cut restores the invariant. Small, and worth doing where it is: T14's own lesson was that the
   filename is the untrusted part.
+
+## T75 — The login cooldown is measured from before the round trip, not after it
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: `Ao3LoginBackoff.RecordFailure` is given the instant the attempt *finished*, so the
+  cooldown that follows a refused login is the full 5 minutes.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ao3SessionProvider`
+- notes: From T32's review, and **verified in that iteration** by reading the code.
+  `Ao3SessionProvider.EnsureSessionAsync` captures `now = _time.GetUtcNow()` at ~line 51, ahead of
+  the `MayAttemptAt` check, then calls `_establisher.LogInAsync(ct)` — two rate-gated requests, each
+  behind a 5–8s gate wait and a 30s `HttpClient.Timeout`, plus `SendWithRetryAsync`'s backoff on a
+  5xx — and finally passes that same stale `now` to `_backoff.RecordFailure(now)` (~line 69), which
+  sets `_retryAfter = utcNow + wait`. So the first cooldown expires early by however long the
+  attempt took, and it is largest in the case the class exists for: an archive that is not
+  answering, where the round trip runs to the timeout. Bounded to one cycle — `MayAttemptAt` reads a
+  fresh clock, and each subsequent failure moves up the 5/15/30/60-minute schedule — so this is
+  drift, not a loop. The fix is a second `_time.GetUtcNow()` after the attempt; `TimeProvider` is
+  already injected, so the test can pin it by advancing the clock inside a stub establisher.
+  **Do not** reuse the pre-check `now` for both: the check and the record are different questions
+  about different instants.

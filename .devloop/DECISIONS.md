@@ -2161,3 +2161,51 @@ Its five findings are all in T12/T14's download path:
 
 Three reviews in a row have now landed most of their findings in the download code. That is where
 the newest and least-reviewed work is, and T14's entry said as much at the time.
+
+## 2026-08-26 — T32: a test needed a way to see a log line, and the obvious way would have thrown
+
+`TrackBackfillFloor` produces no database change and no return value — the log line *is* the
+behaviour — so pinning "the warning names the page the shift was seen on" meant capturing a log
+record. `LibraryTestHost` calls `services.AddLogging()` with no providers, so nothing in this suite
+has ever formatted a message.
+
+**The new provider captures structured values and never formats one.** T49 established that
+`RetreatFromStaleCursor`'s template has six placeholders over five arguments, which throws when it is
+rendered — so a fixture that formatted every message would red tests over a defect in a line they say
+nothing about, and T32 would have had to fix T49 to land. Reading the named values is also the more
+exact assertion: the claim is about what `{Page}` was bound to, not about where a number lands in a
+rendered sentence. `CapturingLoggerProvider` is registered for the whole of
+`Ao3ShipIndexScraperTests` via `LibraryTestHost`'s `configure` overload, which existed already.
+
+**T49 still needs a formatting seam, and must add it rather than change this one.** The defect T49 is
+chasing is invisible except at format time; a provider that renders is the only thing that can see
+it. Two seams, opt-in, is the right shape — the non-formatting one has to stay non-formatting or it
+stops being safe to leave on for every test in the class.
+
+**CA2017 on `Ao3ShipIndexScraper.cs:536` was left standing.** It is T49's, filed and described; T32's
+delivers is one argument at line 814. Folding it in would have been a wandering diff on the one
+warning the build prints — which is exactly the thing T49 exists to remove, and it deserves its own
+test.
+
+## 2026-08-26 — T32's review: nothing in the diff, four elsewhere, three of them already listed
+
+`/code-review high` read the branch (51 commits) plus the working tree and confirmed the change —
+"the page number is now the one the shift was seen on rather than the already-advanced cursor". Of
+its four findings:
+
+- Already on the list, independently re-derived: **T70** (a transport failure or a surviving 5xx
+  settles a queued download as `Failed`, where every other subsystem here holds instead — the
+  reviewer's addition is that with `MaxConsecutiveFailures = 3` a one-minute blip burns exactly the
+  first three requests before the breaker starts holding the rest), **T64** (the controller's
+  `Status == Downloading` guard is a read, not a lock, so a re-arm can write `Pending` over the
+  worker's claim and wake it onto a row already in flight), and **T74** (the 120-character cut can
+  put back the trailing dot `Trim('.')` removed).
+- New, and verified in this iteration by reading the code: **T75** — `Ao3SessionProvider` captures
+  `now` before `LogInAsync` and hands that same stale instant to `RecordFailure`, so the 5-minute
+  cooldown after a refused login is short by however long the attempt took. Largest exactly when the
+  archive is unreachable and the round trip runs to the timeout.
+
+Four reviews running have now put nearly every finding in the download path. The suggestion in T31's
+entry — one dedicated pass over that subsystem instead of meeting it a finding at a time — is looking
+better with each review, and T64/T67/T70/T71/T73/T74 are now six tasks over the same few hundred
+lines.

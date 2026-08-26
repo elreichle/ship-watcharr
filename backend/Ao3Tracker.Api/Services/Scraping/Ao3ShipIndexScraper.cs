@@ -448,7 +448,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 // Advanced only once the page's works are committed, so a crash resumes on the page
                 // that was in flight rather than after it.
                 ship.BackfillNextPage = page + 1;
-                TrackBackfillFloor(ship, listing);
+                TrackBackfillFloor(ship, page, listing);
                 await _db.SaveChangesAsync(ct);
             }
 
@@ -794,8 +794,12 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// Tracks the oldest revision time seen so far. A reading that moves *up* means pages shifted
     /// under the walk — works are re-sorted as they are edited — which a later full sweep is the
     /// only thing that can put right.
+    ///
+    /// <paramref name="page"/> is passed in rather than read off the ship because the cursor has
+    /// already been advanced past it by the time this runs, and the page a human needs named in the
+    /// warning is the one the shift was seen on, not the walk's next stop.
     /// </summary>
-    private void TrackBackfillFloor(Ship ship, Ao3ListingPage listing)
+    private void TrackBackfillFloor(Ship ship, int page, Ao3ListingPage listing)
     {
         if (listing.Works.Count == 0) return;
 
@@ -810,7 +814,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 "Ship {ShipId} ({Tag}) backfill saw a non-monotonic page boundary at page {Page}: "
                 + "oldest {Floor:o} is newer than the previous floor {Previous:o}. The listing shifted; "
                 + "a full sweep will be needed to close the gap.",
-                ship.Id, ship.CanonicalTagName, ship.BackfillNextPage, floor, previous);
+                ship.Id, ship.CanonicalTagName, page, floor, previous);
             return;
         }
 

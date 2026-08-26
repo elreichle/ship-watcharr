@@ -4,6 +4,8 @@ using Ao3Tracker.Api.Models;
 using Ao3Tracker.Api.Services.Scraping;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Ao3Tracker.Tests;
 
@@ -20,7 +22,17 @@ public class Ao3ShipIndexScraperTests : IDisposable
 {
     private const string Lexa = "Clarke Griffin/Lexa";
 
-    private readonly LibraryTestHost _host = new();
+    /// <summary>
+    /// Every line the scraper logged during a test, kept as structured values. A warning is the
+    /// only output some of these stopping rules produce, so it is the only thing a test can assert
+    /// on — see <see cref="CapturingLoggerProvider"/> for why it is never rendered to a string.
+    /// </summary>
+    private readonly CapturingLoggerProvider _logs = new();
+
+    private readonly LibraryTestHost _host;
+
+    public Ao3ShipIndexScraperTests() =>
+        _host = new LibraryTestHost(services => services.AddSingleton<ILoggerProvider>(_logs));
 
     public void Dispose()
     {
@@ -1326,6 +1338,27 @@ public class Ao3ShipIndexScraperTests : IDisposable
         await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
 
         Assert.Equal(Jan(9), (await ReloadAsync(shipId)).IncrementalWatermarkUtc);
+    }
+
+    [Fact]
+    public async Task Names_the_page_it_saw_a_non_monotonic_boundary_on()
+    {
+        // A backfill walks backwards through the listing, so each page's oldest work should be older
+        // than the last page's. A floor that moves *up* means the listing re-sorted under the walk,
+        // and this line is how a human learns of it — T15's full sweep is what cleans up after. The
+        // page number in it is the whole payload, so it has to be the page the shift was seen on and
+        // not the cursor's next stop.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1, updatedAt: Jan(3))], nextPage: true),
+            Page(2, [Blurb(2, updatedAt: Jan(9))]));
+        var shipId = await FollowAsync();
+
+        await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        var boundary = Assert.Single(
+            _logs.Records, r => r.Template.Contains("non-monotonic page boundary"));
+
+        Assert.Equal(2, boundary.Value("Page"));
     }
 
     [Fact]

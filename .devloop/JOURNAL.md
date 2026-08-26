@@ -1739,3 +1739,58 @@ build. Not something a task should chase.
   Filters checked to bite, per T22's lesson: `~Ao3BlurbParser` matches 46 and covers all ten new
   cases. `~TotalWorks` matched zero and is retired — see above. Still zero and still suspect: T32
   `~Monotonic`, which is the next task. T40's `~PagesFetched` is zero by design.
+
+## 2026-08-26 — T32 The non-monotonic-boundary warning names the wrong page — done
+
+- did: `TrackBackfillFloor` takes the page it is looking at as a parameter and logs that, instead of
+  `ship.BackfillNextPage` — which the line above it has already advanced to `page + 1`, so the
+  message named the walk's next stop rather than the page the listing shifted under. Added
+  `CapturingLoggerProvider`, the seam the test needed to see a log line at all.
+- files: `Api/Services/Scraping/Ao3ShipIndexScraper.cs`, `Tests/CapturingLoggerProvider.cs` (new),
+  `Tests/Ao3ShipIndexScraperTests.cs`, `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter FullyQualifiedName~Monotonic` → 1 passed (red first at "Expected: 2,
+  Actual: 3", which is the defect itself); `dotnet test` → 744 passed (743 before); `dotnet build
+  --no-incremental` → no new warnings; `npm run build` + `npm run lint` → clean, the two known
+  fast-refresh warnings only. Mutation: logging `page + 1` reds the new test.
+- commit: (see below)
+- next: **T33 is next in plain file order** and has no blockers — `.AsSplitQuery()` on
+  `WorkIngestor.LoadExistingWorksAsync`, the cheapest task on the list, verified by the existing
+  ingest tests staying green. **Check `~Ingest` bites before trusting it.** The build's one code
+  warning, CA2017 on `Ao3ShipIndexScraper.cs:536`, is **T49's** and was left alone on purpose.
+- **The predicted dud filter was a dud, and that is now three in a row.** T31's entry said
+  `~Monotonic` was "still zero and still suspect" and would need fixing the same way `~TotalWorks`
+  did. It matched nothing, because no test existed — the task was filed as cosmetic, and a cosmetic
+  task gets a verification command nobody expects to have to write code for. It bites now. Filters
+  checked this iteration: `~Monotonic` 1, `~Backfill` 13, `~Download` untouched. The ritual is
+  earning its keep; keep doing it first, not last.
+- **The seam this task needed is the interesting part, not the one-argument fix.** `TrackBackfillFloor`
+  writes nothing and returns nothing — the log line *is* the behaviour — so there was no way to pin
+  it without capturing a record, and `LibraryTestHost` has never had a logging provider. The obvious
+  move (a provider that formats, like the console one) would have thrown on
+  `RetreatFromStaleCursor`'s six-placeholders-over-five-arguments template and made T49 a
+  prerequisite of T32. `CapturingLoggerProvider` therefore **never calls the formatter**: it keeps
+  the structured values and lets a test ask what `{Page}` was bound to. **T49 needs the opposite
+  seam** — its defect only exists at format time — and must add a second, opt-in one rather than
+  make this one render.
+- **A stopping rule whose only output is a log line has no other test seam.** Worth remembering for
+  the rest of the T33–T71 tail: several of those tasks are about what an operator gets told, and
+  they can all use this provider now. Assert on the named value, not on the sentence.
+- **The line is `LogInformation`, though every reference to it calls it a warning** — the task title,
+  its notes, and the surrounding comments. Not changed: T32's delivers is the page number, and the
+  level is a separate judgement about how loudly a shifted listing should announce itself. Someone
+  deciding that should decide it for the whole file at once; the test's local variable was renamed
+  from `warning` to `boundary` so the tests at least stop asserting something untrue in their names.
+- **The review found nothing in this diff and four elsewhere; three were already filed.** T70, T64
+  and T74 were all re-derived independently — T70 with a sharper consequence (`MaxConsecutiveFailures
+  = 3` means a one-minute AO3 blip permanently fails exactly the first three queued downloads before
+  the breaker starts holding the rest). One is new: **T75**, the login cooldown measured from before
+  the round trip, verified by reading `Ao3SessionProvider`. **Four reviews running have landed nearly
+  every finding in the download path** — T64/T67/T70/T71/T73/T74 are six open tasks over the same few
+  hundred lines. A single dedicated pass over that subsystem is now clearly cheaper than six
+  iterations; worth proposing as a task rather than repeating this observation a fifth time.
+- **The leaked API process is still running** — pid 1963836 (`dotnet run --project Ao3Tracker.Api
+  --no-launch-profile`) and its child 1964058, up 10h26m, first noted in T31's entry. Left alone
+  again: it is not this task's, and killing by pattern is what the "never pkill" rule exists to
+  prevent — the pattern matches the systemd dev instance (pid 2033, up 3d) too. If a future
+  iteration wants the port back, kill **1963836 by pid**, not by name. This task started no
+  processes of its own and did not touch the dev instance.
