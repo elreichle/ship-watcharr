@@ -1628,7 +1628,7 @@ build. Not something a task should chase.
 - ran: `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only;
   `dotnet test` → 733 passed (unchanged — this task touched no backend code); a live check against
   a throwaway instance on :5331 with vite on :5332, driven through chrome-headless-shell.
-- commit: (see below)
+- commit: 2eba093
 - next: **T20 is next in file order and is not selectable** — it waits on T17, which waits on T16,
   which waits on T15, which waits on T38/T40/T46/T52. Nothing between T10 and T20 is selectable
   either. **The first selectable task is T31**, and from there the run is the long tail of scraper
