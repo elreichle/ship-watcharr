@@ -304,6 +304,61 @@ public class Ao3LoginEstablisherTests : IDisposable
     }
 
     [Fact]
+    public async Task Posts_nothing_to_a_form_that_names_a_host_other_than_the_archive()
+    {
+        // The one request in this application that carries the operator's AO3 username and their
+        // decrypted password. The action is read off a fetched page, so without this check a login
+        // page whose form posted elsewhere would send both there — and the deployment would go on
+        // reporting a failed login rather than a leaked credential.
+        _host.Http.RespondsToLoginPage = url => new ScrapeHttpResponse(
+            LoginFormPostingTo("https://elsewhere.example/collect"),
+            HttpStatusCode.OK, FromCache: false, FinalUrl: url);
+
+        await _host.SaveAo3LoginAsync();
+
+        var result = await _host.LogInToAo3Async();
+
+        Assert.False(result.Success);
+        Assert.Empty(_host.Http.Posted);
+        Assert.Contains("elsewhere.example", result.Error);
+    }
+
+    [Fact]
+    public async Task Posts_to_an_absolute_action_the_archive_itself_names()
+    {
+        // Which archive it addresses is the check, not "is it relative". AO3 is free to render its
+        // own form action absolutely, and a rule that refused that would refuse every login.
+        _host.Http.RespondsToLoginPage = url => new ScrapeHttpResponse(
+            LoginFormPostingTo("https://ao3.test/users/login"),
+            HttpStatusCode.OK, FromCache: false, FinalUrl: url,
+            SetCookieHeaders: ["_otwarchive_session=before-login; path=/; HttpOnly"]);
+
+        await _host.SaveAo3LoginAsync();
+
+        Assert.True((await _host.LogInToAo3Async()).Success);
+        Assert.Equal("https://ao3.test/users/login", Assert.Single(_host.Http.Posted).Url);
+    }
+
+    [Fact]
+    public async Task Posts_nothing_to_a_form_that_asks_for_the_password_unencrypted()
+    {
+        // Same host, one scheme down. The value being posted is a plaintext password, so what the
+        // archive is measured by here is its whole origin and not only its name — a form action of
+        // http:// on an https:// deployment puts the credential on the wire in the clear, and is
+        // not something the real archive has ever asked for.
+        _host.Http.RespondsToLoginPage = url => new ScrapeHttpResponse(
+            LoginFormPostingTo("http://ao3.test/users/login"),
+            HttpStatusCode.OK, FromCache: false, FinalUrl: url);
+
+        await _host.SaveAo3LoginAsync();
+
+        var result = await _host.LogInToAo3Async();
+
+        Assert.False(result.Success);
+        Assert.Empty(_host.Http.Posted);
+    }
+
+    [Fact]
     public async Task Posts_nothing_when_the_login_page_is_not_served()
     {
         _host.Http.RespondsToLoginPage = _ =>
@@ -348,5 +403,17 @@ public class Ao3LoginEstablisherTests : IDisposable
 
         var credential = await _host.WithCredentialStoreAsync(store => store.GetDecryptedCredentialAsync());
         Assert.Equal(Password, credential!.Value.Ao3Password);
+    }
+
+    /// <summary>The captured login form, with its action replaced by <paramref name="action"/>.</summary>
+    private static string LoginFormPostingTo(string action)
+    {
+        var page = Fixtures.Load(Fixtures.LoginPage);
+        var form = Ao3LoginPage.ParseLoginForm(page);
+
+        Assert.NotNull(form);
+        Assert.NotEqual(action, form.Action);
+
+        return page.Replace($"action=\"{form.Action}\"", $"action=\"{action}\"");
     }
 }

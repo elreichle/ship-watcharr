@@ -129,6 +129,18 @@ public class Ao3DownloadLinksTests
     }
 
     [Fact]
+    public void Ignores_a_link_that_keeps_the_host_and_drops_the_encryption()
+    {
+        // The same attack one scheme along: the session cookie this link is fetched with would go
+        // over the wire in the clear, and a host comparison alone says yes to that. AO3 serves its
+        // work pages over HTTPS and its downloads from the same place.
+        var links = Ao3DownloadLinks.Parse(
+            Menu("<li><a href=\"http://archiveofourown.org/downloads/1/x.epub\">EPUB</a></li>"), WorkPageUrl);
+
+        Assert.Empty(links);
+    }
+
+    [Fact]
     public void Reads_nothing_when_there_is_no_page_address_to_check_a_link_against()
     {
         // A link with nothing to compare its host to is not a link this app may fetch.

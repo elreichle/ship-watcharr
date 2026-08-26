@@ -1789,3 +1789,60 @@ claim until someone reads the code:
 
 The other six (T63–T68) are recorded as reported-not-verified, each saying so in its own notes, so
 whoever takes one checks the mechanism before building to it.
+
+## 2026-08-25 — T61: the archive is the comparand, and the origin is what is compared
+
+`Ao3SessionEstablisher` now refuses to post the login form to anything but the archive the
+deployment is configured for. Three decisions inside a nine-line check:
+
+**The comparand is the configured archive, not the page the form came from.** T12's twin in
+`Ao3DownloadLinks.Resolve` compares a link against `page.FinalUrl ?? pageUrl`, because a work page is
+fetched at an address this app built and a download link has no other authority to be measured
+against. The login flow has a better one. `Absolute` already resolves a *relative* action against
+`Ao3HttpClientOptions.BaseUrl`, so the configured root is what a relative action reaches whatever
+redirects the login page followed — and comparing an absolute action against `page.FinalUrl` would
+have compared it against a value the archive's own redirects can move. `LoginPath` under `BaseUrl`
+is the one address in this flow no page can influence, and it is what the check uses.
+
+**The comparison is the whole origin, not the host.** The download check compares hosts, which is
+right for the value it protects — a session cookie already scoped to a host. What this request
+carries is a plaintext password, and an action that keeps the name and drops to `http://` puts it on
+the wire in the clear. `GetLeftPart(UriPartial.Authority)` compares scheme, host and port together;
+AO3 serves its login form over HTTPS and posts it back to the same place, so nothing real is refused
+by asking for that.
+
+**The check sits at the call site, not inside `Absolute`.** `Absolute` also resolves `LoginPath`
+itself, where there is nothing to compare against and no markup involved. A host rule pushed down
+into the helper would have had to special-case its only other caller.
+
+A refused action is a refused login, so it inherits `Ao3LoginBackoff` — 5 → 15 → 30 → 60 minutes,
+lifted the moment the operator saves the credential again. A login page whose form has moved is not
+a thing that becomes true by being asked for every sixty seconds.
+
+**The sweep the rule asked for was run this time.** T13's entry recorded that T12's review stated a
+general rule — anywhere a URL read out of markup is then fetched with credentials, the host is the
+check that matters — fixed one site and never swept. Every outbound call site in the API is now
+accounted for: `ShipVerifier` and `Ao3ShipIndexScraper` build their URLs from `BaseUrl` and a tag
+name, `DownloadFetcher` builds the work-page URL and fetches one checked link, and the login POST is
+this task. Two fetch targets in the codebase come out of markup and both are now checked. The other
+hrefs the parsers read (`Ao3BlurbParser`'s work, pseud and series links, `Ao3LoginPage`'s greeting)
+are parsed for ids and names and never fetched.
+
+**T61's review found five, one of them in the file this task's own doc comment points at.**
+`/code-review high` read the working tree and returned five findings, four of them in T12's download
+code and none in the login change. The one that belongs to this diff is finding 2:
+`Ao3DownloadLinks.Resolve` compares hosts, `IsWeb` accepts `http`, and the doc comment written *in
+this task* claimed "the same check guards `Ao3DownloadLinks`" — which it did not, one scheme along.
+An `http://archiveofourown.org/downloads/…` link inside `li.download` on an https page resolved,
+and `DownloadAsync` attaches the instance's session cookie to whatever it is handed. Folded in
+rather than queued: it is three characters, it is the same rule this task exists to apply, and the
+alternative was shipping a comment that described the codebase as safer than it was.
+
+The other four are queued. One of them, finding 3, is **T67 already** — reported by T13's review,
+re-derived independently here, and verified this iteration by reading the code rather than left as
+a claim. The remaining three are **T69** (a `WorkDownloadFile` row whose file is gone still answers
+"you already have this"), **T70** (a transport failure settles a queued download as `Failed` on one
+attempt, where the scrape walk deliberately re-asks) and **T71** (a file moved into place before its
+row is written is orphaned when the write throws). All three were verified mechanically here; where
+a reviewer's claim went further than what was read — T69's "and `DELETE` then `POST` cannot recover
+it either" — the task says which half is verified and which is not.

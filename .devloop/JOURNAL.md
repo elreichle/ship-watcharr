@@ -1407,3 +1407,58 @@ build. Not something a task should chase.
   reaches only the parser — the two settlement tests live at the seams they are about, so
   `~Download` (80, up from 72) is the filter that covers the whole task. Still zero and still
   suspect: T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.
+
+## 2026-08-25 — T61 The login POST must not send the password to whatever host the form names — done
+
+- did: `Ao3SessionEstablisher` refuses to post the credential anywhere but the configured archive.
+  The form action is resolved as before and then measured against `LoginPath` under
+  `Ao3HttpClientOptions.BaseUrl` — whole origin, not host — and a mismatch is a `Failed` login that
+  names the address it refused. The same origin comparison replaced the host comparison in
+  `Ao3DownloadLinks.Resolve`, which the review found still permitted a scheme downgrade.
+- files: `Api/Services/Scraping/{Ao3SessionEstablisher,Ao3DownloadLinks}.cs`,
+  `Tests/{Ao3LoginEstablisherTests,Ao3DownloadLinksTests}.cs`, `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter FullyQualifiedName~Ao3Login` → 100 passed (97 before, 99 with the two
+  tests the previous iteration left in the tree, one of them red); `--filter ~Download` → 81 (80
+  before); `dotnet test` → 645 passed (641 before); `npm run build` + `npm run lint` → clean, the
+  two known fast-refresh warnings only. Two mutations: removing the establisher's check reds both
+  refusal tests, and narrowing either comparison from `GetLeftPart(UriPartial.Authority)` back to
+  `.Host` reds exactly the downgrade test on that side and nothing else.
+- commit: (see below)
+- next: **T14 is next in plain file order** — its blocker (T12) is done, and T12's journal entry
+  lists what it inherits. T10 is earlier and still blocked by T51.
+- **This iteration inherited a claimed task, which is the mechanism working.** T61 was
+  `in_progress` with two tests in the working tree and no fix — a previous turn marked it and died
+  after writing the red test. Nothing was lost: the mark said where to look, the diff said how far
+  it got, and the first thing this turn ran was that red test. The tests were kept as written.
+- **The comparand was the decision, not the check.** The obvious move is to copy T12's twin exactly
+  and compare the action against the page it came from — but the login page is fetched by the
+  transport that *does* follow redirects, so `page.FinalUrl` is a value the archive's own redirects
+  can move, and `Absolute` already resolves a relative action against `BaseUrl` regardless of where
+  the page ended up. Measuring against the configured archive is both stricter and more consistent
+  with what a relative action already does. A twin is not always a copy.
+- **The origin, not the host, and that difference turned out to be live.** The download check
+  compares hosts, which is enough for a cookie already scoped to one; a plaintext password is not,
+  so this one compares scheme, host and port together. The review then found the same gap in the
+  download path — an `http://` link on an https page keeps the host and gets the session cookie in
+  the clear — so the stricter rule went there too. **The check that was copied from the download
+  path came back stricter and fixed it.**
+- **The sweep the previous entry asked for was actually run.** T13's journal recorded the lesson
+  "when a fix comes with a general rule, grep for the rule", and this task existed because nobody
+  had. Every outbound call site in the API is now accounted for: `ShipVerifier` and
+  `Ao3ShipIndexScraper` build URLs from `BaseUrl` and a tag name; `DownloadFetcher` builds the work
+  page URL and fetches one checked link; the login POST is this task. Exactly two fetch targets in
+  this codebase come out of markup and both are checked. Other hrefs the parsers read
+  (`Ao3BlurbParser`'s work, pseud and series links, `Ao3LoginPage`'s greeting) are parsed for ids
+  and names and never fetched — worth knowing so the next sweep is shorter.
+- **A refused action is a refused login, and inherits the backoff.** `Ao3SessionProvider` records it
+  through `Ao3LoginBackoff` (5 → 15 → 30 → 60 minutes, lifted the moment the operator saves the
+  credential again), so a login page whose form has moved is not re-fetched every sixty seconds.
+  Nothing had to be added for that; it is worth writing down because it is the difference between a
+  security check and a security check that hammers the archive.
+- **The review found five and four are queued** — see the T61 review entry in `DECISIONS.md`. Its
+  finding 3 is T67, already on the list from T13's review and now verified rather than reported;
+  T69, T70 and T71 are new and all in T12's download code. The one folded in was the one this
+  task's own doc comment had already claimed to be true.
+  Filters checked to bite, per T22's lesson: `~Ao3Login` matches 100 and covers all three new
+  establisher tests; `~Ao3DownloadLinks` matches 19 and covers the downgrade test. Still zero and
+  still suspect: T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.

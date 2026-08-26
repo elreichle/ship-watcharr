@@ -124,8 +124,17 @@ public sealed class Ao3SessionEstablisher : IAo3SessionEstablisher
         // less often, and every login is two requests AO3 would rather not serve.
         if (form.RememberMeField is not null) fields[form.RememberMeField] = "1";
 
+        var action = Absolute(form.Action);
+        if (!IsTheConfiguredArchive(action, loginUrl))
+        {
+            return Failed(
+                $"AO3's login page asked for the credential to be posted to {action}, which is not "
+                + $"{_options.BaseUrl}. Nothing was sent. This instance only ever posts its AO3 "
+                + "login to the archive it is configured for.");
+        }
+
         var posted = await _http.PostFormAsync(
-            Absolute(form.Action), fields, Ao3Cookies.ToHeader(jar), ct);
+            action, fields, Ao3Cookies.ToHeader(jar), ct);
 
         // What the POST *itself* established, separately from what the form fetch already held.
         // Merging first and then asking "are there any cookies" answers yes on the strength of the
@@ -202,6 +211,40 @@ public sealed class Ao3SessionEstablisher : IAo3SessionEstablisher
             : "AO3 did not sign this instance in. Check the username and password saved at "
               + "System → Scraping — a rejected login is answered with the login page again.";
     }
+
+    /// <summary>
+    /// Whether <paramref name="action"/> — the login form's own, read off a fetched page — addresses
+    /// the archive this deployment is configured for, and nothing else.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the request that carries the deployment's AO3 username and its decrypted password,
+    /// and its address comes out of markup, so an action of
+    /// <c>https://elsewhere.example/collect</c> would send both there — and the instance would go on
+    /// reporting a failed login rather than a leaked credential. The same check guards
+    /// <see cref="Ao3DownloadLinks"/>, where a link read out of a work page is fetched with the
+    /// session attached; this is the same rule on the input with the most to lose.
+    /// </para>
+    /// <para>
+    /// Measured against <paramref name="configured"/> — <see cref="LoginPath"/> under the configured
+    /// <see cref="Ao3HttpClientOptions.BaseUrl"/> — rather than against where the login page was
+    /// finally served from. A relative action already resolves against that same root (see
+    /// <see cref="Absolute"/>), so the configured archive is what the POST target is measured by
+    /// either way, and it is the one address in this flow no page can influence.
+    /// </para>
+    /// <para>
+    /// The whole origin and not merely the host: a password is what is being posted, so an action
+    /// that kept the name and dropped to <c>http</c> would put it on the wire in the clear. AO3
+    /// serves its login form over HTTPS and posts it back to the same place.
+    /// </para>
+    /// </remarks>
+    private static bool IsTheConfiguredArchive(string action, string configured) =>
+        Uri.TryCreate(action, UriKind.Absolute, out var target)
+        && Uri.TryCreate(configured, UriKind.Absolute, out var archive)
+        && string.Equals(
+            target.GetLeftPart(UriPartial.Authority),
+            archive.GetLeftPart(UriPartial.Authority),
+            StringComparison.OrdinalIgnoreCase);
 
     private static bool IsRedirect(HttpStatusCode status) =>
         (int)status is >= 300 and < 400;

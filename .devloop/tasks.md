@@ -14,6 +14,11 @@ the file but is blocked by T51, which is still `todo`.) **Read T13's notes befor
 the capture withdrew T12's original URL-construction design, and building to T11's handoff ships a
 guess T13 then has to undo.
 
+**2026-08-25: T61 is done** — taken because it was already `in_progress`: a previous iteration
+marked it and wrote its two tests before dying, and a claimed task is the next iteration's task
+whatever file order says. Next in plain file order is **T14**, whose `blocked-by` (T12) is done.
+T10 is still earlier and still blocked by T51.
+
 **2026-08-25: T12 is done**, and the instruction to read T13 before starting it has been consumed.
 T13 no longer has a blocker: T12 was built to the capture's finding rather than to T11's withdrawn
 handoff, so T13 is now the remaining formats and the two questions a capture cannot answer. Next in
@@ -1518,7 +1523,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   starts trusting a stored copy to be current.
 
 ## T61 — The login POST must not send the password to whatever host the form names
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: `Ao3SessionEstablisher` refuses a login form whose action names a host other than the
@@ -1619,9 +1624,12 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 - delivers: A download that spent its deadline queued behind the rate gate and retries says so,
   rather than blaming the archive for a stall that did not happen.
 - verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Download`
-- notes: From T13's review; **reported, not verified**. `DownloadTimeout` is armed before
-  `Gate.WaitAsync` in `RateLimitedAo3HttpClient.DownloadAsync`, so it covers rate-limit spacing and
-  retry backoffs as well as the transfer. A request that never received a byte can therefore fail
+- notes: From T13's review, re-reported independently by T61's, and **verified in T61's iteration**
+  by reading the code: `deadline.CancelAfter(_options.DownloadTimeout)` is armed at
+  `RateLimitedAo3HttpClient.DownloadAsync` before `SendAsync`, and it is `SendAsync` that waits on
+  `Gate.WaitAsync`, `WaitForRateLimitSlotAsync` and the retry `Task.Delay`s — all on
+  `deadline.Token`. So the deadline covers rate-limit spacing and retry backoffs as well as the
+  transfer. A request that never received a byte can therefore fail
   with `DownloadFetcher`'s "AO3 stopped sending the file before it was complete" — and `FailAsync`
   is terminal, so the reader must delete and re-request something that was only ever queued. Decide
   whether the deadline should start at the transfer or the message should stop naming a cause it
@@ -1642,3 +1650,58 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   suppresses the older response so the row keeps showing the newer state the server did not store.
   The lost edit appears on the next reload. Overlaps T57, which is the same page's note editor
   dropping text typed during a save; consider whether one answer serves both.
+
+## T69 — A stored file that is no longer on disk must not read as a copy the reader has
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A `WorkDownloadFile` row whose file is missing does not satisfy a request; the fetch
+  runs instead, and the reader is not left with a `Complete` row pointing at nothing.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Download`
+- notes: From T61's review, and **verified in that iteration** for the mechanism:
+  `DownloadFetcher.FindFileAsync` decides "already on disk" from the row alone — nothing stats the
+  file — and `RunAsync` line 103 short-circuits straight to `CompleteAsync`. So a data directory
+  that lost a file while keeping its row (a remounted volume, a hand-cleaned disk, a partial
+  restore) answers every future request for that work and format with `Complete` and a path to
+  nothing. `DownloadsController.RequestDownload` computes `holdsThisVersion` from the same row, so
+  re-requesting does not re-arm either. The reviewer's further claim — that `DELETE` then `POST`
+  also cannot recover it, because the `Download` → `WorkDownloadFile` FK is `SetNull` and leaves
+  the file row behind — is **reported, not verified**; check it before deciding how much of an exit
+  the fix needs. A `File.Exists(DownloadPaths.Absolute(...))` before accepting a found row is the
+  cheap half; what to do with the orphaned row is the part worth deciding rather than assuming.
+
+## T70 — A download must not be failed for ever because AO3 was briefly unreachable
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A queued download whose fetch failed at the transport — no response at all — returns to
+  `Pending` for the next drain, rather than settling as `Failed` on one attempt.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Download`
+- notes: From T61's review, and **verified in that iteration**. `SendWithRetryAsync` retries
+  *responses* (429 and 5xx) and nothing else, so a DNS failure, a reset socket or a connect timeout
+  throws straight out of `GetPageAsync`/`DownloadFileAsync`; `DownloadWorker.DrainQueueAsync`'s
+  catch then calls `MarkFailedAsync`, which writes `Failed`. One blip, one dead request, and the
+  reader has to notice and ask again. `Ao3ShipIndexScraper` lines 176–183 deliberately re-ask in
+  exactly this case, with a comment saying transport failures are the ones most likely to work next
+  time. T12's "never a retry loop" rule is about AO3's *answers* — a work it has taken down — not
+  about failing to reach AO3 at all, and the budget-exhaustion path already shows the shape
+  (`ReleaseAsync` back to `Pending`). Decide what stops a genuinely unreachable archive from
+  cycling the queue for ever: the circuit breaker already ends the drain, so a release may be
+  enough on its own, but say so rather than leaving it implied.
+
+## T71 — A file moved into place before its row is written can be orphaned
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A failed `StoreFileAsync` leaves no unreferenced file behind, so a save the database
+  refuses does not cost the instance disk nothing accounts for.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Download`
+- notes: From T61's review, and **verified in that iteration**. `DownloadFetcher` does
+  `File.Move(partialPath, destination, overwrite: true)` and only then writes the
+  `WorkDownloadFile` row. `StoreFileAsync` swallows exactly one failure — the unique-index race,
+  where it returns the winner's row — and rethrows everything else, at which point the `finally`
+  deletes `partialPath`, which no longer exists, while `destination` stays. `DiscardPartialFiles`
+  sweeps only `downloads/partial`, so nothing ever collects it. Up to `MaxDownloadBytes` (64 MB)
+  per occurrence, self-healing only if the same version of the same work is fetched again. Ordering
+  the row before the move is one answer and changes what a crash between them means; deleting
+  `destination` when the store throws is the smaller one.

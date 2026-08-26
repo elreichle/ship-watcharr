@@ -27,7 +27,7 @@ public static class Ao3DownloadLinks
     /// <param name="html">The work page's markup.</param>
     /// <param name="pageUrl">
     /// Where the page was fetched from. It resolves a relative href, and it is also the authority on
-    /// which host a link may name — see <see cref="Resolve"/>. Required, not optional: a link with
+    /// which origin a link may name — see <see cref="Resolve"/>. Required, not optional: a link with
     /// nothing to check it against is not a link this app may fetch.
     /// </param>
     public static IReadOnlyDictionary<Ao3DownloadFormat, string> Parse(string? html, string pageUrl)
@@ -63,7 +63,7 @@ public static class Ao3DownloadLinks
     }
 
     /// <summary>
-    /// An href as an absolute http(s) URL on the same host as the page, or null where it is not.
+    /// An href as an absolute http(s) URL on the same origin as the page, or null where it is not.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -73,12 +73,13 @@ public static class Ao3DownloadLinks
     /// establisher was found doing exactly that; this is the same trap on the same kind of input.
     /// </para>
     /// <para>
-    /// The host check is the load-bearing one. Whatever comes back from here is fetched with the
+    /// The origin check is the load-bearing one. Whatever comes back from here is fetched with the
     /// instance's AO3 session cookie attached and written to the instance's disk, and a work page
     /// renders author-supplied HTML. One <c>&lt;a href="https://elsewhere.example/x.epub"&gt;</c>
     /// that survived AO3's sanitiser inside the download menu would otherwise hand this
-    /// deployment's login to whoever wrote it. Same host as the page it was read from, or it is not
-    /// a download.
+    /// deployment's login to whoever wrote it. Same origin as the page it was read from, or it is
+    /// not a download — the whole origin, because a link that kept the host and dropped to
+    /// <c>http</c> would send that same cookie unencrypted.
     /// </para>
     /// </remarks>
     private static string? Resolve(string? href, Uri pageUri)
@@ -93,9 +94,15 @@ public static class Ao3DownloadLinks
 
         if (resolved is null) return null;
 
-        // Ordinal-ignore-case, which is how a host is compared: AO3 is one host and this is not the
-        // place to learn about anybody's subdomains.
-        return string.Equals(resolved.Host, pageUri.Host, StringComparison.OrdinalIgnoreCase)
+        // The whole origin — scheme, host and port together — rather than the host alone. A link
+        // that keeps the name and drops to http:// would put the session cookie it is fetched with
+        // on the wire in the clear, and a host comparison says yes to that. Ordinal-ignore-case
+        // because that is how an origin is compared: AO3 is one archive and this is not the place
+        // to learn about anybody's subdomains.
+        return string.Equals(
+            resolved.GetLeftPart(UriPartial.Authority),
+            pageUri.GetLeftPart(UriPartial.Authority),
+            StringComparison.OrdinalIgnoreCase)
             ? resolved.ToString()
             : null;
     }
