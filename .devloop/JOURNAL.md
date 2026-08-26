@@ -1808,7 +1808,7 @@ build. Not something a task should chase.
 - ran: `dotnet test --filter FullyQualifiedName~Ingest` → 9 passed (8 before); `dotnet test` → 745
   passed (744 before); `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings
   only. Mutation: dropping `Include(w => w.Series)` reds the new test with a `DbUpdateException`.
-- commit: <pending>
+- commit: 50f5941
 - next: **T35 is next in plain file order** (`NormalizedPseudIdentity` collides on a third
   capitalisation) and has no blockers. Its own notes name the hard part: getting a test around a
   migration, and the seam is undecided — settle that before writing the fix, and do **not** rewrite
