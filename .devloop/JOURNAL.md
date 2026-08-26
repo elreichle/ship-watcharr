@@ -1356,3 +1356,54 @@ build. Not something a task should chase.
   (25 at the first commit) and covers every new test in the worker's own file; `~Ao3DownloadLinks`
   matches 13 and `~Ao3DownloadTransport` 5, which are the two seams that file does not reach. Still zero and still suspect: T31 `~TotalWorks`,
   T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.
+
+## 2026-08-25 — T13 Confirm AO3's real download URLs — done
+
+- did: Test-only. Five formats pinned to the addresses `ao3-work-page.html` actually carries, one
+  `[InlineData]` each with the URL copied rather than generated, plus a completeness guard comparing
+  the parsed keys against `Enum.GetValues<Ao3DownloadFormat>()`. The two questions no capture can
+  answer are settled by making the app's behaviour safe under every answer rather than by guessing:
+  a stale `updated_at` AO3 refuses is the already-pinned file-half failure with no retry; one AO3
+  redirects to the current file is accepted, and the row's version key is now pinned to come from
+  `Work.UpdatedAt` and not from the address the request ended at; and the anonymous question is
+  settled by this deployment never asking anonymously — both halves authenticated, `GetLoggedOutAsync`
+  untouched, and the transport still identifying the instance when there is no session to attach.
+- files: `Tests/{Ao3DownloadLinksTests,DownloadWorkerTests,Ao3DownloadTransportTests}.cs`,
+  `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter FullyQualifiedName~Ao3DownloadLinks` → 18 passed (11 before);
+  `--filter ~Download` → 80 (72 before); `dotnet test` → 641 passed (633 before);
+  `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only.
+  Five mutations, each red where it should be and nowhere surprising: dropping `azw3` from
+  `FormatOf` reds the Azw3 case and the completeness guard; swapping `mobi` and `pdf` reds exactly
+  those two cases; refusing every redirect reds the new redirect test with six older ones; keying
+  the file by fetch time instead of `Work.UpdatedAt` reds the new test with three older ones; and
+  dropping the User-Agent when there is no cookie reds the new transport test **and nothing else**,
+  which is what makes that one worth having.
+- commit: 8207d46
+- next: **T14 is next in plain file order** — its blocker (T12) is done, and T12's journal entry
+  already lists what it inherits. T10 is earlier and still blocked by T51.
+- **The review found nothing in this diff and eight things in the branch, and none were folded in.**
+  A test-only task that quietly grows a security fix and a `BackgroundService` fix is a diff nobody
+  can review, so all eight are **T61–T68**. Two I verified by reading the code rather than trusting
+  the report: T61, the login POST sending the instance's username and plaintext password to whatever
+  host the form action names — the exact twin of the host check T12's review added to
+  `Ao3DownloadLinks.Resolve` one iteration earlier; and T62, `DiscardPartialFiles` throwing out of
+  `ExecuteAsync` on an unreadable partials directory and stopping the host at boot, on a path that
+  runs on every boot, in a class whose own comment says nothing may end this loop. **T62 was added
+  by T12's review** — a fix for a disk leak that introduced a startup crash. The other six are
+  marked reported-not-verified in their own notes; whoever takes one should check the mechanism
+  first.
+- **The lesson worth carrying: a rule written down in DECISIONS is not a rule that got applied.**
+  T12's review wrote "anywhere in this codebase a URL read out of markup is then fetched with
+  credentials, the host is the check that matters", fixed the one place it had found, and nobody
+  swept for the others. T61 is the place it did not reach, and it is the place with the most to
+  lose. When a fix comes with a general rule, grep for the rule.
+- **T13 asked two questions and the useful answer was a third.** Neither "rejected" nor "redirected"
+  is harmful, which is why neither needed answering — but working out *how a stale address arises*
+  found the fifteen-minute page cache, and the possibility neither question covers: AO3 simply
+  serving the old version's file at the old address. That is T60, and it is the version-keyed path's
+  own failure mode arriving through the cache instead of through the filename.
+- **Filter check, per T22's lesson.** `~Ao3DownloadLinks` (T13's own) matches 18, up from 11, and
+  reaches only the parser — the two settlement tests live at the seams they are about, so
+  `~Download` (80, up from 72) is the filter that covers the whole task. Still zero and still
+  suspect: T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.
