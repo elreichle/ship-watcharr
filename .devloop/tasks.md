@@ -767,7 +767,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   but T5 is the task that makes it bite, so it should not land after it.
 
 ## T31 — A singular listing heading must not be read as the tag's name
-- status: todo
+- status: in_progress
 - attempts: 0
 - blocked-by: none
 - delivers: `ParseTotalWorks` reads "1 Work in <tag>" as 1, whatever digits the tag name contains.
