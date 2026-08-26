@@ -1462,3 +1462,80 @@ build. Not something a task should chase.
   Filters checked to bite, per T22's lesson: `~Ao3Login` matches 100 and covers all three new
   establisher tests; `~Ao3DownloadLinks` matches 19 and covers the downgrade test. Still zero and
   still suspect: T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.
+
+## 2026-08-26 — T14 Downloads in the UI — done
+
+- did: `GET /api/downloads/{id}/file` streams a completed request's bytes with a sanitized
+  filename; a Downloads page lists the reader's queue with live status, size, the failure message
+  and Save/Try again/Remove; five format buttons and this work's requests sit on a work's own page.
+  One `useDownloads` hook behind both pages — the list, the ask, the drop, and polling that runs
+  while anything is `Pending` or `Downloading` and stops on the load that finds nothing is.
+- files: `Api/Controllers/DownloadsController.cs`, `Tests/{DownloadsControllerTests,LibraryTestHost}.cs`,
+  `frontend/src/hooks/useDownloads.ts`, `frontend/src/pages/DownloadsPage.tsx`,
+  `frontend/src/components/WorkDownloads.tsx`, `frontend/src/downloads.ts` (all new),
+  `frontend/src/{App.tsx,index.css,api/client.ts,api/types.ts,components/navigation.ts,pages/WorkDetailPage.tsx}`,
+  `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only;
+  `dotnet test --filter FullyQualifiedName~DownloadsController` → 52 passed (26 before);
+  `--filter ~Download` → 107 (81 before); `dotnet test` → 671 passed (645 before). Seven mutations,
+  every one red on the test that names it: dropping the containment check, dropping the ownership
+  scoping, dropping the missing-file check, using the raw title (nine cases red, and the Russian one
+  green — which is what that case is for), taking the length cut without the surrogate check,
+  judging the title one UTF-16 unit at a time, and naming HTML as `text/html`.
+- commit: 34ca322
+- next: **T18 (Statistics API) is next in plain file order** — its blocker (T6) is done. Everything
+  between is blocked: T15 still waits on T38, T40, T46 and T52; T16 and T17 wait on T15. T10 is
+  earlier still and still blocked by T51.
+- **The live check ran end to end against a stub, and it is worth rebuilding rather than
+  re-deriving.** `scratchpad/live/` holds `stub.js` (a node stand-in for AO3: the login fixture with
+  its relative form action, the captured work page with its download hrefs rewritten to the stub's
+  own origin, and an EPUB payload) and `browse.js` (chrome-headless-shell over CDP). The API ran on
+  :5312 with a scratch data directory, `Ao3HttpClient__BaseUrl` at the stub and the delays at
+  0.2–0.4s; vite on :5313 with `BACKEND_URL` pointed at it. **Two things it needed that are not
+  obvious.** The captured work page names `archiveofourown.org` in its download menu and T12's
+  origin check refuses a link that is not same-origin with the page it was read from, so the stub
+  has to rewrite those hrefs — rewriting them is what *exercises* the check rather than dodging it.
+  And the headless shell defaults to a window narrow enough that the sidebar rails and renders no
+  child links at all; `--window-size=1400,900` is what made the Downloads entry visible.
+- **What the live check proved, in the stub's own log:** login page, login POST, work page with
+  `view_adult=true`, then the file — four requests, every one carrying
+  `ShipWatcharr/0.1 (+contact: …; instance/…)`. The bytes that came back out of
+  `/api/downloads/1/file` were byte-for-byte the stub's payload, under
+  `Content-Disposition: attachment; filename="We Chose to Wait a live check test.epub";
+  filename*=UTF-8''…` — from a title of `We Chose to Wait: a "live" check / test`. Clicking MOBI in
+  the browser went `Fetching…` → `Failed · AO3 answered 404 for the file itself` **without a
+  reload**, which is the polling and the per-half failure message both working in one go.
+- **Seeding a library for a live check does not need the scraper.** Ship, WatchedShip, Work and
+  ShipWork went into the scratch SQLite file with python's `sqlite3` while the API held it open.
+  There is no `sqlite3` binary on this machine; python has the module built in. Use the work id the
+  captured page is of (70441196) so the address `DownloadFetcher` builds is one the stub answers.
+- **The review did not run, and this diff is the least-reviewed on the branch.** `/code-review high`
+  was launched and died on the account's monthly spend limit before reading anything. The pass was
+  done by reading the diff instead. It found three: `Html` falling through to the `_` arm rather than
+  being named (an exception should read as a decision, and the fallback should stay what it says it
+  is); the sanitiser judging chars rather than runes, which reduced any title outside the basic
+  plane to `work-{id}`; and a re-requested row jumping to the top of the list and back down on the
+  next poll, because re-arming does not change `RequestedAt`. All three are fixed here. A later
+  branch-wide review should read this diff first.
+- **One mutation survived and the fix is the same shape as T12's.** Dropping
+  `Status != DownloadStatus.Complete` from the file endpoint's guard left the suite green, because
+  `Arm` moves the status and the file reference together and no test could construct a queued
+  request that still named bytes. That state is precisely what **T59** is deciding whether to
+  create. `Will_not_serve_a_request_that_is_queued_while_still_naming_a_copy` constructs it directly
+  and T59's notes now point at it — the guard is what stops "keep the reference" from meaning "serve
+  the previous version as the answer to the refetch".
+- **The path check nothing can currently trip.** `RelativePath` is written only by
+  `DownloadPaths.Relative`, out of a work id and an enum, so it cannot escape the data directory.
+  It is checked anyway: this endpoint is the one place in the app where a value read out of the
+  database becomes a file handed to whoever asked, and a row naming `../../etc/passwd` would be
+  served in full to any signed-in reader. **The branch's own lesson, applied one input over** — T61
+  swept every URL read out of markup; this is the same rule for a path read out of storage.
+- **Six leaked API processes from earlier iterations are still running** (pids 650339, 651962,
+  663142, 783152, 993804, 1004997 at the time of writing), each a `dotnet run` throwaway a previous
+  live check never killed. Left alone rather than cleaned up, because they are not this task's and
+  killing by pattern is what the "never pkill" rule exists to prevent. Worth an operator's attention.
+  This iteration's own three (API, vite, stub) were killed by pid; the systemd dev instance was not
+  touched.
+  Filters checked to bite, per T22's lesson: `~DownloadsController` matches 52 (26 before) and
+  covers every new test; `~Download` matches 107. Still zero and still suspect: T31 `~TotalWorks`,
+  T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.
