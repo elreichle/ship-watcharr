@@ -64,6 +64,21 @@ five arguments in `RetreatFromStaleCursor`, and it was left alone deliberately. 
 nothing in its diff; of its four findings three were already listed (**T70**, **T64**, **T74**, each
 re-derived independently) and one is new, **T75**.
 
+**2026-08-26: T33 is done.** Next in plain file order is **T35** (the pseud dedup migration
+collides on a third capitalisation), `blocked-by: none` — and its own notes say the hard part is
+finding a seam to test a migration through, so decide that before writing anything. T33's
+verification filter `~Ingest` did bite (8 tests, 9 now), the first of the last four not to have been
+a guess. T33's review found nothing in its diff and four elsewhere, **all four already on the list**:
+**T64**, **T63**, **T67** (read with **T73**) and **T74** — the first review in five not to add a
+task.
+
+**The download path has now been re-derived by five consecutive reviews.** T63/T64/T67/T69/T70/T71/
+T73/T74/T75 are nine open tasks over the same few hundred lines of `DownloadsController`,
+`DownloadFetcher`, `RateLimitedAo3HttpClient` and `Ao3SessionProvider`. Three iterations running have
+recorded that one dedicated pass would be cheaper than meeting them one at a time; nothing has acted
+on it, and each review now spends most of its budget re-finding them. Worth filing as a task rather
+than observing again.
+
 **A log-capture seam now exists.** `backend/Ao3Tracker.Tests/CapturingLoggerProvider.cs` keeps every
 log record as its structured values and never formats one, so a test can assert on what a placeholder
 was bound to. **T49 needs the opposite** — a provider that *does* render, because the defect it is
@@ -830,7 +845,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   T15 exists to clean up after exactly that. Pass `page` in explicitly.
 
 ## T33 — One page of known works should not read a cartesian product
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: `LoadExistingWorksAsync` reads its three collections as three flat queries.

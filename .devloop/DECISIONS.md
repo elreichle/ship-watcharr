@@ -2209,3 +2209,50 @@ Four reviews running have now put nearly every finding in the download path. The
 entry — one dedicated pass over that subsystem instead of meeting it a finding at a time — is looking
 better with each review, and T64/T67/T70/T71/T73/T74 are now six tasks over the same few hundred
 lines.
+
+## 2026-08-26 — T33: the cheap task's only risk was that nothing would notice it working
+
+`.AsSplitQuery()` changes no behaviour, which is exactly what makes it hard to verify: a green suite
+after the change says nothing that the same suite did not say before it. Two things were done instead
+of trusting that.
+
+**The generated SQL was read, once, by hand.** A throwaway probe printed `ToQueryString()` for the
+query with and without the split, against the *Postgres* provider. Without it: one statement with
+three stacked `LEFT JOIN`s onto `WorkTags`, `WorkAuthors` and `WorkSeries`, every `Works` column
+repeated in each row of the product. With it: the root query alone, plus EF's note that further
+queries follow — and an `ORDER BY w."Id"` EF adds itself. That probe also answers the question T18's
+entry would have raised, so no `StatsQueryTranslationTests`-style test was added: the Npgsql
+translator accepts split queries, checked rather than assumed, and a translation test for this query
+would only re-assert what the feature guarantees.
+
+**The invariant the `Include`s exist for was untested on one of its three legs.** The comment above
+the query says an un-included collection reads as empty and the reconcile then deletes and re-inserts
+every join. Tags and authors each had a second-pass test; `Work.Series` had none, in this file or any
+other. `A_second_pass_keeps_every_join_the_first_one_read` walks all three, and dropping
+`Include(w => w.Series)` reds it with a `DbUpdateException` — the reconcile adds a `WorkSeries` row
+the work already has and the insert collides. That is the mutation this task's diff needed to be
+worth committing, and it is a test that keeps earning after the split query is forgotten about.
+
+**The class doc was widened rather than a second file started.** `WorkIngestorPseudTests` is named for
+pseuds and is really about join reconciliation across re-reads; the alternative was duplicating its
+30-line blurb helper into a series-shaped twin. The name is now slightly wrong and the doc is right.
+
+**`AsSplitQuery` is safe here only because the query is unpaged**, and the comment says so. A split
+query under `Skip`/`Take` over a non-deterministic order can tear between its statements; there is no
+row limit in this one, and EF orders by the key on its own.
+
+## 2026-08-26 — T33's review: four findings, all four already on the list
+
+`/code-review high` read the branch (53 commits, ~27.8k insertions) plus the working tree, confirmed
+the change, and found nothing in T33's own diff. Its four findings map one-to-one onto tasks already
+queued: the controller re-arm that clobbers a worker's claim (**T64**), two `BackgroundService`s each
+running the same login (**T63**), a download deadline that covers the gate wait and the `Retry-After`
+backoff and then blames the archive for a stall (**T67**, whose fleet-wide form is **T73**), and the
+120-character cut restoring the trailing dot (**T74**). The reviewer re-derived all four
+independently, including a sharper consequence for T64: two concurrent fetches mean two `File.Move`s
+onto one destination and two `WorkDownloadFile` inserts, only the second of which is race-handled.
+
+**This is the first review in five to add no task, and the reason is not that the code improved.** It
+is that the download path's defects are now all filed, and a high-effort review spends its budget
+re-finding them. The observation has been recorded three iterations running; it is now written into
+the run order as something to file rather than observe again.

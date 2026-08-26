@@ -55,9 +55,9 @@ public sealed class WorkIngestor : IWorkIngestor
             .Select(g => g.Last())
             .ToList();
 
-        // Loaded up front, in three queries rather than three per work. A backfill page carries
-        // twenty blurbs with a dozen tags each, so the per-row alternative is a few hundred
-        // round-trips for a page that could take one.
+        // Loaded up front, in a fixed handful of queries rather than a handful per work. A backfill
+        // page carries twenty blurbs with a dozen tags each, so the per-row alternative is a few
+        // hundred round-trips for a page that could take a few.
         var existingWorks = await LoadExistingWorksAsync(unique, ct);
         var existingLinks = await LoadExistingShipLinksAsync(ship, unique, ct);
         var tagsByKey = await ResolveTagsAsync(unique, now, ct);
@@ -261,11 +261,21 @@ public sealed class WorkIngestor : IWorkIngestor
         // The joins come with them: reconciling a work's tags means knowing which rows it already
         // has, and lazy loading is off, so an un-included collection would read as empty and every
         // existing join would be deleted and re-inserted on every pass.
+        //
+        // Split, because three collection Includes in one query is a cartesian product: a page of
+        // twenty known works with ~15 tags, ~2 authors and ~1 series each is 20 x 15 x 2 x 1 rows,
+        // every work column repeated in each of them, on every incremental pass over works that
+        // have not changed. Four small queries beat one that multiplies out. Nothing in this project
+        // sets QuerySplittingBehavior globally, so it is said here.
+        //
+        // Safe without an OrderBy only because this query is unpaged: split queries can tear when
+        // Skip/Take runs over a non-deterministic order, and there is no row limit here to tear.
         return await _db.Works
             .Where(w => ids.Contains(w.Id))
             .Include(w => w.Tags)
             .Include(w => w.Authors)
             .Include(w => w.Series)
+            .AsSplitQuery()
             .ToDictionaryAsync(w => w.Id, ct);
     }
 

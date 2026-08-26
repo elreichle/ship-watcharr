@@ -1794,3 +1794,61 @@ build. Not something a task should chase.
   prevent — the pattern matches the systemd dev instance (pid 2033, up 3d) too. If a future
   iteration wants the port back, kill **1963836 by pid**, not by name. This task started no
   processes of its own and did not touch the dev instance.
+
+## 2026-08-26 — T33 One page of known works should not read a cartesian product — done
+
+- did: `WorkIngestor.LoadExistingWorksAsync` says `.AsSplitQuery()`, so the three collection
+  `Include`s stop multiplying out — a page of twenty known works with ~15 tags, ~2 authors and ~1
+  series each was reading a three-way `LEFT JOIN` product with every `Works` column repeated in each
+  row, on every incremental pass over works that had not changed. Added the second-pass test that
+  covers all three joins, which is the invariant the `Include`s exist for and which `Work.Series` had
+  nowhere.
+- files: `Api/Services/Scraping/WorkIngestor.cs`, `Tests/WorkIngestorPseudTests.cs`,
+  `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter FullyQualifiedName~Ingest` → 9 passed (8 before); `dotnet test` → 745
+  passed (744 before); `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings
+  only. Mutation: dropping `Include(w => w.Series)` reds the new test with a `DbUpdateException`.
+- commit: <pending>
+- next: **T35 is next in plain file order** (`NormalizedPseudIdentity` collides on a third
+  capitalisation) and has no blockers. Its own notes name the hard part: getting a test around a
+  migration, and the seam is undecided — settle that before writing the fix, and do **not** rewrite
+  the applied migration in place. Its filter is `~Pseud`, which currently matches this file's 9 (it
+  bites, but on tests that say nothing about migrations — expect to add the test the filter is
+  supposed to be about).
+- **The verification filter bit, for the first time in four tasks.** `~Ingest` matched 8 before the
+  change and 9 after. T31 and T32 both opened with a filter that had never matched anything; this one
+  matched, and matched tests that actually walk the code path (three of the eight are second-pass
+  re-ingests). The ritual costs one command and has now paid twice and cleared once — keep doing it
+  first.
+- **A behaviour-preserving task has no red-first test, so the evidence has to come from somewhere
+  else.** Two places, both cheap. A throwaway probe printed `ToQueryString()` with and without the
+  split against the **Postgres** provider: without, one statement with three stacked `LEFT JOIN`s;
+  with, the root query plus EF's own note that more follow, and an `ORDER BY w."Id"` EF adds itself.
+  That probe is also why no Npgsql translation test was added — the translator was watched accepting
+  it. And the new test is what makes the diff worth committing: it pins the rule the query's comment
+  states, on the leg nothing tested.
+- **`Work.Series` was the untested third of a three-part invariant, and nothing said so.** Tags and
+  authors each had a second-pass test; series had none in any file, and the failure mode is loud
+  (`DbUpdateException` on the unique key) rather than silent, so it would have surfaced in
+  production as a broken pass rather than as quiet data loss. Worth generalising: when a comment
+  says "all three of these must X", check that three tests exist, not that the comment is true.
+- **The class doc was widened instead of starting a second test file.** `WorkIngestorPseudTests` is
+  named for pseuds and is really about join reconciliation across re-reads; a series-shaped twin
+  would have duplicated its 30-line blurb helper. The name is now the wrong half of the truth and
+  the doc is the right one — a rename is a task for whoever next touches the file.
+- **The review found nothing in this diff and four elsewhere, and all four were already on the list**
+  (T64, T63, T67/T73, T74) — the first review in five to add no task. It also re-derived a worse
+  consequence for T64: two concurrent fetches mean two `File.Move`s onto one destination and two
+  `WorkDownloadFile` inserts, only the second race-handled. **Five reviews running have landed in the
+  download path**, which is now nine open tasks (T63/T64/T67/T69/T70/T71/T73/T74/T75) over a few
+  hundred lines. Three iterations have observed that one dedicated pass would be cheaper; it is now
+  written into the run order as something to *file*, because observing it again is the pattern.
+- **Leaked processes, unchanged and growing older.** pid 1963836 (`dotnet run --project
+  Ao3Tracker.Api --no-launch-profile`, 10h38m) and the chrome-headless-shell tree from T19's live
+  check (1994238 and its children, plus 1996041, ~10h). None of them this task's; killing by pattern
+  is what the "never pkill" rule exists to prevent, since the pattern also matches the systemd dev
+  instance (pid 2033, up 3d08h). Kill **by pid** if a future iteration wants the port or the memory.
+  This task started no processes of its own and did not touch the dev instance.
+  Filters checked to bite, per T22's lesson: `~Ingest` 8 → 9, covering the new test. Still zero and
+  still suspect: none known — T31 retired `~TotalWorks` and T32 fixed `~Monotonic`. T40's
+  `~PagesFetched` is zero by design.

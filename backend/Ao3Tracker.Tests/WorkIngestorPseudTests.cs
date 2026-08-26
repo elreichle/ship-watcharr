@@ -5,13 +5,15 @@ using Microsoft.EntityFrameworkCore;
 namespace Ao3Tracker.Tests;
 
 /// <summary>
-/// Who a work is by, and what a work is tagged with, across re-reads of the same listing.
+/// Who a work is by, what a work is tagged with, and what series it is part of, across re-reads of
+/// the same listing.
 ///
-/// Both are resolved the same way: a page's blurbs are turned into keys, existing rows are looked
-/// up by those keys, and whatever is missing is inserted. The failure this pins is what happens
-/// when the key the lookup uses and the key the row was stored under are not the same string — a
-/// missed match means an insert, and an insert of something that already exists fails the whole
-/// page's save on a unique index.
+/// All three are resolved the same way: a page's blurbs are turned into keys, existing rows are
+/// looked up by those keys, and whatever is missing is inserted. The failure this pins is what
+/// happens when the key the lookup uses and the key the row was stored under are not the same
+/// string — a missed match means an insert, and an insert of something that already exists fails
+/// the whole page's save on a unique index. The same is true of a collection the load did not
+/// bring back at all, which is what the last test here is for.
 /// </summary>
 public class WorkIngestorPseudTests : IDisposable
 {
@@ -141,6 +143,28 @@ public class WorkIngestorPseudTests : IDisposable
         Assert.True(await db.Works.Where(w => w.Id == 1).Select(w => w.IsAnonymous).SingleAsync());
     }
 
+    [Fact]
+    public async Task A_second_pass_keeps_every_join_the_first_one_read()
+    {
+        // The three collections a known work is loaded with are the three the reconcile then
+        // rewrites, and a collection that comes back empty is indistinguishable from a work that
+        // has none: reconcile adds the row the blurb still claims, and the insert collides with the
+        // row already there. Series is the leg no other test walks twice.
+        var shipId = await FollowAsync();
+
+        await _host.IngestAsync(shipId, Page(Blurb(1, inSeries: true)));
+        await _host.IngestAsync(shipId, Page(Blurb(1, inSeries: true)));
+
+        await using var db = _host.NewContext();
+
+        Assert.Equal(1, await db.WorkTags.CountAsync(wt => wt.WorkId == 1 && wt.Tag.Name == "Fluff"));
+        Assert.Equal(1, await db.WorkAuthors.CountAsync(wa => wa.WorkId == 1));
+
+        var part = Assert.Single(await db.WorkSeries.Where(ws => ws.WorkId == 1).ToListAsync());
+        Assert.Equal(987654, part.SeriesId);
+        Assert.Equal(2, part.Part);
+    }
+
     private async Task<int> FollowAsync()
     {
         var result = await _host.Ships(_host.SeedUser()).WatchShip(new(Lexa), default);
@@ -159,8 +183,13 @@ public class WorkIngestorPseudTests : IDisposable
         string username = "someuser",
         string pseud = "somepseud",
         string[]? freeforms = null,
-        string? byline = null)
+        string? byline = null,
+        bool inSeries = false)
     {
+        var series = inSeries
+            ? """<ul class="series"><li>Part <strong>2</strong> of <a href="/series/987654">The Woods Sequence</a></li></ul>"""
+            : string.Empty;
+
         var tags = string.Join('\n', (freeforms ?? ["Fluff"])
             .Select(f => $"""<li class="freeforms"><a class="tag" href="/tags/{f}/works">{f}</a></li>"""));
 
@@ -174,6 +203,7 @@ public class WorkIngestorPseudTests : IDisposable
                 <!-- updated_at=1672531200 -->
                 <p class="datetime">1 Jan 2023</p>
               </div>
+              {series}
               <ul class="tags commas">
                 <li class="relationships"><a class="tag" href="/tags/lexa/works">{Lexa}</a></li>
                 {tags}
