@@ -1563,7 +1563,7 @@ build. Not something a task should chase.
   scoring an unrated work as zero, ranking the least prolific first, counting a crossover once per
   ship in the corpus total, folding the per-ship read count over every status, and lifting the
   top-ten cap.
-- commit: (see below)
+- commit: 119563f
 - next: **T19 (the Statistics page) is next in plain file order** and its blocker is now done. Read
   T18's section in `tasks.md` for the response shape — the short version is that every fixed
   vocabulary arrives zero-filled in a stable order so a chart can index by position, buckets carry
