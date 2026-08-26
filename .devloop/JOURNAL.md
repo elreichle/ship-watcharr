@@ -1752,7 +1752,7 @@ build. Not something a task should chase.
   Actual: 3", which is the defect itself); `dotnet test` → 744 passed (743 before); `dotnet build
   --no-incremental` → no new warnings; `npm run build` + `npm run lint` → clean, the two known
   fast-refresh warnings only. Mutation: logging `page + 1` reds the new test.
-- commit: (see below)
+- commit: 2ab7766
 - next: **T33 is next in plain file order** and has no blockers — `.AsSplitQuery()` on
   `WorkIngestor.LoadExistingWorksAsync`, the cheapest task on the list, verified by the existing
   ingest tests staying green. **Check `~Ingest` bites before trusting it.** The build's one code
