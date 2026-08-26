@@ -10,6 +10,7 @@ import { WorkDetailPage } from './pages/WorkDetailPage';
 import { FiltersPage } from './pages/FiltersPage';
 import { ShipsPage } from './pages/ShipsPage';
 import { DownloadsPage } from './pages/DownloadsPage';
+import { StatsPage } from './pages/StatsPage';
 import { SchedulesPage } from './pages/SchedulesPage';
 import { AccountSettingsPage } from './pages/AccountSettingsPage';
 import { AppearanceSettingsPage } from './pages/AppearanceSettingsPage';
@@ -40,6 +41,7 @@ export default function App() {
           <Route path="/filters" element={<FiltersPage />} />
           <Route path="/ships" element={<ShipsPage />} />
           <Route path="/downloads" element={<DownloadsPage />} />
+          <Route path="/stats" element={<StatsPage />} />
           <Route path="/schedules" element={<SchedulesPage />} />
 
           <Route path="/settings" element={<Navigate to="/settings/account" replace />} />

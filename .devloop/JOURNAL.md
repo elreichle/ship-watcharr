@@ -1611,3 +1611,76 @@ build. Not something a task should chase.
   Filters checked to bite, per T22's lesson: `~Stats` matches 62 and covers every new test, and
   matched zero before this task. Still zero and still suspect: T31 `~TotalWorks`, T32 `~Monotonic`.
   T40's `~PagesFetched` is zero by design.
+
+## 2026-08-26 — T19 The Statistics page — done
+
+- did: A Statistics view at `/stats`, under Dashboard between Downloads and Schedules. Two lenses
+  over the caller's library — six tiles for the corpus, five for their own reading — a per-ship
+  table where the two meet with a read-through bar, a column chart of works per month of last
+  revision, bar lists for the AO3 rating mix, the kudos and length histograms, the status mix and
+  the ten most prolific creators, and a table of the reader's half-stars against what the archive
+  made of the same works. `?shipId=` narrows every figure and is in the URL, so a narrowed view is
+  linkable. No charting library: every bar is a `width`/`height` percentage on a `<span>` coloured
+  from Obsidian tokens.
+- files: `frontend/src/pages/StatsPage.tsx` (new), `frontend/src/{App.tsx,index.css}`,
+  `frontend/src/api/{client.ts,types.ts}`, `frontend/src/components/navigation.ts`,
+  `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only;
+  `dotnet test` → 733 passed (unchanged — this task touched no backend code); a live check against
+  a throwaway instance on :5331 with vite on :5332, driven through chrome-headless-shell.
+- commit: (see below)
+- next: **T20 is next in file order and is not selectable** — it waits on T17, which waits on T16,
+  which waits on T15, which waits on T38/T40/T46/T52. Nothing between T10 and T20 is selectable
+  either. **The first selectable task is T31**, and from there the run is the long tail of scraper
+  and UI defects (T31–T71). Those are what unblock T15, and T15 is what unblocks the rest of the
+  plan — so the tail is now the critical path, not a cleanup queue.
+- **The live check is the reason three of the review's findings could be closed with evidence rather
+  than argument, and the recipe is now cheap enough to be routine.** `scratchpad/live/` holds
+  `browse.js` (chrome-headless-shell over CDP, using node 22's own `WebSocket` — the previous
+  iteration's copy needed `ws`, which is not required). API on :5331 with a scratch data directory
+  and `--no-launch-profile`, registered through `/api/auth/register` with a cookie jar, library
+  seeded straight into the scratch SQLite file with python's `sqlite3`, vite on :5332 with
+  `BACKEND_URL` pointed at the API. Three things it needed that are not obvious: the shell's default
+  window is too narrow for the sidebar to render its child links (`--window-size=1400,1000` fixes
+  it, as T14 found); `Page.captureScreenshot` shoots the viewport, so a tall page needs
+  `Emulation.setDeviceMetricsOverride` first and a region needs `clip` with a `scale`; and reading
+  *drawn geometry* rather than text is what makes a chart checkable — `getBoundingClientRect().width`
+  per bar caught nothing, but counting columns that own a `.month-bar-fill` caught every empty month
+  drawing a bar.
+- **Seeding the defect is what verified the fix.** The review's first finding was that one work with
+  an unreadable date puts `{year: 1, month: 1}` at the head of the month series, and the page filled
+  from there — 24,300 columns. Inserting a work at `0001-01-01` into the scratch database reproduced
+  it against the real endpoint, and the same insert then proved the cap: 240 columns, a note reading
+  "1 work is dated before September 2006 and is not drawn", and the page still responsive. **The
+  server's own comment said this would happen** — `WorksByUpdatedMonth` explains that it refuses to
+  zero-fill because a misparsed year would materialise centuries of buckets. It hands the span to
+  the client and the client filled it unbounded. A comment explaining why a hazard is *someone
+  else's* problem is a comment worth reading as a task for whoever becomes someone else.
+- **An empty library has four answers, not one.** No ships followed; ships followed but the AO3
+  login is missing so every scrape is held; one ship narrowed to that has nothing in it; and the
+  whole library empty with everything configured. The first three were checked live (the login one
+  by starting without a credential, the ship one by saving a fake credential and reloading). The
+  login wording is lifted from `ShipsPage` deliberately — the same cause said the same way in both
+  places, and it names an *admin* to non-admin readers rather than showing them a form they cannot
+  use.
+- **Two mutations, both caught by the browser rather than the compiler.** Removing the
+  `month.workCount > 0` guard makes every gap draw a 1px bar (32 columns, 32 bars, where 11 months
+  have works); removing the `Number.isInteger` guard sends `shipId=NaN` and turns `?shipId=abc` into
+  an error page under a picker that says "Everything you follow". There is no test runner in
+  `frontend/` by decision, so for UI work the live check *is* the mutation test — which is worth
+  saying out loud, because "verified by build and lint" would have caught neither.
+- **The review's other two findings were older code and are on the list**: T72 is new
+  (`Ao3DownloadLinks` measures against the post-redirect page URL, not the configured archive —
+  verified here), and the session-login race was already T63 from T13's review as *reported, not
+  verified*, so T63 is now marked verified and carries the extra consequence this reviewer named.
+  Filing a twin for a defect already on the list is a real cost in a loop that reads the list every
+  iteration; T73 was drafted and deleted for that reason.
+- **One leaked API process from an earlier iteration is still running** (pid 1963836, `dotnet run
+  --project Ao3Tracker.Api`), down from the six T14 and T18 recorded — so somebody has been
+  clearing them. Not this task's to kill, and killing by pattern is what the "never pkill" rule
+  exists to prevent. This iteration's own three (API, vite, chrome) were killed by pid; the systemd
+  dev instance (pid 2033) was not touched.
+  Filters checked to bite, per T22's lesson: this task added no tests, so no new filter to check —
+  `dotnet test` matched the same 733 as the baseline, which is the assertion that the backend was
+  not touched. Still zero and still suspect: T31 `~TotalWorks`, T32 `~Monotonic`. T40's
+  `~PagesFetched` is zero by design.

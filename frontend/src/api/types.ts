@@ -440,3 +440,104 @@ export interface Download {
   requestedAt: string;
   completedAt: string | null;
 }
+
+/**
+ * The body of `GET /api/stats`: two lenses over the caller's library, and a table where they meet.
+ *
+ * Nothing here is stored — every figure is an aggregate the server computed over exactly the works
+ * `/api/works` would list, so the page can never disagree with the feed about what the library is.
+ */
+export interface Stats {
+  /** The ship every figure was narrowed to, echoed back, or null for the whole library. */
+  shipId: number | null;
+  /**
+   * One row per watched ship, carrying both its corpus size and this reader's marks on it, so a
+   * share is arithmetic within a row rather than a join across two lists. Narrowed with the rest:
+   * asking about one ship returns one row, which is why the ship picker is fed by `/api/ships`.
+   */
+  ships: ShipStats[];
+  corpus: CorpusStats;
+  reading: ReadingStats;
+}
+
+export interface ShipStats {
+  shipId: number;
+  tagName: string;
+  /** Zero for a followed ship nothing has been scraped into yet — a state the page explains. */
+  workCount: number;
+  wordCount: number;
+  /** Works given any status other than `None`. */
+  markedCount: number;
+  readCount: number;
+  ratedCount: number;
+}
+
+/** The corpus as it stands, with nobody's reading in it. */
+export interface CorpusStats {
+  workCount: number;
+  completeCount: number;
+  wordCount: number;
+  kudos: number;
+  /** Null for an empty library, where the alternative is a zero that reads as "nobody left kudos". */
+  averageKudos: number | null;
+  averageWordCount: number | null;
+  /** Ascending, and carrying only the months that have works — the gaps are this page's to fill. */
+  worksByUpdatedMonth: MonthCount[];
+  /** Every AO3 content rating in AO3's own order, zero-count ones included. */
+  ratingMix: LabelledCount[];
+  kudosDistribution: BucketCount[];
+  wordCountDistribution: BucketCount[];
+  /** At most ten. Anonymous works have no creator and are absent rather than pooled. */
+  topAuthors: AuthorStats[];
+}
+
+/** The caller's own reading, laid over the corpus above. PER-USER. */
+export interface ReadingStats {
+  markedCount: number;
+  readCount: number;
+  /** Words in the works marked Read — how much of the library this reader has been through. */
+  readWordCount: number;
+  ratedCount: number;
+  /** Half-stars, weighted by how many works sit at each. Null where nothing is rated. */
+  averageRating: number | null;
+  /** Every reading status, zero-count ones included; sums to `corpus.workCount`. */
+  statusMix: LabelledCount[];
+  /** One row per half-star awarded, with what the archive made of the works put there. */
+  ratingsAgainstReception: RatingReception[];
+}
+
+export interface MonthCount {
+  year: number;
+  /** 1-12, as the server counts months — not JavaScript's zero-based one. */
+  month: number;
+  workCount: number;
+}
+
+export interface LabelledCount {
+  label: string;
+  workCount: number;
+}
+
+/** A histogram bar. The bounds ride along with the label so a client can format its own axis. */
+export interface BucketCount {
+  label: string;
+  min: number;
+  /** Null on the open-ended top bucket. */
+  max: number | null;
+  workCount: number;
+}
+
+export interface AuthorStats {
+  pseudId: number;
+  name: string;
+  workCount: number;
+  kudos: number;
+}
+
+export interface RatingReception {
+  /** Half-stars, 1-10, the same scale `WorkState.rating` uses. */
+  rating: number;
+  workCount: number;
+  averageKudos: number;
+  averageWordCount: number;
+}

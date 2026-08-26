@@ -28,6 +28,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: 'Filters', to: '/filters' },
       { label: 'Ships', to: '/ships' },
       { label: 'Downloads', to: '/downloads' },
+      { label: 'Statistics', to: '/stats' },
       { label: 'Schedules', to: '/schedules' },
     ],
   },

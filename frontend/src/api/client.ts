@@ -16,6 +16,7 @@ import type {
   ScrapeRun,
   ScrapingIdentity,
   SetWorkStateInput,
+  Stats,
   WatchedShip,
   WatchedShipsResponse,
   WorkDetail,
@@ -81,6 +82,24 @@ const isWorkDetail: ResponseCheck = (body) =>
   Array.isArray(body.categories) &&
   Array.isArray(body.warnings) &&
   isRecord(body.state);
+
+/**
+ * Statistics over the library. The page maps over six lists inside the two lenses and reads the
+ * counts on every row, so a server that sent a body without them would throw during render rather
+ * than report the version mismatch this check exists to name.
+ */
+const isStats: ResponseCheck = (body) =>
+  isRecord(body) &&
+  Array.isArray(body.ships) &&
+  isRecord(body.corpus) &&
+  isRecord(body.reading) &&
+  Array.isArray(body.corpus.worksByUpdatedMonth) &&
+  Array.isArray(body.corpus.ratingMix) &&
+  Array.isArray(body.corpus.kudosDistribution) &&
+  Array.isArray(body.corpus.wordCountDistribution) &&
+  Array.isArray(body.corpus.topAuthors) &&
+  Array.isArray(body.reading.statusMix) &&
+  Array.isArray(body.reading.ratingsAgainstReception);
 
 async function request<T>(path: string, init?: RequestInit, isValid?: ResponseCheck): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -212,6 +231,20 @@ export const api = {
    * buffer a whole PDF in the page to hand it straight back.
    */
   downloadFileUrl: (id: number) => `/api/downloads/${id}/file`,
+
+  /**
+   * Two lenses over the caller's library. `shipId` narrows every figure to one watched ship and
+   * 404s on a ship they do not watch — the same scoping the works list applies.
+   *
+   * Sent key by key rather than from an object, for the reason `getWorks` gives: an omitted ship
+   * means the whole library, and `URLSearchParams` would send a null one as the string "null".
+   */
+  getStats: (shipId?: number | null) => {
+    const query = new URLSearchParams();
+    if (shipId != null) query.set('shipId', String(shipId));
+
+    return request<Stats>(`/stats?${query}`, undefined, isStats);
+  },
 
   getSavedFilters: () => request<SavedFilter[]>('/saved-filters', undefined, Array.isArray),
 

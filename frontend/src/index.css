@@ -1030,4 +1030,174 @@
     color: var(--text-muted);
     font-size: var(--font-ui-smaller);
   }
+
+  /* --------------------------------------------------------------------------- statistics */
+
+  /* Every chart below is CSS over a number the server bucketed. No colour literals, for the
+     reason at the top of this file — a bar drawn in a fixed accent is a bar somebody's theme
+     cannot reach, and these are the largest blocks of colour in the app. */
+
+  .stat-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: var(--size-4-3);
+    margin-bottom: var(--size-4-4);
+  }
+
+  .stat-tile {
+    display: flex;
+    flex-direction: column;
+    gap: var(--size-2-1);
+    padding: var(--size-4-3);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m);
+    background-color: var(--background-secondary);
+  }
+
+  .stat-tile-value {
+    font-size: var(--font-ui-large);
+    font-weight: var(--font-semibold);
+    line-height: var(--line-height-tight);
+  }
+
+  .stat-tile-label {
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+  }
+
+  .stat-tile-hint {
+    color: var(--text-faint);
+    font-size: var(--font-ui-smaller);
+  }
+
+  /* Label, bar, value — three columns, so the bars share one baseline down the list however long
+     the labels are. The label column is capped rather than sized to content: a pseud can be
+     arbitrarily long, and letting it size the grid would leave the bars a sliver wide. */
+  .bar-list {
+    display: grid;
+    grid-template-columns: minmax(6rem, 12rem) 1fr auto;
+    gap: var(--size-2-2) var(--size-4-3);
+    align-items: center;
+    margin: 0 0 var(--size-4-3);
+    padding: 0;
+    list-style: none;
+  }
+
+  .bar-list li {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+    align-items: center;
+  }
+
+  .bar-label {
+    overflow: hidden;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .bar-track {
+    display: block;
+    overflow: hidden;
+    width: 100%;
+    height: var(--size-4-3);
+    border-radius: var(--radius-s);
+    background-color: var(--background-modifier-border);
+  }
+
+  .bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: var(--radius-s);
+    background-color: var(--interactive-accent);
+  }
+
+  .bar-value {
+    display: flex;
+    gap: var(--size-4-2);
+    align-items: baseline;
+    font-size: var(--font-ui-small);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .bar-detail {
+    color: var(--text-faint);
+    font-size: var(--font-ui-smaller);
+  }
+
+  /* The read-through cell in the per-ship table: the same bar, sized to its own row rather than
+     stretched across a grid column it does not sit in. */
+  .share {
+    display: flex;
+    gap: var(--size-4-2);
+    align-items: center;
+    min-width: 8rem;
+  }
+
+  .stats-table {
+    display: block;
+    overflow-x: auto;
+    margin-bottom: var(--size-4-3);
+  }
+
+  .stats-table .numeric {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  /* One column per month, scrolling rather than compressing: twenty years of an active tag is
+     240 columns, and squeezing those into the page width draws a solid block. */
+  .month-chart {
+    display: flex;
+    gap: 1px;
+    align-items: flex-end;
+    overflow-x: auto;
+    /* Room at the ends for the year under the January column: the label is several times wider
+       than the column it is centred on, and against the scroll container's edge it would be
+       clipped to its last digits — which is worse than no axis at all. */
+    padding: 0 var(--size-4-6) var(--size-2-2);
+  }
+
+  .month-column {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: var(--size-2-1);
+    align-items: center;
+    width: var(--size-4-3);
+  }
+
+  .month-bar-track {
+    display: flex;
+    align-items: flex-end;
+    width: 100%;
+    height: var(--size-4-16);
+    border-radius: var(--radius-s);
+    background-color: var(--background-modifier-border);
+  }
+
+  .month-bar-fill {
+    width: 100%;
+    /* A month with works is never drawn as nothing: a single work in a busy tag rounds to under a
+       pixel. Only months that have works get a fill at all, so this floor cannot make an empty
+       month look like a quiet one. */
+    min-height: 1px;
+    border-radius: var(--radius-s);
+    background-color: var(--interactive-accent);
+  }
+
+  /* Only January is written, so the axis stays readable at one column per month. The element is
+     rendered empty the rest of the year to hold the columns' height steady. */
+  .month-tick {
+    /* Held at a line's height whether or not it has a year in it, so a January column is not
+       taller than its neighbours and does not lift its bar off the shared baseline. */
+    min-height: 1em;
+    color: var(--text-faint);
+    line-height: 1;
+    font-size: var(--font-ui-smaller);
+    white-space: nowrap;
+  }
 }

@@ -2051,3 +2051,61 @@ stop including ships that the per-ship rows and the per-row ship names kept nami
 failing. Now `WorkQueries.WatchedShipsOf` / `WatchedShipIdsOf`, with `Library` itself derived from
 them, and every site pointed at it. Touching `WorksController` widens this task's diff by four
 lines; leaving one caller behind would have recreated exactly the drift the finding is about.
+
+## 2026-08-26 — T19: no charting library, and the client is what bounds the span the server refuses to
+
+**The charts are CSS, and nothing was added to `package.json`.** T19's notes asked for the choice
+to be recorded either way. Every figure `GET /api/stats` returns is already bucketed, ordered and
+zero-filled by the server, so what is left to draw is a rectangle whose length is a ratio — a
+`width: N%` on a `<span>`. A charting library would bring its own colours, its own DOM, and its own
+theme story into a project whose whole styling rule is "every colour comes from an Obsidian token";
+the bars here take `--interactive-accent` on `--background-modifier-border` and therefore change
+with whatever theme the reader pasted in. This is the same reasoning that made `RatingStars` a text
+glyph rather than an icon-set import, and it is worth stating as a rule: **a dependency whose whole
+job is proportional to something the server already computed does not earn its place here.** If a
+later task needs axes, gridlines, log scales or a tooltip that is more than a `title` attribute,
+that is the point to revisit it — and to record the reversal here.
+
+**The month series is filled by the page, and capped there too.** `StatsQueries.WorksByUpdatedMonth`
+deliberately returns only the months that have works, and its own remarks explain why: a work whose
+date the blurb parser could not read sits at `DateTime.MinValue`, so it groups under year 1, and a
+server that zero-filled would materialise two thousand years of empty buckets. That reasoning hands
+the span to the client — and the client, drawing an axis, is the one that has to bound it. The first
+version of this page did not, and the review caught it: one unreadable date meant ~24,300 columns,
+~100k DOM nodes and as many `toLocaleDateString` calls in a single render, which is a frozen page
+rather than a wrong chart. The window is now the last `MAX_MONTH_COLUMNS` (240 — twenty years,
+longer than AO3 has existed) ending at the newest month, anchored at the end because that is the
+half a reader is looking at, and **anything dropped is named in a sentence under the chart** rather
+than silently omitted. Verified live by seeding a work at `0001-01-01`: 240 columns, the note reads
+"1 work is dated before September 2006 and is not drawn", and the page stays responsive.
+
+**A gap is drawn as a gap.** The fill carries `min-height: 1px` so a single work in a busy tag still
+draws, which meant an empty month also drew — a chart with no gaps at all. Months with no works now
+render no fill element, and the floor keeps its purpose.
+
+**A malformed `?shipId=` reads as the whole library.** `Number('')` is `0` and `Number('abc')` is
+`NaN`, and both were being sent — one to be 404ed, the other refused as a malformed query — while
+the `<select>`, matching no option, still showed "Everything you follow". The control and the
+figures now agree: anything that is not a positive whole number means the whole library.
+
+## 2026-08-26 — T19's review: five findings, three fixed here, one queued, one folded into an existing task
+
+`/code-review high` ran over the branch and returned five. Three were in T19's own diff — the
+uncapped month fill, the malformed `shipId`, and the previous ship's figures standing under a new
+ship's name while the next load was in flight — and all three are fixed and re-verified live.
+
+The other two are older code and became tasks rather than this diff's business:
+
+- **T72** (new): `Ao3DownloadLinks.Resolve` measures an href's origin against `page.FinalUrl`, which
+  for a transport with `AllowAutoRedirect = true` is wherever AO3's redirects ended up, not the
+  configured archive. Its own remarks claim it is "the same rule" as
+  `Ao3SessionEstablisher.IsTheConfiguredArchive`, which measures against `BaseUrl` precisely because
+  a redirect can move the other value. **Verified in this iteration** — the call site and the
+  handler configuration, not an exploit.
+- **T63** (existing): the unsynchronised `EnsureSessionAsync` was already on the list from T13's
+  review as *reported, not verified*. This reviewer derived it independently with the same
+  mechanism, and reading `Ao3SessionProvider` confirms there is no lock of any kind. T63 is now
+  marked verified and carries the extra consequence this review named (Rails rotates the session on
+  sign-in, so the loser's cookie is dead on arrival and provokes a third login). **A second reader
+  finding the same defect is worth folding into the task that already exists rather than filing a
+  twin** — the first draft of this iteration filed T73 for it, which was a duplicate.

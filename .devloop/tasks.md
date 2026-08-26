@@ -36,6 +36,14 @@ response shape before designing the page, and read T19's own notes on charting d
 API already ships bucket labels and bounds, and every fixed vocabulary zero-filled in a stable
 order, so a correct bar chart needs no library, only CSS.
 
+**2026-08-26: T19 is done.** Next in plain file order is **T20** (Docker, actually run), whose
+`blocked-by` are T4, T14, T17 and T19 — T17 is still `todo` and blocked by T16→T15, so T20 is not
+selectable. Nothing between T10 and T20 is: T10 waits on T51, T15 on T38/T40/T46/T52, T16 on T15,
+T17 on T16. **The first selectable task is T31**, and from there the run is the long tail of
+scraper and UI defects (T31–T71) that unblocks T15 and with it the rest of the plan. T19's review
+found five: three were in its own diff and are fixed, one is queued as **T72**, and one was folded
+into **T63**, which it verified.
+
 **2026-08-26: T14 is done.** Everything between T14 and T18 is blocked: T15 still waits on T38, T40,
 T46 and T52, and T16/T17 wait on T15. T10 is earlier still and still blocked by T51.
 
@@ -465,13 +473,21 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   `StatsQueryTranslationTests` — see DECISIONS.
 
 ## T19 — The Statistics page
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: T18
 - delivers: A Statistics view under Dashboard rendering both lenses, filterable to one ship or all.
 - verification: `cd frontend && npm run build && npm run lint`, plus a live check against an
   instance with works in it.
-- notes: No charting library is currently a dependency and the project has been deliberate about
+- notes: **Built**, as `frontend/src/pages/StatsPage.tsx` at `/stats`, with the ship picker in the
+  URL (`?shipId=`) so a narrowed view can be linked. No charting library was added — see DECISIONS.
+  What a later task needs from it: the fixed vocabularies arrive zero-filled and are drawn as
+  `BarList` rows scaled to the largest bar; the month series is the one that carries gaps, and the
+  page fills them itself, capped at `MAX_MONTH_COLUMNS` (240) because a work with an unreadable
+  date arrives under year 1 and an uncapped fill is 24,000 columns. An empty library is explained
+  in one of four ways and never drawn.
+
+  No charting library is currently a dependency and the project has been deliberate about
   its dependencies — prefer plain SVG/CSS bars, or record the choice and its justification in
   `.devloop/DECISIONS.md` before adding one. Charts must be legible under an arbitrary Obsidian
   theme, so take every colour from the CSS variables rather than a fixed palette. An empty library
@@ -1597,14 +1613,19 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 - blocked-by: none
 - delivers: One login at a time, however many workers want a session.
 - verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ao3Session`
-- notes: From T13's review; **reported, not verified in that iteration** — check the mechanism
-  before building. The claim: `Ao3SessionProvider.EnsureSessionAsync` has no mutual exclusion, and
+- notes: From T13's review, and **verified during T19's** — `Ao3SessionProvider` holds no lock of
+  any kind, and both callers poll on their own one-minute timers from host boot; T19's reviewer
+  raised it again independently, with the same mechanism. The claim, now confirmed:
+  `Ao3SessionProvider.EnsureSessionAsync` has no mutual exclusion, and
   T12 added a second caller (`DownloadWorker.MayFetchAsync`) beside `ScrapeWorker.HasSessionAsync`.
   With a queued download and no cached session, both observe `GetUsableAsync() == null` and each
   runs the full two-request login: four rate-gated requests where one login was needed, which is
   precisely the load this project exists not to produce. On failure both call
   `Ao3LoginBackoff.RecordFailure`, advancing the counter twice per cycle, so the documented
-  5→15→30→60 schedule skips rungs.
+  5→15→30→60 schedule skips rungs. One further consequence T19's review named: Rails rotates the
+  session on sign-in, so the *first* login's cookie is dead the moment the second lands, and a
+  request already in flight under it comes back logged out — which discards and logs in a third
+  time. A `SemaphoreSlim` around check-then-login, re-reading the cache after acquiring, is the fix.
 
 ## T64 — A controller re-arm can overwrite a fetch already in flight
 - status: todo
@@ -1735,3 +1756,21 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   per occurrence, self-healing only if the same version of the same work is fetched again. Ordering
   the row before the move is one answer and changes what a crash between them means; deleting
   `destination` when the store throws is the smaller one.
+
+## T72 — A download link must be measured against the archive, not against wherever the page landed
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: `Ao3DownloadLinks.Resolve` compares an href's origin against the configured archive, so
+  a redirected work page cannot make an off-origin link look same-origin.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Download`
+- notes: From T19's review, and **verified in that iteration** — the premise, not the exploit.
+  `DownloadFetcher.cs:125` passes `page.FinalUrl ?? pageUrl` as the comparand, and the work page is
+  fetched by the transport with `AllowAutoRedirect = true` (`Program.cs:144`), so `FinalUrl` is
+  wherever AO3's redirects ended up. `Resolve` then compares every href against *that*, which means
+  a work page redirected off-origin makes every link on the substituted page same-origin — and what
+  comes back from `Resolve` is fetched with the instance's AO3 session cookie attached and streamed
+  to disk. `Ao3SessionEstablisher.IsTheConfiguredArchive` deliberately measures against
+  `Ao3HttpClientOptions.BaseUrl` for precisely this reason (see T61's journal entry), and this
+  method's own remarks claim to be the same rule. They are not the same rule yet. Measuring against
+  `BaseUrl` is the fix; keep the whole-origin comparison T61 introduced.
