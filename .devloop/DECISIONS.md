@@ -1706,3 +1706,86 @@ whatever state the answer invents.
 **T49 arrives for the third time and is still not this diff's to fix.** The reviewer confirmed
 `CA2017` empirically once more — six placeholders over five arguments, `string.Format` throws, and
 the retreat never runs. It is the only analyzer warning in the build.
+
+## 2026-08-25 — T13: five formats read off the capture, and two questions settled by not depending on the answer
+
+**Every format is pinned to an address copied out of the capture, one case per enum member.** The
+five hrefs in `ao3-work-page.html` share an obvious shape, and a table whose expectations were
+generated from that shape would agree with a parser that generated the same shape — and go on
+agreeing with it while it was wrong. So each `[InlineData]` carries the full URL as the fixture
+spells it, and `Reads_every_format_this_library_fetches_and_nothing_else` compares the parsed keys
+against `Enum.GetValues<Ao3DownloadFormat>()`, which is also the guard on the enum: a sixth member
+added without a re-captured page fails there rather than quietly becoming a format no work offers.
+
+**Neither open question was answered, and neither needed to be.** T13 existed to settle two
+behaviours a capture cannot describe. The settlement in both cases is that this app's behaviour is
+safe under every answer, pinned against a stub, rather than a guess at what AO3 does.
+
+**A stale `updated_at`, if AO3 refuses it, is already handled and already pinned.** A refused
+address is a refused file, which `Fails_a_request_whose_file_AO3_will_not_serve_and_stores_nothing`
+covers — `Failed`, a message naming the file half, no row, nothing on disk — and
+`Does_not_ask_again_for_something_it_has_already_failed` covers the request not then being made for
+ever. Nothing new was written for this branch; a 410-shaped copy of an existing 404 test would have
+been a duplicate wearing a different number.
+
+**A stale `updated_at`, if AO3 redirects it to the current file, is accepted — and the row still
+says which version this library thinks it holds.** `LandedOnTheFile` judges a redirect on the
+extension, so being served the file from a fresher address is not a refusal. The claim worth pinning
+is the one after it:
+`Keys_a_redirected_download_to_the_version_the_library_holds` asserts that `WorkDownloadFile.
+WorkUpdatedAt` and the stored path come from `Work.UpdatedAt`, not from the `updated_at` in whatever
+address the request ended at. **They are different clocks and always were** — AO3 stamps its own,
+the library records what its last scrape saw — so a row keyed off the address would claim to be a
+copy of a version no scrape has ever seen, and the next request for the work as the library holds it
+would fetch the same bytes again.
+
+**Whether these links work anonymously is a question this deployment never puts to AO3.** The
+capture was taken logged in, and it stays that way in practice: the download queue is held until an
+instance login is stored, both halves of a fetch go through the authenticated transport, and a
+session that lapses mid-fetch produces a login redirect the fetcher refuses rather than a login page
+stored as an EPUB. `Never_asks_for_a_download_anonymously` pins the middle of that — one page
+request, one file request, and no reach for `GetLoggedOutAsync`, which exists for the login page and
+nothing else. The one thing that must hold when a session has lapsed anyway is at the transport:
+`Identifies_the_instance_even_on_a_download_it_has_no_session_for` pins that no cookie to attach is
+not an excuse for a request that does not say who is making it.
+
+**The question mattered, and here is what it turned up: the response cache is how a stale address
+arises at all.** A download address is read off the work's page, and that page goes through the
+fifteen-minute response cache. So a work updated between one download and the next is fetched from
+an address the cached page carried — and if AO3 simply *serves* the old version's file at the old
+address, which is the third answer neither of the two above covers, those bytes are stored keyed to
+`Work.UpdatedAt` as it now stands. The library would then report the previous version as a copy of
+the current one: the exact failure the version-keyed path exists to prevent, arriving through the
+cache rather than through the filename. **Queued as T60 rather than fixed here** — the cheap fix
+(bypass the cache on every download page fetch) throws away the case the cache is actually for, a
+second format of the same unchanged work, and the comparison that would be exact is unavailable
+because the two timestamps are not the same clock.
+
+## 2026-08-25 — T13's review: nothing in the diff, eight findings in the branch, two verified
+
+T13's diff is tests only, and `/code-review high` found nothing wrong with it. What it did do was
+read the whole branch and return eight findings in code earlier tasks shipped. None were folded in —
+a test-only task that quietly grows a security fix and a `BackgroundService` fix is a diff nobody
+can review — so all eight are queued as **T61–T68**.
+
+**Two were verified here rather than taken on the reviewer's word**, because an agent's finding is a
+claim until someone reads the code:
+
+- **T61, the login POST.** `Ao3SessionEstablisher.Absolute` returns any absolute http(s) URL
+  unchanged and `form.Action` comes off the fetched login page, so a form action naming another host
+  is posted to — carrying the instance's AO3 username and its decrypted password. This is the twin
+  of the host check T12's review added to `Ao3DownloadLinks.Resolve` one iteration ago, and the
+  login flow is now the only place in the codebase without it. **That is the third time on this
+  branch a defect has been found in the code path a previous fix's reasoning applied to but did not
+  reach**; the rule the earlier entry stated — anywhere a URL read out of markup is then fetched
+  with credentials, the host is the check that matters — was written down and still not swept for.
+- **T62, the startup partials sweep.** `DiscardPartialFiles` runs in a `finally` outside its
+  method's own `catch`, and that method is awaited outside `ExecuteAsync`'s loop `try`.
+  `Directory.GetFiles` there is unguarded, so an unreadable partials directory throws out of
+  `ExecuteAsync` and `BackgroundServiceExceptionBehavior.StopHost` takes the API down at boot — on a
+  path that runs on every boot, in a class whose own comment says nothing may end this loop. It was
+  added by T12's review, which is worth noting: a fix for a disk leak introduced a startup crash,
+  and the review that produced it did not re-examine where its own code would run.
+
+The other six (T63–T68) are recorded as reported-not-verified, each saying so in its own notes, so
+whoever takes one checks the mechanism before building to it.

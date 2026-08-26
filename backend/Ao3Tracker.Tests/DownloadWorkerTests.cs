@@ -241,6 +241,68 @@ public class DownloadWorkerTests : IDisposable
         Assert.Equal(DownloadStatus.Complete, (await DownloadAsync()).Status);
     }
 
+    // ---- an address that has gone stale ----------------------------------------------------------
+    //
+    // The link a work page offers carries AO3's own `updated_at` stamp, so an address read off a
+    // page the response cache is still holding can name a version the archive has moved past. What
+    // AO3 does with such a link is not knowable from a capture — it may refuse it, or it may
+    // redirect to the current file — so both answers are settled here rather than assumed. See the
+    // 2026-08-25 T13 entry in .devloop/DECISIONS.md.
+    //
+    // The refusing answer needs nothing of its own: a refused address is a refused file, which
+    // `Fails_a_request_whose_file_AO3_will_not_serve_and_stores_nothing` already pins, and
+    // `Does_not_ask_again_for_something_it_has_already_failed` pins that it is not then requested
+    // for ever. Only the redirecting answer says something new.
+
+    [Fact]
+    public async Task Keys_a_redirected_download_to_the_version_the_library_holds()
+    {
+        // AO3 answering a stale address by serving the current file is the benign half of the
+        // question — but only if the row records the version this library knows about rather than
+        // the stamp in whichever address the request ended at. A row keyed off the address would
+        // claim to be a copy of a version no scrape has ever seen, and the next request for the
+        // work as the library holds it would fetch the same bytes all over again.
+        var emma = await ReaderWithAWorkAsync();
+        _host.Http.Responds = _ => WorkPage(EpubUrl);
+        _host.Http.DownloadsLandOn =
+            "https://ao3.test/downloads/1/we_chose_to_wait.epub?updated_at=1799999999";
+        await QueueAsync(emma);
+
+        await DrainAsync();
+
+        Assert.Equal(DownloadStatus.Complete, (await DownloadAsync()).Status);
+
+        var file = await FileAsync();
+        Assert.Equal(FirstVersion, file.WorkUpdatedAt);
+        Assert.Equal(DownloadPaths.Relative(1, Ao3DownloadFormat.Epub, FirstVersion), file.RelativePath);
+    }
+
+    [Fact]
+    public async Task Never_asks_for_a_download_anonymously()
+    {
+        // The other question a capture cannot answer is whether these addresses work logged out —
+        // the page they were captured from was fetched with a session. This app never finds out,
+        // and that is the settlement: both halves go through the authenticated transport, so a
+        // deployment's downloads are as identified as its scrapes. `GetLoggedOutAsync` exists only
+        // for the login page itself, and a download reaching for it would be this instance asking
+        // AO3 for a work as nobody in particular.
+        var emma = await ReaderWithAWorkAsync();
+        _host.Http.Responds = _ => WorkPage(EpubUrl);
+        await QueueAsync(emma);
+
+        // Authenticated up front, so that the only logged-out request this drain could make is one
+        // it made for a download. The login page is the one page this app is right to fetch that
+        // way, and leaving it to happen inside the drain would hide the thing being asserted.
+        await _host.EnsureAo3SessionAsync();
+        _host.Http.LoginPagesRequested.Clear();
+
+        await DrainAsync();
+
+        Assert.Single(_host.Http.Requested);
+        Assert.Single(_host.Http.FilesRequested);
+        Assert.Empty(_host.Http.LoginPagesRequested);
+    }
+
     [Fact]
     public async Task Leaves_nothing_behind_when_the_archive_cannot_be_reached_at_all()
     {

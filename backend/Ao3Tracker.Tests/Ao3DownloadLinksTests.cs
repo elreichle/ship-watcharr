@@ -15,14 +15,39 @@ public class Ao3DownloadLinksTests
 {
     private const string WorkPageUrl = "https://archiveofourown.org/works/70441196";
 
-    [Fact]
-    public void Reads_every_format_the_captured_page_offers()
+    /// <summary>
+    /// One case per member of <see cref="Ao3DownloadFormat"/>, each address copied out of
+    /// <c>ao3-work-page.html</c> rather than built from the shape the others share. Written this way
+    /// on purpose: a table whose expectations were generated from a pattern would agree with a
+    /// parser that generated the same pattern, and agree with it while it was wrong.
+    /// </summary>
+    [Theory]
+    [InlineData(Ao3DownloadFormat.Epub,
+        "https://archiveofourown.org/downloads/70441196/we_chose_to_wait.epub?updated_at=1767140797")]
+    [InlineData(Ao3DownloadFormat.Mobi,
+        "https://archiveofourown.org/downloads/70441196/we_chose_to_wait.mobi?updated_at=1767140797")]
+    [InlineData(Ao3DownloadFormat.Pdf,
+        "https://archiveofourown.org/downloads/70441196/we_chose_to_wait.pdf?updated_at=1767140797")]
+    [InlineData(Ao3DownloadFormat.Html,
+        "https://archiveofourown.org/downloads/70441196/we_chose_to_wait.html?updated_at=1767140797")]
+    [InlineData(Ao3DownloadFormat.Azw3,
+        "https://archiveofourown.org/downloads/70441196/we_chose_to_wait.azw3?updated_at=1767140797")]
+    public void Reads_the_address_the_captured_page_offers_for(Ao3DownloadFormat format, string url)
     {
         var links = Ao3DownloadLinks.Parse(Fixtures.Load(Fixtures.WorkPage), WorkPageUrl);
 
-        Assert.Equal(
-            "https://archiveofourown.org/downloads/70441196/we_chose_to_wait.epub?updated_at=1767140797",
-            links[Ao3DownloadFormat.Epub]);
+        Assert.Equal(url, links[format]);
+    }
+
+    [Fact]
+    public void Reads_every_format_this_library_fetches_and_nothing_else()
+    {
+        // The capture offers all five, so "every format" is a claim about the archive and not only
+        // about the parser. It is also the guard on the enum: a sixth member added without a
+        // re-captured page fails here rather than silently becoming a format no work ever offers.
+        var links = Ao3DownloadLinks.Parse(Fixtures.Load(Fixtures.WorkPage), WorkPageUrl);
+
+        Assert.Equal(Enum.GetValues<Ao3DownloadFormat>().Order(), links.Keys.Order());
     }
 
     [Fact]

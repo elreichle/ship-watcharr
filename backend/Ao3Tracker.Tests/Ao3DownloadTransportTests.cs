@@ -106,6 +106,27 @@ public class Ao3DownloadTransportTests : IDisposable
     }
 
     [Fact]
+    public async Task Identifies_the_instance_even_on_a_download_it_has_no_session_for()
+    {
+        // Whether AO3's download addresses work logged out is not something the captured page can
+        // answer, and this instance is gated on having a login before it drains a queue at all — so
+        // the case only arises where a session has lapsed. What must hold either way is that the
+        // request still says who is making it: an unidentified download is the one request this
+        // project refuses to send, and "we had no cookie to attach" is not an excuse for making it
+        // anonymously in both senses.
+        _sessions.Session = null;
+        _archive.Answers = _ => File(HttpStatusCode.OK, Body);
+
+        using var destination = new MemoryStream();
+        await Client().DownloadAsync(Url, destination);
+
+        var sent = Assert.Single(_archive.Received);
+        Assert.Null(sent.Cookie);
+        Assert.Contains("ShipWatcharr", sent.UserAgent);
+        Assert.Contains("emma@example.com", sent.UserAgent);
+    }
+
+    [Fact]
     public async Task Fetches_the_same_file_twice_rather_than_serving_it_from_the_page_cache()
     {
         // The response cache exists to stop a *page* being re-read within fifteen minutes. Holding

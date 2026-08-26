@@ -19,6 +19,12 @@ T13 no longer has a blocker: T12 was built to the capture's finding rather than 
 handoff, so T13 is now the remaining formats and the two questions a capture cannot answer. Next in
 file order is **T13**.
 
+**2026-08-25: T13 is done.** Its review looked over the whole branch rather than its own
+(test-only) diff and returned eight findings, none of them in T13's changes and all of them queued
+as **T61–T68**; two were verified in that iteration and six are the reviewer's claim, marked as such
+in each task. Next in plain file order is **T14**, whose `blocked-by` (T12) is done. T10 is still
+earlier and still blocked by T51.
+
 **2026-08-25: T44 is done** — taken ahead of file order for the reason this note used to give, that
 five readers had derived the same two-line fix. It is closed; the run order is plain file order
 again. `.devloop/scraper-audit.md` is what that section's reasoning turned into; read it before
@@ -291,7 +297,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   no `Ready` — the completed state is `Complete`, which T11's wire format already reports.
 
 ## T13 — Confirm AO3's real download URLs
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none — **T12 is done and was built to this task's finding**, so there is no guess left
   to undo. `Ao3DownloadLinks` reads the addresses off the page and `Ao3DownloadLinksTests` pins the
@@ -1479,3 +1485,160 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   request that failed while still holding a readable older copy. T14 renders that state, so decide
   this before or with T14 rather than after.
   `DownloadFetcher.FailAsync` carries a comment pointing here.
+
+## T60 — A download must not read its address off a page the work has moved past
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A download whose work has changed since the work page was cached fetches the current
+  version's bytes, or fails, rather than storing the previous version's bytes under a row saying
+  they are the current one.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Download`
+- notes: From T13, and it is the reason T13's stale-`updated_at` question mattered. A download
+  address carries AO3's own `updated_at` stamp and is read off the work's page, and that page goes
+  through the response cache — `Ao3HttpClientOptions.CacheDuration`, fifteen minutes. So: a reader
+  downloads a work at 12:00, an incremental pass moves `Work.UpdatedAt` at 12:05, the reader
+  requests the same format at 12:07. There is no file at the new version, so a fetch runs; it reads
+  the *cached* page from 12:00 and fetches the address that page carried. Whether that is harmful
+  depends on the thing no capture can answer — if AO3 refuses a stale address the request fails
+  (safe, if confusing), and if it redirects to the current file the bytes are right — but if AO3
+  simply serves the old version's file at the old address, `DownloadFetcher` stores those bytes
+  keyed to `Work.UpdatedAt` as it stands now, and the library then reports the previous version as
+  a copy of the current one. That is the exact failure the version-keyed path exists to prevent,
+  arriving through the cache instead of through the filename.
+  The cache is not the enemy: the common case it exists for — a second format of the same unchanged
+  work within fifteen minutes — is safe and cheap, and must stay that way. What needs deciding is
+  how a fetch knows the page it is reading predates the version it is fetching for. Bypassing the
+  cache on every download fetch is the blunt answer and costs a request per format; comparing
+  AO3's `updated_at` against `Work.UpdatedAt` is not available, because they are different clocks
+  (see the 2026-08-25 T13 entry in `DECISIONS.md`). One shape worth weighing: remember the address
+  a `WorkDownloadFile` was fetched from, so a fetch for a *newer* version that reads the *same*
+  address off the page knows the page is stale and re-reads it uncached.
+  Not urgent enough to block T14, which renders whatever this decides; do it before anything
+  starts trusting a stored copy to be current.
+
+## T61 — The login POST must not send the password to whatever host the form names
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: `Ao3SessionEstablisher` refuses a login form whose action names a host other than the
+  page it was read from, so the deployment's AO3 username and plaintext password can only ever go
+  to the configured archive.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ao3Login`
+- notes: From T13's review, and **verified in that iteration** by reading the code rather than taken
+  on the reviewer's word. `Ao3SessionEstablisher.Absolute` returns any absolute http(s) URL
+  unchanged, and `form.Action` is read straight off the fetched login page — so an action of
+  `https://elsewhere.example/x` is posted to, carrying `Ao3Username` and the decrypted
+  `Ao3Password`. This is the exact twin of the check T12's review added to
+  `Ao3DownloadLinks.Resolve`, which documents why it is there; the login flow is now the one place
+  in the codebase that omits it, and it is the place with the most to lose. Less reachable than the
+  download case — the login page comes from the configured `BaseUrl` over HTTPS, not from
+  author-supplied markup — which is why it is a task rather than a stop-everything, but the fix is
+  the same three lines and the value at risk is the credential itself.
+  Note that `Absolute` is also used for `LoginPath` on line 91, where there is no page to compare
+  against; the host rule belongs on the form action, not on the helper as a whole.
+
+## T62 — The startup partials sweep can take the whole API down with it
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A `DownloadWorker` that starts even when the partials directory cannot be read, logging
+  the failure instead of stopping the host.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~DownloadWorker`
+- notes: From T13's review, and **verified in that iteration**. `DiscardPartialFiles` runs in the
+  `finally` of `ReleaseInterruptedFetchesAsync` — outside the `catch` that method installs — and
+  `ReleaseInterruptedFetchesAsync` is awaited at `ExecuteAsync` line 59, outside the `while` loop's
+  `try`. Inside it, `Directory.GetFiles(partials)` is unguarded; only the per-file `File.Delete` has
+  a `catch`. So an `UnauthorizedAccessException` or `IOException` from enumerating the directory —
+  a volume mounted with the wrong ownership, a permissions change after a container update —
+  escapes `ExecuteAsync`, and the default `BackgroundServiceExceptionBehavior.StopHost` shuts the
+  API down at boot. The path runs on every boot: the `return` taken when nothing was interrupted
+  still runs the `finally`. It contradicts the rule stated in `ExecuteAsync`'s own comment, "nothing
+  may end this loop", which is why it is worth fixing rather than tolerating.
+
+## T63 — Two workers can each perform the same AO3 login
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: One login at a time, however many workers want a session.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ao3Session`
+- notes: From T13's review; **reported, not verified in that iteration** — check the mechanism
+  before building. The claim: `Ao3SessionProvider.EnsureSessionAsync` has no mutual exclusion, and
+  T12 added a second caller (`DownloadWorker.MayFetchAsync`) beside `ScrapeWorker.HasSessionAsync`.
+  With a queued download and no cached session, both observe `GetUsableAsync() == null` and each
+  runs the full two-request login: four rate-gated requests where one login was needed, which is
+  precisely the load this project exists not to produce. On failure both call
+  `Ao3LoginBackoff.RecordFailure`, advancing the counter twice per cycle, so the documented
+  5→15→30→60 schedule skips rungs.
+
+## T64 — A controller re-arm can overwrite a fetch already in flight
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: Re-arming a request cannot un-claim a row a worker is already fetching.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Download`
+- notes: From T13's review; **reported, not verified**. `DownloadsController.Arm` writes `Status`
+  unconditionally with no concurrency token, so a fetcher claiming the row between the controller's
+  read and its `SaveChangesAsync` is overwritten back to `Pending`/`Complete` while the fetch runs —
+  the state the `Status == Downloading` guard exists to prevent, reached from the other side of the
+  read. Weigh against T11's decision that the guard is checked, not locked; the answer may be a
+  conditional update rather than a token.
+
+## T65 — A fetch that throws before claiming its row is retried for ever
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A request whose fetch throws before it was claimed is recorded, not re-attempted on
+  every poll with nothing for the reader to see.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~DownloadWorker`
+- notes: From T13's review; **reported, not verified**. `DownloadWorker.MarkFailedAsync` returns
+  without recording anything when the row is not `Downloading` — which covers "deleted" and "the
+  fetcher already recorded it", but also covers a fetcher that threw *before* claiming (the
+  `Include(d => d.Work)` read failing). Such a row stays `Pending`, so every poll re-selects it,
+  throws again and records nothing, while the UI goes on saying "queued". T12's "never a retry
+  loop" rule, with a hole in it.
+
+## T66 — An oversized download must not look like an archive that is down
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A response abandoned for exceeding `MaxDownloadBytes` does not count toward the circuit
+  breaker's consecutive failures.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Download`
+- notes: From T13's review; **reported, not verified**. `DownloadFetcher.DownloadFileAsync` records
+  a budget failure for anything with `IsSuccess == false`, and `ScrapeDownloadResponse.IsSuccess` is
+  false when `ExceededSizeLimit` is set. So three oversized files in one drain trip
+  `MaxConsecutiveFailures` and hold the rest of the queue on the grounds that AO3 is plainly down —
+  when AO3 served every one of them perfectly. The breaker is about the archive's health; a ceiling
+  this instance chose is not evidence about it.
+
+## T67 — "AO3 stopped sending" is also said when AO3 never started
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A download that spent its deadline queued behind the rate gate and retries says so,
+  rather than blaming the archive for a stall that did not happen.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Download`
+- notes: From T13's review; **reported, not verified**. `DownloadTimeout` is armed before
+  `Gate.WaitAsync` in `RateLimitedAo3HttpClient.DownloadAsync`, so it covers rate-limit spacing and
+  retry backoffs as well as the transfer. A request that never received a byte can therefore fail
+  with `DownloadFetcher`'s "AO3 stopped sending the file before it was complete" — and `FailAsync`
+  is terminal, so the reader must delete and re-request something that was only ever queued. Decide
+  whether the deadline should start at the transfer or the message should stop naming a cause it
+  cannot know.
+
+## T68 — Two edits to one work's state can silently keep the older one
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: Concurrent per-work state edits from one page cannot leave the database holding the
+  earlier edit while the UI shows the later one.
+- verification: `cd frontend && npm run build && npm run lint`, plus a live check making two edits
+  to one row in quick succession and reloading.
+- notes: From T13's review; **reported, not verified**. `stateWriteTokens` in `WorksPage.tsx` (same
+  shape in `WorkDetailPage.tsx`) decides which *response* may repaint a row; it does not serialize
+  the writes. `PUT /works/{id}/state` replaces all three fields, so two edits in flight together —
+  set a rating, then immediately change the status — can land out of order, and `isCurrent()` then
+  suppresses the older response so the row keeps showing the newer state the server did not store.
+  The lost edit appears on the next reload. Overlaps T57, which is the same page's note editor
+  dropping text typed during a save; consider whether one answer serves both.
