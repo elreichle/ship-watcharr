@@ -1423,7 +1423,7 @@ build. Not something a task should chase.
   two known fast-refresh warnings only. Two mutations: removing the establisher's check reds both
   refusal tests, and narrowing either comparison from `GetLeftPart(UriPartial.Authority)` back to
   `.Host` reds exactly the downgrade test on that side and nothing else.
-- commit: (see below)
+- commit: a1e0e02
 - next: **T14 is next in plain file order** — its blocker (T12) is done, and T12's journal entry
   lists what it inherits. T10 is earlier and still blocked by T51.
 - **This iteration inherited a claimed task, which is the mechanism working.** T61 was
