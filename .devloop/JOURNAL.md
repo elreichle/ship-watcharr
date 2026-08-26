@@ -1684,3 +1684,58 @@ build. Not something a task should chase.
   `dotnet test` matched the same 733 as the baseline, which is the assertion that the backend was
   not touched. Still zero and still suspect: T31 `~TotalWorks`, T32 `~Monotonic`. T40's
   `~PagesFetched` is zero by design.
+
+## 2026-08-26 — T31 A singular listing heading must not be read as the tag's name — done
+
+- did: `Ao3BlurbParser.ParseTotalWorks` finds the count with `(?<count>\d[\d,.]*)\s+Works?\b` —
+  singular as well as plural, first match rather than last — and answers null when no such number is
+  in the heading. The trailing-digits fallback is gone, so a tag name carrying digits can no longer
+  donate them to the ship's size and an "Error 404" heading is no longer a tag of 404 works.
+- files: `Api/Services/Scraping/{Ao3BlurbParser,Ao3ShipIndexScraper}.cs` (the second is a comment
+  only), `Tests/{Ao3BlurbParserTests,Ao3ShipIndexScraperTests}.cs`, `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter FullyQualifiedName~Ao3BlurbParser` → 46 passed (36 before, and 5 red
+  when the tests were written before the fix); `dotnet test` → 743 passed (733 before);
+  `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only. Three
+  mutations: narrowing `Works?` to `Works` reds both singular cases; restoring the trailing-digits
+  fallback reds all three "not a work count" cases; taking the last match instead of the first
+  survived until a case was written for it, and that case is now in the theory.
+- commit: d6045a6
+- next: **T32 is next in plain file order** and has no blockers. `dotnet build` emits **CA2017** on
+  `Ao3ShipIndexScraper.cs:534` — a log template with more placeholders than arguments — which is
+  plausibly T32's own defect wearing a compiler warning; read it before starting. Everything from
+  T31 to T71 is the tail that unblocks T15, and T15 unblocks T16/T17/T20, so this tail is the
+  critical path rather than a cleanup queue.
+- **A surviving mutation named the missing case, again.** Taking the last regex match instead of the
+  first left the suite green, because no heading under test had a second "N Works" in it. The one
+  that catches it is a *tag name* containing the words — "1 - 20 of 4,317 Works in Prompt: 5 Works
+  of Fiction" — which is exactly the class of input this task exists for: everything after "in" is a
+  name somebody else chose. Third iteration running where the mutation that survived was a gap in
+  the tests rather than in the code.
+- **The task's own verification filter matched nothing, and had never matched anything.**
+  `--filter FullyQualifiedName~TotalWorks` returns "No test matches" — the journal has been flagging
+  it as "still zero and still suspect" every iteration since T22, and this is the first iteration to
+  reach the task and act on it. The filter is now `~Ao3BlurbParser`. **Worth generalising: a
+  verification command written at planning time is a guess about test names that do not exist yet**,
+  and T22's ritual of checking that a filter bites is what turns the guess into a finding. T32's
+  `~Monotonic` is the next one on that list, and it is next in file order — expect to have to fix it
+  the same way.
+- **Removing a fallback closed a second hole nobody was looking at.** The trailing-digits scan was
+  what made an AO3 soft error served as 200 (`<h2 class="heading">Error 404</h2>`) offer 404 as the
+  tag's size; `Ao3ShipIndexScraper`'s readability guard was the only thing between that number and
+  `LastKnownTotalWorks`, and a test at `Ao3ShipIndexScraperTests` line ~1007 exists to pin exactly
+  that. The guard stays and the test stays — two independent reasons on a field a full sweep checks
+  itself against — but both comments were rewritten, because a comment that says "the parser will
+  hand you rubbish, so I guard it" is wrong once the parser stops.
+- **The review found nothing in this diff and five in the download code.** Three were already on the
+  list (T67, T70, T64 — T64 promoted from *reported* to *verified*, with a worse consequence than it
+  had been filed with), two are new (T73, T74). See DECISIONS. Three reviews running have now landed
+  most of their findings in T12/T14's code, which is the newest and least-reviewed on the branch —
+  T14's own entry predicted this. A dedicated pass over the download path would probably be cheaper
+  than meeting it one finding at a time, and is worth considering as a task once the T31–T71 tail
+  thins out.
+- **One leaked API process is still running** (pid 1963836, `dotnet run --project Ao3Tracker.Api`).
+  Not this task's, and killing by pattern is what the "never pkill" rule exists to prevent. This
+  task started no processes of its own; the systemd dev instance (pid 2033) was not touched.
+  Filters checked to bite, per T22's lesson: `~Ao3BlurbParser` matches 46 and covers all ten new
+  cases. `~TotalWorks` matched zero and is retired — see above. Still zero and still suspect: T32
+  `~Monotonic`, which is the next task. T40's `~PagesFetched` is zero by design.
