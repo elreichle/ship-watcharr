@@ -77,7 +77,7 @@ public class WorksController : ControllerBase
         pageSize = Math.Clamp(pageSize, 1, MaxPageSize);
 
         if (shipId is int requested
-            && !await _db.WatchedShips.AnyAsync(w => w.UserId == userId && w.ShipId == requested, ct))
+            && !await WorkQueries.WatchedShipIdsOf(_db, userId).ContainsAsync(requested, ct))
         {
             return NotFound();
         }
@@ -109,9 +109,7 @@ public class WorksController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
-        var watchedShipIds = _db.WatchedShips
-            .Where(w => w.UserId == userId)
-            .Select(w => w.ShipId);
+        var watchedShipIds = WorkQueries.WatchedShipIdsOf(_db, userId);
 
         var totalCount = await query.CountAsync(ct);
 
@@ -212,9 +210,7 @@ public class WorksController : ControllerBase
 
         var myStates = WorkQueries.StatesOf(_db, userId);
 
-        var watchedShipIds = _db.WatchedShips
-            .Where(w => w.UserId == userId)
-            .Select(w => w.ShipId);
+        var watchedShipIds = WorkQueries.WatchedShipIdsOf(_db, userId);
 
         var row = await WorkQueries.Library(_db, userId, shipId: null)
             .Where(w => w.Id == id)

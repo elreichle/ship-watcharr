@@ -1539,3 +1539,75 @@ build. Not something a task should chase.
   Filters checked to bite, per T22's lesson: `~DownloadsController` matches 52 (26 before) and
   covers every new test; `~Download` matches 107. Still zero and still suspect: T31 `~TotalWorks`,
   T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.
+
+## 2026-08-26 — T18 Statistics API — done
+
+- did: `GET /api/stats` answers with two lenses over the caller's library — `corpus` (totals, works
+  per month of last revision, the AO3 rating mix, kudos and word-count histograms, the ten most
+  prolific creators) and `reading` (status mix, words read, and the reader's half-stars laid against
+  what the archive made of the same works) — plus a `ships` table where the two meet, one row per
+  watched ship carrying both its corpus size and how much of it this reader has marked. `?shipId=`
+  narrows every figure and 404s on a ship the caller does not watch. Query-only, no schema, no
+  migration.
+- files: `Api/Data/StatsQueries.cs`, `Api/Dtos/StatsDtos.cs`, `Api/Controllers/StatsController.cs`,
+  `Tests/StatsControllerTests.cs`, `Tests/StatsQueryTranslationTests.cs` (all new),
+  `Api/Data/WorkQueries.cs`, `Api/Controllers/WorksController.cs`, `Tests/LibraryTestHost.cs`,
+  `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter FullyQualifiedName~Stats` → 62 passed (0 before — the filter matches
+  nothing that existed, checked per T22's lesson); `dotnet test` → 733 passed (671 before);
+  `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only. Fourteen
+  mutations, every one killed by the test that names it — dropping the 404 guard, reading every
+  user's states instead of the caller's, turning the bucket comparison into `<`, restricting the
+  status mix to works with a state row, an unweighted average rating, zero instead of null for an
+  empty mean, dropping ships the aggregate returned nothing for, ordering ships by display text,
+  scoring an unrated work as zero, ranking the least prolific first, counting a crossover once per
+  ship in the corpus total, folding the per-ship read count over every status, and lifting the
+  top-ten cap.
+- commit: (see below)
+- next: **T19 (the Statistics page) is next in plain file order** and its blocker is now done. Read
+  T18's section in `tasks.md` for the response shape — the short version is that every fixed
+  vocabulary arrives zero-filled in a stable order so a chart can index by position, buckets carry
+  their bounds as well as their label, and averages are null rather than zero for an empty library.
+  Everything between T14 and T18 is still blocked; T10 is earlier still and still blocked by T51.
+- **One mutation survived on the first pass, and the surviving one named a real gap in the test
+  rather than in the code.** Reading an unrated work as a zero left the suite green, because the
+  test for it seeded a work with *no state row at all* — which the mutation also skips. The state
+  that catches it is a row that exists with a status and a null rating, which is what marking
+  something read without scoring it produces, and is the common case for any reader who marks more
+  than they rate. The test now constructs it. Same shape as T14's surviving mutation: the guard was
+  right and no test could reach the state it guards.
+- **The per-ship figures were written correlated and had to be rewritten grouped.**
+  `library.Count(x => x.Ships.Any(sw => sw.ShipId == w.ShipId))` per figure per watched ship reuses
+  `WorkQueries.Library` verbatim, reads like a sentence, and compiled to **eighty-two lines of SQL**:
+  five full subqueries over the works table, re-executed once per ship. Replaced with one grouped
+  pass joining the library to `ShipWorks`, with the caller's status and rating looked up once per row
+  and folded. Checking the generated SQL cost one throwaway test; it is worth doing for any query on
+  this codebase that reads too well.
+- **`ToQueryString()` under Npgsql is a new kind of test here and it earned its place twice.** No
+  PostgreSQL server exists in this loop's shell, so "translates on both providers" was going to be an
+  assertion rather than a check. `StatsQueryTranslationTests` builds a `PostgresAppDbContext` on a
+  connection string it never opens and compiles each query through the real Npgsql translator. Its
+  coverage list is read off `StatsQueries` by reflection rather than maintained by hand — and that
+  caught a query I had added without a case, during this task, exactly as intended.
+- **The live check ran against a throwaway instance and is worth repeating for any API task.** API
+  on :5321 with a scratch data directory, registered through `/api/auth/register` with a cookie jar,
+  library seeded straight into the scratch SQLite file with python's `sqlite3` (per T14's note —
+  there is no `sqlite3` binary on this machine). It proved the three things controller tests cannot:
+  the route is registered and 401s unauthenticated, the whole DTO tree serializes to camelCase JSON
+  with no cycle, and the numbers are right end to end — a followed ship with no works listed at zero
+  and sorted first by its normalized name, a month series with a real gap in it (January then March),
+  a status mix summing to the corpus, `?shipId=` narrowing everything, and 404 for a ship the caller
+  does not watch. **The seeding needs the schema's own NOT NULL columns**, which are fewer than the
+  model suggests — `pragma table_info` first, do not guess from the entity class. The instance was
+  killed by pid.
+- **`/code-review high` ran this time**, and its three findings are in DECISIONS: two folded in (the
+  bucket-array validation, and one shared predicate for "which ships does this reader watch"), one
+  false. It also flagged that the diff was being rewritten under it, which is fair — the `PerShip`
+  refactor landed mid-review. Launch the review after the diff has settled.
+- **The six leaked API processes from earlier iterations are still running** (pids 650339, 651962,
+  663142, 783152, 993804, 1004997 as of T14's entry). Still not this task's to clean up, still worth
+  an operator's attention. This iteration's own throwaway was killed by pid; the systemd dev instance
+  was not touched.
+  Filters checked to bite, per T22's lesson: `~Stats` matches 62 and covers every new test, and
+  matched zero before this task. Still zero and still suspect: T31 `~TotalWorks`, T32 `~Monotonic`.
+  T40's `~PagesFetched` is zero by design.

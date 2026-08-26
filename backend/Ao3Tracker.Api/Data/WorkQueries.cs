@@ -30,9 +30,7 @@ public static class WorkQueries
     /// </summary>
     public static IQueryable<Work> Library(AppDbContext db, string userId, int? shipId)
     {
-        var watchedShipIds = db.WatchedShips
-            .Where(w => w.UserId == userId)
-            .Select(w => w.ShipId);
+        var watchedShipIds = WatchedShipIdsOf(db, userId);
 
         // Membership is ShipWork, never the work's own relationship tags: AO3 tag synonyms mean a
         // work returned by the canonical tag can render a synonym in its own blurb, so filtering
@@ -40,6 +38,24 @@ public static class WorkQueries
         return db.Works.Where(w => !w.IsDeleted && w.Ships.Any(sw =>
             watchedShipIds.Contains(sw.ShipId) && (shipId == null || sw.ShipId == shipId)));
     }
+
+    /// <summary>
+    /// The ships one reader subscribes to — the whole of "whose library is this".
+    /// </summary>
+    /// <remarks>
+    /// Beside <see cref="Library"/> because several queries need the same set for a purpose
+    /// <see cref="Library"/> itself cannot serve — deciding which of a work's ships may be named
+    /// back to this reader, or which ships get a row of their own on the statistics page. Written
+    /// once so that narrowing what "watched" means later narrows it everywhere at once: a second
+    /// copy of this predicate would keep returning ships the library had stopped including, and
+    /// nothing would fail.
+    /// </remarks>
+    public static IQueryable<WatchedShip> WatchedShipsOf(AppDbContext db, string userId) =>
+        db.WatchedShips.Where(w => w.UserId == userId);
+
+    /// <inheritdoc cref="WatchedShipsOf"/>
+    public static IQueryable<int> WatchedShipIdsOf(AppDbContext db, string userId) =>
+        WatchedShipsOf(db, userId).Select(w => w.ShipId);
 
     /// <summary>
     /// One reader's own states — reading status, rating, note — and nobody else's.

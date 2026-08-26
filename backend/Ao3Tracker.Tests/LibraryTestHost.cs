@@ -403,6 +403,23 @@ internal sealed class LibraryTestHost : IDisposable
             scope.ServiceProvider);
     }
 
+    /// <summary>
+    /// A statistics controller on a scope of its own, for the reason <see cref="NewWorksRequest"/>
+    /// gives: every one of these tests writes reading state through one "request" and then asks a
+    /// later one to count it, and a shared context would answer the second out of the change
+    /// tracker the first warmed.
+    /// </summary>
+    public StatsController Stats(ApplicationUser user)
+    {
+        var scope = _provider.CreateScope();
+        _perRequestScopes.Add(scope);
+
+        return Build(
+            new StatsController(scope.ServiceProvider.GetRequiredService<AppDbContext>()),
+            user,
+            scope.ServiceProvider);
+    }
+
     public SavedFiltersController SavedFilters(ApplicationUser user) => Build(new SavedFiltersController(
         _request.ServiceProvider.GetRequiredService<AppDbContext>()), user);
 

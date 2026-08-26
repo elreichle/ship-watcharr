@@ -30,9 +30,14 @@ as **T61–T68**; two were verified in that iteration and six are the reviewer's
 in each task. Next in plain file order is **T14**, whose `blocked-by` (T12) is done. T10 is still
 earlier and still blocked by T51.
 
-**2026-08-26: T14 is done.** Next in plain file order is **T18** (Statistics API), whose
-`blocked-by` (T6) is done. Everything between them is blocked: T15 still waits on T38, T40, T46 and
-T52, and T16/T17 wait on T15. T10 is earlier still and still blocked by T51.
+**2026-08-26: T18 is done.** Next in plain file order is **T19** (the Statistics page), whose
+`blocked-by` (T18) is now done. It is a frontend task: read T18's entry in the journal for the
+response shape before designing the page, and read T19's own notes on charting dependencies — the
+API already ships bucket labels and bounds, and every fixed vocabulary zero-filled in a stable
+order, so a correct bar chart needs no library, only CSS.
+
+**2026-08-26: T14 is done.** Everything between T14 and T18 is blocked: T15 still waits on T38, T40,
+T46 and T52, and T16/T17 wait on T15. T10 is earlier still and still blocked by T51.
 
 **T14's review did not run.** `/code-review high` was launched and died on the account's monthly
 spend limit before reading anything, so this task's diff was reviewed by reading it rather than by
@@ -437,7 +442,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   60s and say why. Stop polling when the tab is hidden. Obsidian CSS variables only.
 
 ## T18 — Statistics API
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: T6
 - delivers: `GET /api/stats` — two lenses over the caller's library: the corpus (works per ship
@@ -448,6 +453,16 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   Everything must translate on **both** providers — no client-side evaluation of a whole library,
   and no `DateTimeOffset` comparisons. Bucket in SQL, not in memory. A user watching one ship with
   three works must get a sane answer, not a division by zero; so must a user watching none.
+
+  **Built**, in `StatsQueries` / `StatsDtos` / `StatsController`. What T19 needs from it: `corpus`
+  and `reading` are the two lenses, and `ships` is the per-ship table where they meet — both the
+  corpus count and the reader's, so a share is one row rather than a join. Every fixed vocabulary —
+  the two bucket histograms, the rating mix, the status mix — arrives zero-filled in a stable order,
+  so a chart may index by position; the month series is the one deliberate exception and carries
+  gaps. Buckets ship their label *and* their bounds, so the page can format its own axis. Averages
+  are null, never zero, for an empty library. `?shipId=` narrows every figure and 404s on a ship the
+  caller does not watch. "Translates on both providers" is now checked rather than asserted, by
+  `StatsQueryTranslationTests` — see DECISIONS.
 
 ## T19 — The Statistics page
 - status: todo

@@ -1931,3 +1931,123 @@ three things worth changing — the unnamed `Html` arm, the surrogate handling, 
 flicker — plus the containment check, which came out of asking what this endpoint does with a value
 it did not write. Recorded so that the next branch-wide review knows this diff has had less
 adversarial reading than its neighbours.
+
+## 2026-08-26 — T18: the corpus and the reader meet in one table, and the second provider is checked by translation rather than by hope
+
+**Two lenses, and one per-ship table where they meet.** `GET /api/stats` returns `corpus` (the
+works as they stand, nobody's reading in them) and `reading` (the caller's own numbers), which is
+the split the spec asks for. But "share of each ship read" is a fraction, and a fraction needs its
+numerator and its denominator in the same row — split across a corpus list and a reading list, the
+page would have to join them by ship id to say anything at all. So `ships` sits at the top level
+carrying both, and is documented as the place the two lenses meet rather than as a third lens.
+
+**"Works per ship over time" is the `shipId` parameter crossed with one series, not a series per
+ship.** The task's delivers line names both, and asking for both at once produces a
+(ship × month) grid whose rows do not sum to anything — a work carrying two watched relationship
+tags is in both series. One series over whatever the request is scoped to answers the same question
+exactly, and T19's own filter ("one ship or all") is already the control that picks the scope.
+
+**The series is keyed on `UpdatedAt`, and named for it.** `PublishedAt` is null until somebody
+opens a work's own page, so a publication curve would describe what has been clicked on rather than
+what the ship's corpus looks like. The DTO field is `worksByUpdatedMonth` rather than anything
+shorter, because "works per month" over a revision date is a real fact and a publication curve is
+what a reader would otherwise assume they were being shown.
+
+**Zeros are filled in everywhere the vocabulary is fixed, and nowhere it is data.** Bucket
+histograms, the AO3 rating mix and the reading-status mix all carry every value including the ones
+no work landed on: a grouped query returns only what is present, and a mix that silently omits
+"Dropped" asks a reader who has never dropped anything a different question from one who has. The
+month series is the exception and is deliberately gappy — its span comes from the data, so a single
+work carrying a misparsed year would make the server materialize centuries of empty buckets. The
+caller has the year and month on every row and can fill the axis exactly.
+
+**The histogram's `CASE` is generated from the bucket array, which is the opposite of the rule
+`WorkQueries.ApplyFilter` follows, and for that rule's own reason.** There, each bound is a user's
+number and has to reach the database as a parameter, or every distinct bound earns its own query
+plan. Here the boundaries are compile-time constants shared by every caller, so there is exactly
+one plan whichever way it is written — and generating the comparisons buys the thing that actually
+matters, which is that a bar's label and the comparison that fills it come from one array and
+cannot drift. A theory pinning every boundary value to the label it must land under is what says
+the generation is right.
+
+**The cross-provider guarantee is `ToQueryString()` under Npgsql, and that is a new kind of test
+here.** Every statistics figure is an aggregate, aggregates are where EF's two providers differ
+most, and there is no PostgreSQL server in this loop's shell. `StatsQueryTranslationTests` builds a
+`PostgresAppDbContext` on a connection string it never opens and asks each query to compile — EF
+throws rather than falling back to client evaluation, so an untranslatable aggregate fails here
+instead of 500ing on somebody else's instance months later. It cannot say the SQL is *right*; that
+is what the SQLite controller tests are for. The list of queries it covers is read off `StatsQueries`
+by reflection rather than maintained by hand, because a hand-maintained list of "things to check"
+is exactly the list that stops being maintained — and it caught a missing case during this task.
+
+**Thirteen small aggregates rather than one fused `GROUP BY`.** A single grouped-by-constant query
+would fetch every total in one round trip, and PostgreSQL reads a bare `GROUP BY 1` as an ordinal
+reference to the first output column — EF's wrapping usually avoids that, but "usually" is not a
+property this repo can test for. Each figure is instead its own unambiguous statement against a
+local database, on a page nobody polls.
+
+**The subscriptions decide which ships have rows; the aggregate only fills them in.** A followed
+ship with nothing in it cannot appear in an aggregate over the library, because it contributes no
+works to group. Driving the list from `WatchedShips` and left-joining the counts is what makes a
+fresh install — or one the AO3-login gate is holding — show its ships sitting at zero instead of
+showing an empty page that explains nothing. That page's whole job is to explain the emptiness.
+
+**The per-ship figures were written as counts correlated to each watched ship, and that was
+wrong.** The correlated form reads beautifully — `library.Count(x => x.Ships.Any(...))` per figure
+per ship, reusing `WorkQueries.Library` verbatim so the numbers could not drift from the feed — and
+it compiled to five full subqueries over the works table, re-executed once per watched ship: eighty
+lines of SQL and twenty scans per figure for a reader following twenty ships. Replaced with one
+grouped pass that joins the library to `ShipWorks` and folds the caller's state per row. The lesson
+is the one T33 is queued for: in this codebase a query that reads like a sentence is worth checking
+against the SQL it actually became.
+
+**An average over nothing is null, not zero.** An empty library has no mean kudos and a reader who
+has rated nothing has no mean rating; zero is not even on the half-star scale, which starts at one.
+Computed in C# from two totals the database already returned, which is also the form in which "no
+works" has an answer rather than a division by zero.
+
+**Unrated is absent from the rating lens, and unmarked is present in the status mix.** They look
+like the same decision and are opposites. A null rating is "no opinion" and averaging it in as a
+zero would drag every bar off the bottom of the scale, so rated works are selected for. A missing
+*status* is a real answer — "nobody has touched this" — and it is most of a fresh library, so the
+status mix counts it under `None` and therefore sums to the corpus. That is the same reading of
+"unread" the saved-filter predicate takes, and the reason it has to cover both an absent row and a
+row left saying `None`.
+
+## 2026-08-26 — T18's review: three findings, two folded in, one false and turned into a test
+
+`/code-review high` ran this time (T14's died on the spend limit) and returned three, all in this
+diff. It also flagged, fairly, that the files were being rewritten under it: the `PerShip` refactor
+below landed mid-review, so it waited, rebuilt and re-checked. Worth knowing for next time — launch
+the review *after* the diff has settled, not alongside the last change to it.
+
+**The medium finding was wrong, and checking it was still worth the trip.** The claim: grouping on
+`UpdatedAt.Year` / `.Month` compiles to `date_part` over a `timestamp with time zone`, which
+PostgreSQL evaluates in the session's `TimeZone` — nothing pins it, so a work revised at 03:00 UTC
+on the first of a month would land in the previous month for a self-hoster whose server defaults to
+Chicago. The reasoning is right about PostgreSQL and wrong about what Npgsql emits: the generated
+SQL is `date_part('year', w."UpdatedAt" AT TIME ZONE 'UTC')`, and `AT TIME ZONE 'UTC'` over a
+timestamptz is not session-dependent. But the reviewer's second sentence was the real finding —
+`StatsQueryTranslationTests` only asserts that *some* SQL came out, so if that normalization ever
+stopped happening nothing here would fail: the query would still compile, still run, and quietly
+answer differently on two instances holding the same library. There is now a test asserting every
+`date_part(` in that query is paired with an `AT TIME ZONE 'UTC'`.
+
+**`Distribution` validated the mistake it could not make and not the two it could.** It threw on a
+mid-array open-ended bucket, and said nothing about a *closed last* bucket or a gap between two —
+both of which are silent, because the generated comparisons are a chain of `<= Max` and a bar
+therefore catches everything above the previous bar's `Max` whatever its own `Min` says. Close the
+top bar and a million-word work is still counted under a label that excludes it; leave a gap and the
+values in it are filed under a bar the client is told starts higher. `Validate` now checks all
+three, which is also what makes `StatsBucket.Min` load-bearing rather than decorative — it was
+published to the client and read by nothing.
+
+**One predicate for "which ships does this reader watch", in `WorkQueries`.** `PerShip` had its own
+copy of `WatchedShips.Where(w => w.UserId == userId)`, which is the thing `StatsQueries`' own header
+says it does not do — and it was not the only copy: `WorksController` had two more, plus a fourth in
+the shape of an `AnyAsync` membership guard. All of them agree today. The failure they were set up
+for is narrowing what "watched" means later — a pause flag, a soft delete — and having the library
+stop including ships that the per-ship rows and the per-row ship names kept naming, with nothing
+failing. Now `WorkQueries.WatchedShipsOf` / `WatchedShipIdsOf`, with `Library` itself derived from
+them, and every site pointed at it. Touching `WorksController` widens this task's diff by four
+lines; leaving one caller behind would have recreated exactly the drift the finding is about.
