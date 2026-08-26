@@ -1,5 +1,7 @@
 using Ao3Tracker.Api.Dtos;
 using Ao3Tracker.Api.Models;
+using Ao3Tracker.Api.Services.Downloads;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -473,6 +475,276 @@ public class DownloadsControllerTests : IDisposable
         Assert.Equal(fileId, await db.Downloads.Select(d => d.WorkDownloadFileId).SingleAsync());
     }
 
+    // ---- serving the file ----------------------------------------------------------------------
+
+    [Fact]
+    public async Task Streams_the_completed_file_to_the_reader_who_asked_for_it()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+
+        var bytes = "not really an epub"u8.ToArray();
+        var path = await SeedFileOnDiskAsync(1, Ao3DownloadFormat.Epub, FirstVersion, bytes);
+        var complete = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+        Assert.Equal(nameof(DownloadStatus.Complete), complete.Status);
+
+        var controller = _host.NewDownloadsRequest(emma);
+        var served = Assert.IsType<PhysicalFileResult>(await controller.GetDownloadFile(complete.Id, default));
+
+        // The path, not the bytes: a PhysicalFileResult is the thing that streams rather than
+        // buffers, and asserting on the content would mean having read the file into memory here.
+        Assert.Equal(path, served.FileName);
+        Assert.Equal("application/epub+zip", served.ContentType.ToString());
+        Assert.Equal("Work 1.epub", served.FileDownloadName);
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(served.FileName));
+
+        Assert.Equal("private, no-store", controller.Response.Headers.CacheControl);
+        Assert.Equal("nosniff", controller.Response.Headers.XContentTypeOptions);
+    }
+
+    [Fact]
+    public async Task Refuses_the_file_behind_another_readers_request()
+    {
+        var emma = _host.SeedUser();
+        var mercy = _host.SeedUser("mercy");
+
+        var shipId = await WatchAsync(Lexa, emma);
+        await WatchAsync(Lexa, mercy);
+        await SeedWorksAsync(shipId, 1);
+        await SeedFileOnDiskAsync(1, Ao3DownloadFormat.Epub, FirstVersion, [1, 2, 3]);
+
+        var hers = Download(await _host.NewDownloadsRequest(mercy).RequestDownload(1, new("Epub"), default));
+
+        // A bare 404, the same answer a request id that never existed gets, so that no id can be
+        // probed for whose it is — even though this reader can see the work itself.
+        Assert.IsType<NotFoundResult>(await _host.NewDownloadsRequest(emma).GetDownloadFile(hers.Id, default));
+    }
+
+    [Fact]
+    public async Task Refuses_the_file_of_a_request_that_does_not_exist()
+    {
+        var emma = _host.SeedUser();
+
+        Assert.IsType<NotFoundResult>(await _host.NewDownloadsRequest(emma).GetDownloadFile(404, default));
+    }
+
+    [Fact]
+    public async Task Will_not_serve_a_request_that_is_still_queued()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+
+        var queued = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+        Assert.Equal(nameof(DownloadStatus.Pending), queued.Status);
+
+        var refused = Assert.IsType<ObjectResult>(
+            await _host.NewDownloadsRequest(emma).GetDownloadFile(queued.Id, default));
+
+        // The caller's own row, so this one says what is wrong with it rather than hiding behind
+        // the 404 someone else's request gets.
+        Assert.Equal(StatusCodes.Status409Conflict, refused.StatusCode);
+    }
+
+    [Fact]
+    public async Task Will_not_serve_a_request_whose_fetch_failed()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+
+        var queued = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+        await FailAsync(queued.Id, "AO3 answered 404 for this work's page.");
+
+        var refused = Assert.IsType<ObjectResult>(
+            await _host.NewDownloadsRequest(emma).GetDownloadFile(queued.Id, default));
+
+        Assert.Equal(StatusCodes.Status409Conflict, refused.StatusCode);
+    }
+
+    [Fact]
+    public async Task Will_not_serve_a_request_that_is_queued_while_still_naming_a_copy()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+        await SeedFileOnDiskAsync(1, Ao3DownloadFormat.Epub, FirstVersion, [1, 2, 3]);
+
+        var complete = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+
+        // Constructed rather than reached: `Arm` nulls the file reference when it re-queues a
+        // request, so nothing in the app writes this state today. T59 is the open question of
+        // whether it should keep it — a reader whose refetch fails currently loses the copy still
+        // on disk — and if the answer is yes, a queued request starts naming the previous version's
+        // bytes. This endpoint must not hand those over as the answer to the request being retried.
+        await RequeueKeepingFileAsync(complete.Id);
+
+        var refused = Assert.IsType<ObjectResult>(
+            await _host.NewDownloadsRequest(emma).GetDownloadFile(complete.Id, default));
+
+        Assert.Equal(StatusCodes.Status409Conflict, refused.StatusCode);
+    }
+
+    [Fact]
+    public async Task Reports_a_stored_file_that_has_left_the_disk_rather_than_throwing()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+
+        var path = await SeedFileOnDiskAsync(1, Ao3DownloadFormat.Epub, FirstVersion, [1, 2, 3]);
+        var complete = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+
+        // The row still says Complete. Something outside this app — a pruned volume, an operator
+        // clearing space — took the bytes, which is the case a path opened blind would 500 on.
+        File.Delete(path);
+
+        var gone = Assert.IsType<ObjectResult>(
+            await _host.NewDownloadsRequest(emma).GetDownloadFile(complete.Id, default));
+
+        Assert.Equal(StatusCodes.Status410Gone, gone.StatusCode);
+    }
+
+    [Fact]
+    public async Task Refuses_to_serve_a_stored_path_that_points_outside_the_data_directory()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+        await SeedFileOnDiskAsync(1, Ao3DownloadFormat.Epub, FirstVersion, [1, 2, 3]);
+
+        var complete = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+
+        // Nothing in the app writes a path like this — DownloadPaths.Relative builds one out of a
+        // work id and an enum. It is what a restored database, a hand-edited row or a future writer
+        // with a different idea of that column could put there, and this endpoint is the one place
+        // where a value out of the database becomes a file handed to whoever asked for it.
+        await RepointAsync(1, "../../../../../../etc/passwd");
+
+        var refused = Assert.IsType<ObjectResult>(
+            await _host.NewDownloadsRequest(emma).GetDownloadFile(complete.Id, default));
+
+        Assert.Equal(StatusCodes.Status500InternalServerError, refused.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(Ao3DownloadFormat.Epub, "application/epub+zip", "epub")]
+    [InlineData(Ao3DownloadFormat.Mobi, "application/x-mobipocket-ebook", "mobi")]
+    [InlineData(Ao3DownloadFormat.Pdf, "application/pdf", "pdf")]
+    [InlineData(Ao3DownloadFormat.Azw3, "application/vnd.amazon.ebook", "azw3")]
+    // AO3's HTML download is a whole document of author-supplied markup. Named as what it is and
+    // served from this app's own origin, it would be one slipped Content-Disposition away from
+    // running as script in a logged-in session, so it is bytes to save instead.
+    [InlineData(Ao3DownloadFormat.Html, "application/octet-stream", "html")]
+    public async Task Names_the_type_of_every_format_it_serves(
+        Ao3DownloadFormat format, string contentType, string extension)
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+        await SeedFileOnDiskAsync(1, format, FirstVersion, [1, 2, 3]);
+
+        var complete = Download(
+            await _host.NewDownloadsRequest(emma).RequestDownload(1, new(format.ToString()), default));
+
+        var served = Assert.IsType<PhysicalFileResult>(
+            await _host.NewDownloadsRequest(emma).GetDownloadFile(complete.Id, default));
+
+        Assert.Equal(contentType, served.ContentType.ToString());
+        Assert.Equal($"Work 1.{extension}", served.FileDownloadName);
+    }
+
+    [Theory]
+    // Path separators and traversal, on both filesystems this app runs on.
+    [InlineData("../../etc/passwd", "etc passwd.epub")]
+    [InlineData("C:\\Windows\\System32", "C Windows System32.epub")]
+    // A quote closes the filename token in a Content-Disposition header, and a newline ends the
+    // header itself.
+    [InlineData("A \"quoted\" work", "A quoted work.epub")]
+    [InlineData("Split\r\nHeader: injected", "Split Header injected.epub")]
+    [InlineData("Null\u0000byte", "Null byte.epub")]
+    // Trailing dots and spaces are dropped by Windows, so a name ending in one is not the name the
+    // reader sees; a leading dot hides the file on Unix.
+    [InlineData("...hidden...", "hidden.epub")]
+    [InlineData("  padded  ", "padded.epub")]
+    // Not everything that is not a letter is dangerous, and a title stripped to initials would be
+    // worse than one carrying its own punctuation.
+    [InlineData("Don't Look Back (Part 1) [Remix] & Co.!", "Don't Look Back (Part 1) [Remix] & Co.epub")]
+    // Titles are not all English, and RFC 5987 is what the header encoding exists for.
+    [InlineData("Ярость и надежда", "Ярость и надежда.epub")]
+    // Letters outside the basic plane are two UTF-16 units each. Judged one unit at a time, both
+    // halves fail every test a letter passes and the whole title would come out as the work id.
+    [InlineData("\U00010330\U00010339\U0001033E", "\U00010330\U00010339\U0001033E.epub")]
+    public async Task Names_the_file_after_the_work_with_nothing_AO3_wrote_left_in_it(
+        string title, string expected)
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+        await RetitleAsync(1, title);
+        await SeedFileOnDiskAsync(1, Ao3DownloadFormat.Epub, FirstVersion, [1, 2, 3]);
+
+        var complete = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+
+        var served = Assert.IsType<PhysicalFileResult>(
+            await _host.NewDownloadsRequest(emma).GetDownloadFile(complete.Id, default));
+
+        Assert.Equal(expected, served.FileDownloadName);
+    }
+
+    [Fact]
+    public async Task Falls_back_to_the_works_id_when_a_title_survives_as_nothing()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+        await RetitleAsync(1, "«/\\»");
+        await SeedFileOnDiskAsync(1, Ao3DownloadFormat.Epub, FirstVersion, [1, 2, 3]);
+
+        var complete = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+
+        var served = Assert.IsType<PhysicalFileResult>(
+            await _host.NewDownloadsRequest(emma).GetDownloadFile(complete.Id, default));
+
+        // A work titled entirely in punctuation is a work, not an error — so it gets a name it can
+        // be saved under rather than a refusal.
+        Assert.Equal("work-1.epub", served.FileDownloadName);
+    }
+
+    [Fact]
+    public async Task Cuts_a_long_title_between_letters_rather_than_through_one()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+
+        // One ASCII letter then Gothic ones, which puts the 120-unit cut exactly halfway through a
+        // letter: taken at face value it would leave a lone surrogate at the end of the name, which
+        // is not a character any filesystem or header encoder can do anything with.
+        await RetitleAsync(1, "x" + string.Concat(Enumerable.Repeat("\U00010330", 200)));
+        await SeedFileOnDiskAsync(1, Ao3DownloadFormat.Epub, FirstVersion, [1, 2, 3]);
+
+        var complete = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+
+        var served = Assert.IsType<PhysicalFileResult>(
+            await _host.NewDownloadsRequest(emma).GetDownloadFile(complete.Id, default));
+
+        // 1 + 59 * 2 = 119 units of name, one short of the cap, because taking the 120th would
+        // have taken half of the sixtieth letter.
+        Assert.Equal(
+            "x" + string.Concat(Enumerable.Repeat("\U00010330", 59)) + ".epub",
+            served.FileDownloadName);
+    }
+
+    [Fact]
+    public async Task Cuts_a_title_too_long_to_be_a_filename_down_to_one()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+        await RetitleAsync(1, new string('a', 400));
+        await SeedFileOnDiskAsync(1, Ao3DownloadFormat.Epub, FirstVersion, [1, 2, 3]);
+
+        var complete = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+
+        var served = Assert.IsType<PhysicalFileResult>(
+            await _host.NewDownloadsRequest(emma).GetDownloadFile(complete.Id, default));
+
+        // Under the 255 bytes most filesystems stop at, with room left for the extension — and the
+        // extension is still there, which is what the reader's e-reader goes by.
+        Assert.Equal($"{new string('a', 120)}.epub", served.FileDownloadName);
+    }
+
     // ---- helpers -------------------------------------------------------------------------------
 
     /// <summary>Follows a tag through the real endpoint, returning the ship it resolved to.</summary>
@@ -514,6 +786,73 @@ public class DownloadsControllerTests : IDisposable
         await db.SaveChangesAsync();
 
         return file.Id;
+    }
+
+    /// <summary>
+    /// Bytes actually on disk, at the path the fetcher would have written them to, with the row
+    /// that names them. Returns the absolute path, so a test can take the file away again.
+    /// </summary>
+    private async Task<string> SeedFileOnDiskAsync(
+        long workId, Ao3DownloadFormat format, DateTime version, byte[] bytes)
+    {
+        var relativePath = DownloadPaths.Relative(workId, format, version);
+        var absolutePath = DownloadPaths.Absolute(_host.DataDirectory, relativePath);
+
+        Directory.CreateDirectory(Path.GetDirectoryName(absolutePath)!);
+        await File.WriteAllBytesAsync(absolutePath, bytes);
+
+        await using var db = _host.NewContext();
+
+        db.WorkDownloadFiles.Add(new WorkDownloadFile
+        {
+            WorkId = workId,
+            Format = format,
+            WorkUpdatedAt = version,
+            RelativePath = relativePath,
+            SizeBytes = bytes.Length,
+            FetchedAt = version,
+        });
+
+        await db.SaveChangesAsync();
+
+        return absolutePath;
+    }
+
+    /// <summary>
+    /// Puts a request back in the queue without dropping the file it names — the state T59 would
+    /// introduce, and one no path in the app produces today.
+    /// </summary>
+    private async Task RequeueKeepingFileAsync(int downloadId)
+    {
+        await using var db = _host.NewContext();
+
+        var download = await db.Downloads.FirstAsync(d => d.Id == downloadId);
+        download.Status = DownloadStatus.Pending;
+        download.CompletedAt = null;
+
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>Points a stored file's row at somewhere else, which nothing in the app does.</summary>
+    private async Task RepointAsync(long workId, string relativePath)
+    {
+        await using var db = _host.NewContext();
+
+        var file = await db.WorkDownloadFiles.FirstAsync(f => f.WorkId == workId);
+        file.RelativePath = relativePath;
+
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>Gives a work the title AO3 carried, which is text nobody here wrote.</summary>
+    private async Task RetitleAsync(long workId, string title)
+    {
+        await using var db = _host.NewContext();
+
+        var work = await db.Works.FirstAsync(w => w.Id == workId);
+        work.Title = title;
+
+        await db.SaveChangesAsync();
     }
 
     /// <summary>The author updates the work, which is what makes a stored copy a stale one.</summary>

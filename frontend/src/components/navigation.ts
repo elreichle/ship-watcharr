@@ -27,6 +27,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: 'Works', to: '/works' },
       { label: 'Filters', to: '/filters' },
       { label: 'Ships', to: '/ships' },
+      { label: 'Downloads', to: '/downloads' },
       { label: 'Schedules', to: '/schedules' },
     ],
   },

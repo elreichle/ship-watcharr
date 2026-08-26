@@ -1846,3 +1846,88 @@ attempt, where the scrape walk deliberately re-asks) and **T71** (a file moved i
 row is written is orphaned when the write throws). All three were verified mechanically here; where
 a reviewer's claim went further than what was read — T69's "and `DELETE` then `POST` cannot recover
 it either" — the task says which half is verified and which is not.
+
+## 2026-08-26 — T14: the file is a fourth answer, and the filename is the untrusted part
+
+**Serving the bytes is its own endpoint, and it has four answers rather than two.**
+`GET /api/downloads/{id}/file` streams through `PhysicalFile`, so a PDF never sits in memory on its
+way to a reader. What took the thinking is what it says when it cannot serve: a request that is not
+this reader's — or that never existed — is a bare 404 alike, the rule `DeleteDownload` already
+follows, because answering differently reports whose a given id is. The other two are about the
+caller's own row and therefore say what is wrong with it: not `Complete` is 409, and a row whose
+file has left the disk under it is 410 rather than the unhandled exception that opening a missing
+path would otherwise be. A reader can act on the difference — one means wait, the other means ask
+again — and neither discloses anything, because both are about a row they own.
+
+**The 409 is judged on the status, not on whether a file is named, and that half was unpinned.**
+Dropping `request.Status != DownloadStatus.Complete` from the guard left the suite green: today
+`Arm` moves the status and the file reference together, so no test could hand the endpoint a queued
+request that still named bytes. That state is exactly what **T59** is deciding whether to create —
+its whole question is whether a re-armed request should keep the copy it already had — so the test
+constructs it directly (`Will_not_serve_a_request_that_is_queued_while_still_naming_a_copy`) rather
+than leaving the guard resting on a coincidence in another method. T59's notes now point at it: the
+guard is what stops "keep the reference" from meaning "serve the previous version as the answer to
+the refetch". Same shape as T12's surviving mutation, and the same remedy.
+
+**The filename is the untrusted input, and it is allowlisted rather than filtered.** A work title is
+text an author wrote and AO3 carried, and it goes into a `Content-Disposition` header and then into
+whatever filesystem receives it. So `FileNameFor` keeps letters, digits and a short list of
+punctuation and turns *everything else* into a space — rather than removing the characters known to
+be bad today, which is a list that has to be right for ever. A dot is kept only after a letter or
+digit, which is what tells `Co.` apart from `../..`. Trailing dots and spaces go, because Windows
+silently drops them and a name ending in one is not the name the reader was shown; a leading dot
+goes because it hides the file on Unix. A title that survives as nothing is not an error — a work
+titled entirely in punctuation is a work — so `work-{id}` stands in.
+
+**Runes, not chars, and the difference is a whole script.** Judged one UTF-16 unit at a time, both
+halves of a letter outside the basic plane fail every test a letter passes and become spaces: a
+title written in Gothic, Deseret or a CJK extension would have come out as the work id. Safe, but
+the fallback is for titles that are punctuation, not for titles this app declined to read. The
+length cut is the same rule at the other end — 120 units, taken one short when the 120th would be
+half of a letter, because a lone surrogate is not something a filesystem or a header encoder can do
+anything with.
+
+**HTML is served as bytes, deliberately.** AO3's HTML download is a whole document of
+author-supplied markup. Served from this app's own origin under `text/html` it would be one slipped
+`Content-Disposition` away from running as script inside a logged-in session, so it goes out as
+`application/octet-stream` with `nosniff` beside it. The arm is named rather than left to the
+fallback: the exception is a decision and should read as one, and the fallback stays what it says it
+is — a format nobody has typed yet. Every other format is named as itself, which is what lets a
+phone hand an EPUB to a reading app.
+
+**The stored path is checked against the data directory even though nothing can make it wrong.**
+`RelativePath` is written only by `DownloadPaths.Relative`, out of a work id and an enum. It is
+checked anyway because this endpoint is the one place in the app where a value out of the database
+becomes a file handed to whoever asked: a row naming `../../etc/passwd` — from a restored database,
+a migration, a future writer with a different idea of that column — would otherwise be served in
+full to any signed-in reader. This is the branch's own repeated lesson applied before it has to be:
+the rule T61 swept for was about URLs read out of markup, and this is the same rule one input over.
+
+**`Cache-Control: private, no-store`.** Private because the response is served against this
+reader's request row; no-store because a request re-armed onto a newer version of the work answers
+the same address with different bytes, and a cache holding the old ones would be a stale copy the
+version-keyed path exists to prevent.
+
+**Polling follows the data, in one hook rather than two pages.** `useDownloads` is the queue, the
+ask and the drop, shared by the Downloads page and the format buttons on a work — they show the
+same rows, and two copies would let them disagree. It polls while anything is `Pending` or
+`Downloading` and stops on the load that finds nothing is; a click that queues something restarts
+the chain by bumping a generation the effect depends on, so the restart *replaces* the chain rather
+than adding a second one. A failed poll does not stop it — the server being briefly unreachable
+says nothing about whether a fetch is still running — and does not blank the list, because what it
+holds is still the last thing the server said.
+
+**A re-requested row is replaced in place, not moved to the front.** Re-arming does not change
+`RequestedAt`, and the list is ordered by it, so a row that jumped to the top on the click would
+jump back down on the next poll — the list reordering itself under the reader's cursor.
+
+**No per-work downloads endpoint.** The work page filters the reader's own queue rather than asking
+for one work's slice: it is a handful of rows, and a second endpoint would be a second scoping rule
+to keep honest for no gain.
+
+**T14's review was read, not run.** `/code-review high` was launched and died on the account's
+monthly spend limit before reading the diff. The pass was done by reading instead, and it found
+three things worth changing — the unnamed `Html` arm, the surrogate handling, and the row-ordering
+flicker — plus the containment check, which came out of asking what this endpoint does with a value
+it did not write. Recorded so that the next branch-wide review knows this diff has had less
+adversarial reading than its neighbours.

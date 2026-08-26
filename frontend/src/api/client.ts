@@ -3,6 +3,8 @@ import type {
   Ao3TagType,
   CurrentUser,
   DatabaseStatus,
+  Download,
+  DownloadFormat,
   FilterVocabulary,
   InstanceAo3Credential,
   PagedResult,
@@ -184,6 +186,32 @@ export const api = {
    */
   setWorkState: (workId: number, state: SetWorkStateInput) =>
     request<WorkState>(`/works/${workId}/state`, { method: 'PUT', body: JSON.stringify(state) }),
+
+  /**
+   * Everything this reader has asked for, newest first. Not scoped to what they still watch — a
+   * download is a request they made, and hiding one with its ship would strand the file.
+   */
+  getDownloads: () => request<Download[]>('/downloads', undefined, Array.isArray),
+
+  /**
+   * Asks for one format of one work, and answers with the request as it now stands. Idempotent per
+   * (reader, work, format): a second click reads back the first request rather than queueing a
+   * second fetch of identical bytes, so no caller needs to guard against one.
+   */
+  requestDownload: (workId: number, format: DownloadFormat) =>
+    request<Download>(`/works/${workId}/downloads`, {
+      method: 'POST',
+      body: JSON.stringify({ format }),
+    }),
+
+  deleteDownload: (id: number) => request<void>(`/downloads/${id}`, { method: 'DELETE' }),
+
+  /**
+   * Where the bytes live. A plain address rather than a `fetch`, because the browser's own
+   * download machinery is what should stream a file to disk — reading it through this client would
+   * buffer a whole PDF in the page to hand it straight back.
+   */
+  downloadFileUrl: (id: number) => `/api/downloads/${id}/file`,
 
   getSavedFilters: () => request<SavedFilter[]>('/saved-filters', undefined, Array.isArray),
 

@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
 import type { Ao3TagType, ReadingStatus, WorkDetail, WorkState } from '../api/types';
 import { RatingStars } from '../components/RatingStars';
+import { WorkDownloads } from '../components/WorkDownloads';
 import { READING_STATUS_LABELS } from '../readingStatus';
 
 /** Matches `MaxNoteLength` on `UserWorkState.Note`, so an over-long note is refused here first. */
@@ -315,6 +316,8 @@ export function WorkDetailPage() {
 
         {stateError !== null && <p className="error">{stateError}</p>}
       </section>
+
+      <WorkDownloads workId={work.id} />
 
       <section className="work-detail-section">
         <h2>Tags</h2>

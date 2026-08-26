@@ -396,7 +396,9 @@ internal sealed class LibraryTestHost : IDisposable
         return Build(
             new DownloadsController(
                 scope.ServiceProvider.GetRequiredService<AppDbContext>(),
-                scope.ServiceProvider.GetRequiredService<DownloadWakeSignal>()),
+                scope.ServiceProvider.GetRequiredService<DownloadWakeSignal>(),
+                scope.ServiceProvider.GetRequiredService<StoragePaths>(),
+                scope.ServiceProvider.GetRequiredService<ILogger<DownloadsController>>()),
             user,
             scope.ServiceProvider);
     }

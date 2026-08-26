@@ -1,8 +1,10 @@
 using System.Security.Claims;
+using System.Text;
 using Ao3Tracker.Api.Data;
 using Ao3Tracker.Api.Dtos;
 using Ao3Tracker.Api.Models;
 using Ao3Tracker.Api.Services.Downloads;
+using Ao3Tracker.Api.Services.Storage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -31,11 +33,19 @@ public class DownloadsController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly DownloadWakeSignal _wake;
+    private readonly StoragePaths _paths;
+    private readonly ILogger<DownloadsController> _logger;
 
-    public DownloadsController(AppDbContext db, DownloadWakeSignal wake)
+    public DownloadsController(
+        AppDbContext db,
+        DownloadWakeSignal wake,
+        StoragePaths paths,
+        ILogger<DownloadsController> logger)
     {
         _db = db;
         _wake = wake;
+        _paths = paths;
+        _logger = logger;
     }
 
     private string CurrentUserId => User.FindFirstValue(ClaimTypes.NameIdentifier)
@@ -192,6 +202,91 @@ public class DownloadsController : ControllerBase
     }
 
     /// <summary>
+    /// Hands the caller the bytes of one of their own completed requests.
+    /// </summary>
+    /// <remarks>
+    /// Streamed from disk rather than read into memory: an EPUB is small and a PDF of a long work
+    /// is not, and this endpoint is the one place in the app where a whole file passes through it.
+    ///
+    /// Three answers, and they mean different things. A request that is not this reader's — or that
+    /// never existed — is a bare 404 alike, the same rule <see cref="DeleteDownload"/> follows, so
+    /// that no id can be probed for whose it is. The other two are about the caller's own row and
+    /// therefore say what is wrong with it: a request still queued or failed is a 409, and one
+    /// whose file has left the disk under it is a 410 rather than the unhandled exception that
+    /// opening a missing path would otherwise be.
+    /// </remarks>
+    [HttpGet("downloads/{id:int}/file")]
+    public async Task<IActionResult> GetDownloadFile(int id, CancellationToken ct)
+    {
+        var userId = CurrentUserId;
+
+        var request = await _db.Downloads
+            .Where(d => d.Id == id && d.UserId == userId)
+            .Select(d => new
+            {
+                d.WorkId,
+                d.Format,
+                d.Status,
+                WorkTitle = d.Work.Title,
+                RelativePath = d.File == null ? null : d.File.RelativePath,
+            })
+            .FirstOrDefaultAsync(ct);
+
+        if (request is null) return NotFound();
+
+        if (request.Status != DownloadStatus.Complete || request.RelativePath is null)
+        {
+            return Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                detail: "This download has no file yet. It is still queued, or the fetch failed.");
+        }
+
+        // Resolved through DownloadPaths rather than treated as a path: what is stored is relative
+        // to the data directory precisely so the volume can be mounted somewhere else tomorrow.
+        var dataDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(_paths.DataDirectory));
+        var absolutePath = Path.GetFullPath(DownloadPaths.Absolute(dataDirectory, request.RelativePath));
+
+        // Nothing writes a RelativePath today but DownloadPaths.Relative, which builds it out of a
+        // work id and an enum and can no more escape the data directory than it can misspell it. It
+        // is checked anyway because this is the one place in the app where a value out of the
+        // database becomes a file handed to whoever asked: a row saying "../../etc/passwd" — from a
+        // migration, from a restored database, from a future writer with a different idea of what
+        // belongs in that column — would otherwise be served in full to any signed-in reader.
+        if (!absolutePath.StartsWith(dataDirectory + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+        {
+            _logger.LogError(
+                "Download {DownloadId} names {RelativePath}, which is not inside the data directory. "
+                + "Nothing was served.", id, request.RelativePath);
+
+            return Problem(
+                statusCode: StatusCodes.Status500InternalServerError,
+                detail: "This download names a file outside this instance's data directory, so it "
+                    + "was not served. Check the server log.");
+        }
+
+        if (!System.IO.File.Exists(absolutePath))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status410Gone,
+                detail: "The stored copy of this file is no longer on disk. Ask for it again to "
+                    + "have it fetched.");
+        }
+
+        // Private, because the file is served against this reader's request row and a shared cache
+        // holding it would serve it to whoever asked next; no-store, because a request re-armed
+        // onto a newer version of the work answers the same address with different bytes.
+        Response.Headers.CacheControl = "private, no-store";
+        // The Html format is served as bytes rather than as what it is (see ContentTypeFor), and a
+        // browser sniffing it back into a document would undo that.
+        Response.Headers.XContentTypeOptions = "nosniff";
+
+        return PhysicalFile(
+            absolutePath,
+            ContentTypeFor(request.Format),
+            FileNameFor(request.WorkId, request.WorkTitle, request.Format));
+    }
+
+    /// <summary>
     /// Drops the caller's request. Someone else's, or one that never existed, is a 404 alike —
     /// answering differently would report whether a given id belongs to another reader.
     /// </summary>
@@ -257,6 +352,91 @@ public class DownloadsController : ControllerBase
         download.Status = onDisk is null ? DownloadStatus.Pending : DownloadStatus.Complete;
         download.CompletedAt = onDisk is null ? null : DateTime.UtcNow;
         download.ErrorMessage = null;
+    }
+
+    /// <summary>
+    /// What the file is, as far as a browser and whatever opens it next are concerned.
+    /// </summary>
+    /// <remarks>
+    /// Every format but one is named as itself, which is what lets a phone hand an EPUB to a
+    /// reading app. <see cref="Ao3DownloadFormat.Html"/> is not: AO3's HTML download is a whole
+    /// document of author-supplied markup, and served from this app's own origin under its real
+    /// type it would be one slipped <c>Content-Disposition</c> away from running as script inside
+    /// a logged-in session. Bytes to save, with <c>nosniff</c> beside it so the browser does not
+    /// decide otherwise.
+    /// </remarks>
+    private static string ContentTypeFor(Ao3DownloadFormat format) => format switch
+    {
+        Ao3DownloadFormat.Epub => "application/epub+zip",
+        Ao3DownloadFormat.Mobi => "application/x-mobipocket-ebook",
+        Ao3DownloadFormat.Pdf => "application/pdf",
+        Ao3DownloadFormat.Azw3 => "application/vnd.amazon.ebook",
+        Ao3DownloadFormat.Html => "application/octet-stream",
+        // Named rather than left to the arm below, so that the one deliberate exception reads as a
+        // decision and the fallback stays what it says it is: a format nobody has typed yet.
+        _ => "application/octet-stream",
+    };
+
+    /// <summary>
+    /// What the reader's browser saves the file as: the work's title, made safe, plus the
+    /// extension the format is addressed by.
+    /// </summary>
+    /// <remarks>
+    /// A title is text AO3 carried and an author wrote, and it is about to go into a response
+    /// header and then be used as a filename by whatever receives it. So this keeps letters,
+    /// digits and a handful of punctuation and turns everything else — separators, quotes,
+    /// newlines, control characters, the reserved characters of two filesystems — into spaces,
+    /// rather than removing a list of things known to be bad today.
+    ///
+    /// Non-ASCII letters are kept: titles are not all English, and ASP.NET Core encodes the header
+    /// as RFC 5987 for exactly this. A title that survives none of it is not an error — a work
+    /// titled entirely in punctuation is a work — so the id stands in, which is also the fallback
+    /// for a title of nothing but spaces.
+    /// </remarks>
+    private static string FileNameFor(long workId, string workTitle, Ao3DownloadFormat format)
+    {
+        const int maxStemLength = 120;
+
+        var stem = new StringBuilder(workTitle.Length);
+
+        // Runes rather than chars, so a letter written as a surrogate pair is one thing to decide
+        // about. Judged char by char, both halves of such a letter fail every test below and become
+        // spaces, which would quietly reduce a title in any script outside the basic plane to the
+        // work id — safe, but not what the fallback is for.
+        var previous = Rune.ReplacementChar;
+
+        foreach (var rune in workTitle.EnumerateRunes())
+        {
+            // A dot only after something a name is made of, which is what tells "Co." apart from
+            // the "../.." a title can just as easily carry.
+            var keep = Rune.IsLetterOrDigit(rune)
+                || rune.Value is ' ' or '-' or '_' or '\'' or ',' or '(' or ')' or '[' or ']' or '&'
+                || (rune.Value == '.' && stem.Length > 0 && Rune.IsLetterOrDigit(previous));
+
+            // Collapsed as it is built: a title of runs of punctuation would otherwise become a
+            // filename of runs of spaces.
+            var next = keep ? rune : new Rune(' ');
+            if (next.Value == ' ' && (stem.Length == 0 || previous.Value == ' ')) continue;
+
+            stem.Append(next);
+            previous = next;
+        }
+
+        // Trailing dots and spaces are not part of a filename on Windows — a name ending in one is
+        // silently truncated there — and a leading dot hides the file on Unix.
+        var name = stem.ToString().Trim().Trim('.').Trim();
+
+        if (name.Length > maxStemLength)
+        {
+            // Never between the two halves of one letter: the cut is a UTF-16 index, and a lone
+            // surrogate is not a character any filesystem or header encoder can do anything with.
+            var cut = char.IsHighSurrogate(name[maxStemLength - 1]) ? maxStemLength - 1 : maxStemLength;
+            name = name[..cut].TrimEnd();
+        }
+
+        if (name.Length == 0) name = $"work-{workId}";
+
+        return $"{name}.{DownloadPaths.Extension(format)}";
     }
 
     /// <param name="sizeBytes">The size of the file this request now points at, or null where it

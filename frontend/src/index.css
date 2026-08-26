@@ -959,4 +959,75 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
+
+  .downloads-table {
+    display: block;
+    overflow-x: auto;
+  }
+
+  /* The status word, coloured by what it means. A queued request and a failed one are the two a
+     reader scanning the list is looking for, so they are the two that are not the body colour. */
+  .download-status {
+    font-size: var(--font-ui-small);
+  }
+
+  .download-status[data-status='Pending'],
+  .download-status[data-status='Downloading'] {
+    color: var(--text-muted);
+  }
+
+  .download-status[data-status='Complete'] {
+    color: var(--text-success);
+  }
+
+  .download-status[data-status='Failed'] {
+    color: var(--text-error);
+  }
+
+  /* Why a fetch failed, on its own line under the status: the message names which half of it
+     failed and is a sentence, not a word, so it does not belong beside one. */
+  .download-error {
+    display: block;
+    max-width: 40ch;
+    color: var(--text-error);
+    font-size: var(--font-ui-smaller);
+    white-space: normal;
+  }
+
+  .download-actions {
+    display: flex;
+    gap: var(--size-4-2);
+    align-items: baseline;
+    white-space: nowrap;
+  }
+
+  .download-formats {
+    flex-wrap: wrap;
+  }
+
+  .work-downloads {
+    margin: var(--size-4-3) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .work-downloads li {
+    display: flex;
+    gap: var(--size-4-2);
+    align-items: baseline;
+    flex-wrap: wrap;
+    padding: var(--size-2-3) 0;
+    border-bottom: 1px solid var(--background-modifier-border);
+  }
+
+  .work-downloads li:last-child {
+    border-bottom: none;
+  }
+
+  /* Fixed width so the formats line up down the list rather than shifting with the word's length. */
+  .work-download-format {
+    min-width: 5ch;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+  }
 }

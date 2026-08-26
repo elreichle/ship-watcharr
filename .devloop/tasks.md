@@ -30,6 +30,15 @@ as **T61–T68**; two were verified in that iteration and six are the reviewer's
 in each task. Next in plain file order is **T14**, whose `blocked-by` (T12) is done. T10 is still
 earlier and still blocked by T51.
 
+**2026-08-26: T14 is done.** Next in plain file order is **T18** (Statistics API), whose
+`blocked-by` (T6) is done. Everything between them is blocked: T15 still waits on T38, T40, T46 and
+T52, and T16/T17 wait on T15. T10 is earlier still and still blocked by T51.
+
+**T14's review did not run.** `/code-review high` was launched and died on the account's monthly
+spend limit before reading anything, so this task's diff was reviewed by reading it rather than by
+an agent — see the journal entry for what that pass found and changed. A later iteration re-running
+a review over the branch should expect T14's code to be the least-reviewed on it.
+
 **2026-08-25: T44 is done** — taken ahead of file order for the reason this note used to give, that
 five readers had derived the same two-line fix. It is closed; the run order is plain file order
 again. `.devloop/scraper-audit.md` is what that section's reasoning turned into; read it before
@@ -348,7 +357,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   in the notes above rather than left as a choice nobody made.
 
 ## T14 — Downloads in the UI
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: T12
 - delivers: Format buttons on a work, a Downloads view listing yours with live status, and an
@@ -1490,6 +1499,12 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   request that failed while still holding a readable older copy. T14 renders that state, so decide
   this before or with T14 rather than after.
   `DownloadFetcher.FailAsync` carries a comment pointing here.
+  **T14 built a guard in front of this.** `GET /api/downloads/{id}/file` answers 409 for any request
+  that is not `Complete`, whatever file it names, and
+  `Will_not_serve_a_request_that_is_queued_while_still_naming_a_copy` constructs exactly the state
+  this task is about — queued, still pointing at the previous version's bytes. So keeping the
+  reference on a re-arm cannot leak the old version through the download endpoint; whatever this
+  task decides, that test is the thing it has to keep true.
 
 ## T60 — A download must not read its address off a page the work has moved past
 - status: todo

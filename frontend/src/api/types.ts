@@ -409,3 +409,34 @@ export interface DatabaseStatus {
   postgresConfigured: boolean;
   postgresConnectionSummary: string | null;
 }
+
+/**
+ * The formats AO3 offers a work in, in the order the download menu lists them.
+ *
+ * Matches `Ao3DownloadFormat` on the server, whose names are what the wire carries — a format this
+ * page does not know about is a format the server would refuse anyway.
+ */
+export const DOWNLOAD_FORMATS = ['Epub', 'Mobi', 'Pdf', 'Html', 'Azw3'] as const;
+
+export type DownloadFormat = (typeof DOWNLOAD_FORMATS)[number];
+
+/**
+ * Where one request has got to. `Pending` is queued, `Downloading` means a worker holds it, and
+ * both are states the list polls through; the other two are settled.
+ */
+export type DownloadStatus = 'Pending' | 'Downloading' | 'Complete' | 'Failed';
+
+/** One reader's request for a downloadable copy of a work. PER-USER, unlike the bytes behind it. */
+export interface Download {
+  id: number;
+  workId: number;
+  workTitle: string;
+  format: DownloadFormat;
+  status: DownloadStatus;
+  /** The stored file's size, or null while no file stands behind the request. */
+  sizeBytes: number | null;
+  /** Why the fetch failed, naming which half of it did. Null unless `status` is `Failed`. */
+  errorMessage: string | null;
+  requestedAt: string;
+  completedAt: string | null;
+}
