@@ -36,6 +36,13 @@ response shape before designing the page, and read T19's own notes on charting d
 API already ships bucket labels and bounds, and every fixed vocabulary zero-filled in a stable
 order, so a correct bar chart needs no library, only CSS.
 
+**2026-08-26: T31 is done.** Next in plain file order is **T32** (the non-monotonic-boundary
+warning names the wrong page), `blocked-by: none`. Note that `dotnet build` emits **CA2017** on
+`Ao3ShipIndexScraper.cs:534` — a logging template with more placeholders than arguments — which is
+plausibly T32's own defect; read the warning before starting. T31's review found nothing in its
+diff and five elsewhere, all in the download code: three were already on the list (**T67**, **T70**,
+**T64** — T64 now verified), and two are new, **T73** and **T74**.
+
 **2026-08-26: T19 is done.** Next in plain file order is **T20** (Docker, actually run), whose
 `blocked-by` are T4, T14, T17 and T19 — T17 is still `todo` and blocked by T16→T15, so T20 is not
 selectable. Nothing between T10 and T20 is: T10 waits on T51, T15 on T38/T40/T46/T52, T16 on T15,
@@ -767,12 +774,24 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   but T5 is the task that makes it bite, so it should not land after it.
 
 ## T31 — A singular listing heading must not be read as the tag's name
-- status: in_progress
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: `ParseTotalWorks` reads "1 Work in <tag>" as 1, whatever digits the tag name contains.
-- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~TotalWorks`
-- notes: Found by `/code-review` during T27, in pre-loop code, and verified by reading.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ao3BlurbParser`
+  — **the filter this task shipped with, `~TotalWorks`, matched nothing**, which is what the journal
+  kept flagging. The tests are named for the behaviour, not the method, so the class is the filter
+  that bites: 46 cases, 10 of them this task's.
+- notes: **Fixed.** `ParseTotalWorks` now finds the count with
+  `(?<count>\d[\d,.]*)\s+Works?\b` and returns null when nothing matches — the word beside the
+  digits is what makes a number a total, so it is required rather than preferred, and the
+  trailing-digits fallback is gone with it. That also closes a second hole the same fallback opened:
+  an AO3 soft error served as 200 under `<h2 class="heading">Error 404</h2>` offered 404 as the
+  tag's size, and until now `Ao3ShipIndexScraper`'s readability guard was the only thing standing
+  between that number and the ship. The guard stays — two independent reasons are worth having on a
+  field a full sweep checks itself against — and the comments on both ends now say so.
+
+  Originally found by `/code-review` during T27, in pre-loop code, and verified by reading.
   `Ao3BlurbParser.ParseTotalWorks` (~line 392) locates the count by `IndexOf("Works")` and, when
   that is -1, scans the *whole* heading backwards for the last run of digits. A tag with exactly one
   work renders "1 Work in …" — singular — so a tag name carrying digits (Star Wars clone
@@ -1633,12 +1652,17 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 - blocked-by: none
 - delivers: Re-arming a request cannot un-claim a row a worker is already fetching.
 - verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Download`
-- notes: From T13's review; **reported, not verified**. `DownloadsController.Arm` writes `Status`
-  unconditionally with no concurrency token, so a fetcher claiming the row between the controller's
-  read and its `SaveChangesAsync` is overwritten back to `Pending`/`Complete` while the fetch runs —
-  the state the `Status == Downloading` guard exists to prevent, reached from the other side of the
-  read. Weigh against T11's decision that the guard is checked, not locked; the answer may be a
-  conditional update rather than a token.
+- notes: From T13's review, re-reported independently by T31's, and **verified in that iteration**:
+  `Download` carries no concurrency token — no `IsRowVersion` in `AppDbContext`, none in the initial
+  migration — so EF emits an unconditional `UPDATE … WHERE Id = @id`. `DownloadsController.Arm`
+  writes `Status` after reading it, so a fetcher claiming the row between the controller's read and
+  its `SaveChangesAsync` is overwritten back to `Pending`/`Complete` while the fetch runs — the
+  state the `Status == Downloading` guard exists to prevent, reached from the other side of the
+  read. T31's reviewer named the worse half of it: when the controller's save lands *after*
+  `CompleteAsync`, a finished request is reset to `Pending` with `WorkDownloadFileId = null`, which
+  orphans the file the worker just recorded (see **T71**) and costs another drain. Weigh against
+  T11's decision that the guard is checked, not locked; the answer may be a conditional update
+  rather than a token.
 
 ## T65 — A fetch that throws before claiming its row is retried for ever
 - status: todo
@@ -1774,3 +1798,38 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   `Ao3HttpClientOptions.BaseUrl` for precisely this reason (see T61's journal entry), and this
   method's own remarks claim to be the same rule. They are not the same rule yet. Measuring against
   `BaseUrl` is the fix; keep the whole-origin comparison T61 introduced.
+
+## T73 — One `Retry-After` must not park every outbound request on the instance
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A retry backoff is bounded and does not hold the global rate gate while it waits, so one
+  AO3 response cannot stall the scraper and the download queue together.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~RateLimited`
+- notes: From T31's review, and **verified in that iteration** by reading
+  `RateLimitedAo3HttpClient.SendWithRetryAsync` (~line 373): the `await Task.Delay(delay, ct)` runs
+  inside the process-wide `Gate`, and `delay` is `response.Headers.RetryAfter?.Delta` honoured
+  verbatim with no ceiling. A single `Retry-After: 3600` therefore blocks every outbound request on
+  the instance for an hour — the ship walk and the download drain alike — and the circuit breaker
+  cannot intervene, because nothing is making requests for it to count: every caller is parked
+  inside the semaphore. Even the ordinary path holds the gate for roughly 70s across three retries.
+  Two candidate answers, and they are not exclusive: cap what is honoured, and sleep outside the
+  gate. **Honouring `Retry-After` is not in question** — this project waits when AO3 asks it to; the
+  question is whether one request's wait is allowed to be every request's wait. Read alongside
+  **T52** (a run the breaker stopped is recorded as a success) and **T67**, whose failure this
+  turns into a fleet-wide one.
+
+## T74 — A truncated filename can end in the dot the sanitiser just removed
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: `FileNameFor` cannot produce a name ending in `.`, whatever the title's 120th character
+  is.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~DownloadsController`
+- notes: From T31's review, and **verified in that iteration** by reading
+  `DownloadsController.FileNameFor` (~line 434). It strips trailing dots with `.Trim('.')` because
+  Windows silently truncates a name that ends in one — and then cuts the result to 120 characters
+  and applies `TrimEnd()`, which removes whitespace and not `.`. A title whose 120th character is a
+  period rebuilds exactly the shape the earlier line exists to prevent. `TrimEnd('.', ' ')` after
+  the cut restores the invariant. Small, and worth doing where it is: T14's own lesson was that the
+  filename is the untrusted part.

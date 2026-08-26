@@ -2109,3 +2109,55 @@ The other two are older code and became tasks rather than this diff's business:
   sign-in, so the loser's cookie is dead on arrival and provokes a third login). **A second reader
   finding the same defect is worth folding into the task that already exists rather than filing a
   twin** — the first draft of this iteration filed T73 for it, which was a duplicate.
+
+## 2026-08-26 — T31: the word beside the digits is what makes a number a total
+
+**`ParseTotalWorks` now requires the word, and answers null without it.** The old reading located
+"Works" and, failing that, scanned the whole heading backwards for its last run of digits. Two
+things fell out of that: a tag with exactly one work is headed "1 Work in …" — singular, no match —
+so the tag's *name* was scanned instead, and any tag carrying digits ("Star Wars: CT-7567", a
+disambiguating year) became the ship's size; and any heading at all with a number in it was read as
+a count, which is how an AO3 soft error served as 200 under `<h2 class="heading">Error 404</h2>`
+offered 404 as the size of the tag. One regex, `(?<count>\d[\d,.]*)\s+Works?\b`, answers both, and
+**no match now means no total** rather than a guess. Null is a value this field is built for —
+`Ao3ListingPage.TotalWorks` documents that an unknown total and an empty tag are different facts —
+so removing the fallback loses nothing a caller wanted.
+
+**The first match, not the last.** The heading is `<count> Works in <tag>`, so everything after "in"
+is a name somebody else chose and may itself contain "5 Works". A test case pins it; taking the last
+match was a mutation that survived until it was written.
+
+**The readability guard in `Ao3ShipIndexScraper` stays.** It exists because a page that parsed to no
+works must not write the ship a number, and it was the only thing standing between "Error 404" and
+`LastKnownTotalWorks`. That is now two independent reasons rather than one, on the field a full
+sweep checks itself against before concluding works have left a tag — worth keeping both, and both
+comments were rewritten to say what the other one does.
+
+**The task's own verification filter matched nothing, and that is the finding under the finding.**
+`--filter FullyQualifiedName~TotalWorks` matches no test in this repo and never did; the journal has
+flagged it as "still zero and still suspect" every iteration since T22 taught the lesson, and no
+iteration reached the task to fix it. The filter is now `~Ao3BlurbParser`, which is the class the
+behaviour actually lives in. **A verification command written when a task is planned is a guess
+about names that do not exist yet** — the checking ritual T22 introduced is what makes those guesses
+visible, and acting on it is the other half.
+
+## 2026-08-26 — T31's review: nothing in the diff, five in the download code, three already listed
+
+`/code-review high` read the branch and confirmed the T31 change against every real heading shape,
+including non-breaking spaces (.NET `\s` covers `\p{Z}`), with no regression against the old scan.
+Its five findings are all in T12/T14's download path:
+
+- Already on the list, and this review's independent derivation of them is worth recording:
+  **T67** (the download deadline covers the rate-gate wait, so a request that never left the process
+  fails saying AO3 stopped sending), **T70** (a transport blip is a permanent `Failed`), and
+  **T64** (check-then-act on `Status == Downloading` with no concurrency token). T64 was *reported,
+  not verified*; it is now verified, and carries the consequence this reviewer added — a controller
+  save landing after `CompleteAsync` resets a finished request to `Pending` with its file reference
+  cleared, orphaning the file T71 is about.
+- New: **T73** — `SendWithRetryAsync` sleeps inside the process-wide gate and honours `Retry-After`
+  verbatim, so one AO3 response can park every outbound request on the instance for hours, where the
+  circuit breaker cannot see it because nothing is making requests to count. **T74** — the 120-char
+  filename cut can re-introduce the trailing dot `Trim('.')` removed two lines earlier.
+
+Three reviews in a row have now landed most of their findings in the download code. That is where
+the newest and least-reviewed work is, and T14's entry said as much at the time.

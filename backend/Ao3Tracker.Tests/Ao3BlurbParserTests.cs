@@ -319,6 +319,40 @@ public class Ao3BlurbParserTests
         Assert.Equal(4317, Ao3BlurbParser.ParseListing(Page(FullBlurb)).TotalWorks);
     }
 
+    [Theory]
+    // The singular form. A tag with exactly one work reads "1 Work in ...", and the count has to be
+    // found by the word beside it rather than by scanning the heading for digits — a tag name
+    // carrying its own numbers is otherwise what the ship's size is read from.
+    [InlineData("1 Work in Star Wars: CT-7567", 1)]
+    [InlineData("1 Work in The 100 (TV)", 1)]
+    // The plural, whose count is the number before the word and not the first one in the range.
+    [InlineData("1 - 20 of 4,317 Works in Clarke Griffin/Lexa", 4317)]
+    [InlineData("20 Works in Doctor Who (2005) Season 3", 20)]
+    // The count is the *first* such number, because everything after "in" is a name somebody else
+    // chose — and a tag may say "Works" itself.
+    [InlineData("1 - 20 of 4,317 Works in Prompt: 5 Works of Fiction", 4317)]
+    // AO3 has rendered this heading in more than one case over the years.
+    [InlineData("42 works in Some Tag", 42)]
+    public void Reads_the_total_beside_the_word_it_counts(string heading, int expected)
+    {
+        Assert.Equal(expected, Ao3BlurbParser.ParseListing(PageWithHeading(heading)).TotalWorks);
+    }
+
+    [Theory]
+    // A soft-error page served as 200, whose only heading is its status code. Reading the trailing
+    // digits of whatever heading is on the page offers "404" as the size of the tag.
+    [InlineData("Error 404")]
+    [InlineData("404 Not Found")]
+    // Neither of these is a work count either, however many digits they carry.
+    [InlineData("Sorry, we couldn't find any results")]
+    [InlineData("50 Bookmarks in Clarke Griffin/Lexa")]
+    public void Reports_no_total_rather_than_a_number_that_counts_something_else(string heading)
+    {
+        // Null is the honest answer, and the one the caller is built for: an unknown total and an
+        // empty tag are different facts, and only one may overwrite the ship's last known count.
+        Assert.Null(Ao3BlurbParser.ParseListing(PageWithHeading(heading)).TotalWorks);
+    }
+
     [Fact]
     public void Reports_no_total_rather_than_zero_when_the_heading_is_missing()
     {
@@ -413,6 +447,14 @@ public class Ao3BlurbParserTests
 
     private static IEnumerable<string> Named(Ao3WorkBlurb work, Ao3TagType type) =>
         work.Tags.Where(t => t.Type == type).Select(t => t.Name);
+
+    /// <summary>The listing with one blurb under a heading of the caller's choosing.</summary>
+    private static string PageWithHeading(string heading) => $"""
+        <div id="main">
+          <h2 class="heading">{heading}</h2>
+          <ol class="work index group">{FullBlurb}</ol>
+        </div>
+        """;
 
     private static string Page(string blurbs, bool nextPage = false) => $"""
         <div id="main">

@@ -300,11 +300,13 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             lastPage = page;
 
             // Before the heading is trusted for anything. A page that could not be read must not
-            // get to write the ship a number either: ParseTotalWorks falls back to the trailing
-            // digits of any h2.heading when it finds no "Works", so an AO3 soft-error page served
-            // as 200 with <h2 class="heading">Error 404</h2> would put LastKnownTotalWorks = 404
-            // over a real 4,317 and stamp it as freshly read — the same field, and the same
-            // mis-conclusion, that RecordTotal's filter guard exists to prevent.
+            // get to write the ship a number either. ParseTotalWorks now requires the word beside
+            // the digits, so an AO3 soft-error page served as 200 with
+            // <h2 class="heading">Error 404</h2> reads as no total rather than as 404 — but this
+            // guard stays: a page that parsed to nothing is not a page whose heading has earned
+            // the ship's size, whatever that heading says. Two independent reasons a bad page
+            // cannot overwrite LastKnownTotalWorks, which is the field a full sweep checks itself
+            // against before concluding works have left the tag.
             if (unreadable)
             {
                 _logger.LogError(

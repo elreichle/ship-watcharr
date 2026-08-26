@@ -1004,10 +1004,12 @@ public class Ao3ShipIndexScraperTests : IDisposable
     [Fact]
     public async Task Does_not_let_a_page_it_could_not_read_write_the_tags_total()
     {
-        // ParseTotalWorks falls back to the trailing digits of any h2.heading when it finds no
-        // "Works", so a soft-error page served as 200 offers "404" as the tag's size. RecordTotal
-        // runs after the readability guard for this reason: the field is what a full sweep checks
-        // itself against before concluding works have left the tag.
+        // A soft-error page served as 200, whose only heading is its status code. T31 made
+        // ParseTotalWorks refuse that heading — it requires the word beside the digits — and this
+        // test is the second wall: RecordTotal runs after the readability guard, so even a heading
+        // that did parse to a number could not be written by a page that parsed to no works. The
+        // field is what a full sweep checks itself against before concluding works have left the
+        // tag, so it is worth two independent reasons.
         _host.Http.Responds = _ => new ScrapeHttpResponse(
             "<html><body><div id='main'><h2 class='heading'>Error 404</h2></div></body></html>",
             HttpStatusCode.OK, FromCache: false, FinalUrl: "https://example.test/");

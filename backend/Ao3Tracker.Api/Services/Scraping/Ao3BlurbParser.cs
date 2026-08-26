@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using AngleSharp.Dom;
 using AngleSharp.Html.Parser;
 using Ao3Tracker.Api.Models;
@@ -451,6 +452,27 @@ public static class Ao3BlurbParser
     }
 
     /// <summary>
+    /// A number that is counting works, and nothing else: digits with AO3's thousands separators,
+    /// immediately followed by the word it counts.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Singular as well as plural. A tag with exactly one work is headed "1 Work in ...", and a
+    /// pattern that only knew "Works" would fall through to whatever else the heading contained —
+    /// which for a tag name carrying its own digits ("Star Wars: CT-7567", a disambiguating year)
+    /// is the tag's *name* being read as the size of the ship.
+    /// </para>
+    /// <para>
+    /// The word is what makes the number a total, so it is required rather than preferred. AO3
+    /// serves soft errors as 200 with the status in the heading, and a page headed "Error 404"
+    /// otherwise offers 404 as the tag's size — a number that then decides whether a full sweep
+    /// believes works have left the tag.
+    /// </para>
+    /// </remarks>
+    private static readonly Regex WorkCountInHeading =
+        new(@"(?<count>\d[\d,.]*)\s+Works?\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
     /// The "N Works in ..." total AO3 prints above a listing. Null when it is absent or unreadable;
     /// see <see cref="Ao3ListingPage.TotalWorks"/> for why that is not zero.
     /// </summary>
@@ -461,15 +483,12 @@ public static class Ao3BlurbParser
 
         if (string.IsNullOrWhiteSpace(heading)) return null;
 
-        // The count is the first run of digits (with AO3's thousands separators) in a heading like
-        // "1 - 20 of 4,317 Works in Clarke Griffin/Lexa" — which is a range, so the total is the
-        // number immediately before "Works", not the first one in the string.
-        var worksAt = heading.IndexOf("Works", StringComparison.OrdinalIgnoreCase);
-        var upToWorks = worksAt >= 0 ? heading[..worksAt] : heading;
+        // The first match, because the count comes before the tag: the heading is
+        // "1 - 20 of 4,317 Works in Clarke Griffin/Lexa", a range whose total is the number beside
+        // the word, and everything after "in" is a name someone else chose.
+        var match = WorkCountInHeading.Match(heading);
 
-        var digits = new string([.. upToWorks.Reverse().SkipWhile(c => !char.IsDigit(c)).TakeWhile(c => char.IsDigit(c) || c is ',' or '.').Reverse()]);
-
-        return ParseInt(digits);
+        return match.Success ? ParseInt(match.Groups["count"].Value) : null;
     }
 
     /// <summary>
