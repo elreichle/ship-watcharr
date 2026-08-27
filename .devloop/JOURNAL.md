@@ -2005,7 +2005,7 @@ build. Not something a task should chase.
   the restart click, the stalled-but-running render, and both new refusals. Mutations: deleting the
   controller's counter reset, deleting `BeginBackfill`'s, and deleting the floor clear each red a
   different test and nothing else.
-- commit: (recorded below)
+- commit: a84cfaf
 - next: **T39 is next in plain file order** (`blocked-by: none`) — its fixture landed on 2026-08-24
   and the task shrank to a test that pins `HasListing`, so read its own notes rather than its title.
   **T40 now owns the stalled-run increment guard** as well as the `firstPage` placement, and its
