@@ -88,11 +88,20 @@ public class Ship
     public DateTime? BackfillBeforeUpdatedAt { get; set; }
 
     /// <summary>
-    /// Consecutive backfill runs whose first request landed on a cursor the listing could not
-    /// answer — see Ao3ShipIndexScraper's stale-cursor rule. Reset by any run that reads a page.
+    /// Consecutive backfill runs that got nowhere and were told something by AO3 while getting
+    /// there — a first request landing on a cursor the listing would not answer, or any page that
+    /// came back unreadable. The second half is wider than intended (this was meant to count
+    /// stale cursors alone) and is T40's to settle, because the rule and the placement of
+    /// `firstPage ??= page` are the same decision; see Ao3ShipIndexScraper.RecordBackfillProgress.
+    /// Cleared by a run that gets *further*
+    /// through the listing than it started, and by a backfill beginning or being restarted;
+    /// reading a page is not enough on its own, because a run that retreated to page 1 and found
+    /// that unreadable too has read a page and learned nothing.
     /// It is the bound on how long a ship may go on asking a question the archive keeps refusing:
     /// at the scraper's limit the backfill is <see cref="ShipBackfillState.Failed"/> and the ship
-    /// falls back to its incremental pass, rather than spending two requests a run forever.
+    /// falls back to its incremental pass, rather than spending two requests a run forever. That is
+    /// not a one-way door — an admin can restart a written-off backfill, which is the only thing
+    /// that moves a ship out of <see cref="ShipBackfillState.Failed"/>.
     /// </summary>
     public int BackfillStalledRuns { get; set; }
 

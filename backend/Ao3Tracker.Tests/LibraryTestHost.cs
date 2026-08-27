@@ -446,6 +446,23 @@ internal sealed class LibraryTestHost : IDisposable
     }
 
     /// <summary>
+    /// A scope of its own per call, for the same reason as the credential endpoints above: a
+    /// restart is written through one "request" and read back through the next, and a shared
+    /// context would answer the second out of the change tracker the first warmed.
+    /// </summary>
+    public AdminShipsController AdminShips(ApplicationUser user)
+    {
+        var scope = _provider.CreateScope();
+        _perRequestScopes.Add(scope);
+
+        return Build(new AdminShipsController(
+            scope.ServiceProvider.GetRequiredService<AppDbContext>(),
+            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>(),
+            scope.ServiceProvider.GetRequiredService<ILogger<AdminShipsController>>()),
+            user, scope.ServiceProvider);
+    }
+
+    /// <summary>
     /// A scope of its own per call, for the same reason as the credential endpoints above.
     /// </summary>
     public AdminScrapingController AdminScraping(ApplicationUser user)

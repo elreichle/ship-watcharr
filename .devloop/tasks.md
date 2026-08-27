@@ -130,6 +130,15 @@ page renders, and there is no test runner in `frontend/`. The live check is the 
 the recipe is in T36's journal entry — a fresh install is already the both-missing case, so there is
 nothing to arrange.
 
+**2026-08-27: T38 is done.** Next in plain file order is **T39** (confirm what AO3 serves for a works
+index with no results), `blocked-by: none` — its fixture landed on 2026-08-24 and the task shrank to
+the test that pins `HasListing`, so read its own notes before assuming it is still a question. T10 is
+earlier and still blocked by T51. **T77 is still taken instead of T63** when the run reaches T63.
+T38 shipped only the recovery half of its notes: **T40 now owns the stalled-run increment guard**,
+and its notes say why and which test it has to re-decide. T38's review ran to completion and found
+three real defects in its own diff, all fixed in it; its fourth finding is **T78**, newly filed at
+the end of the file.
+
 Read `.devloop/spec.md` before starting any task. Every task additionally has to leave
 `cd backend && PATH="$HOME/.dotnet:$PATH" dotnet test`, `cd frontend && npm run build` and
 `npm run lint` green — that is the floor, not the verification.
@@ -967,7 +976,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   stop is entitled to conclude, which is exactly what that audit tabulates.
 
 ## T38 — An operator way back out of a failed backfill
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: An admin can put a ship whose backfill was written off back to `InProgress`, choosing
@@ -1013,6 +1022,15 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   zeroing the counter gets a ship that gives up again on its very next run. Whatever this task's
   re-arm path is, resetting the counter is not an extra nicety in it — it is the half that makes it
   work.
+  **2026-08-27, done — and only the recovery half.** `POST /api/admin/ships/{id}/backfill/restart`
+  (`AdminShipsController`), admin-only, `Failed` only, page chosen or defaulted to the stored cursor;
+  it zeroes `BackfillStalledRuns`, clears `BackfillCompletedAt`, and drops
+  `BackfillMinUpdatedAtSeen` when the cursor moves backwards. `BeginBackfill` zeroes the counter too.
+  The Ships page renders both `Failed` and a non-zero streak with the page and the run count, and
+  gives an admin the restart form. **The "narrow the increment to `askedStaleCursor`" half was not
+  done, and belongs to T40** — narrowing that guard removes the bound entirely for a ship whose
+  cursor has halved down to page 1, where `CursorMayBeStale` is false by construction, and T40's
+  line-move is the same change made at its root. See DECISIONS, 2026-08-27.
 
 ## T39 — Confirm what AO3 serves for a works index with no results
 - status: todo
@@ -1097,6 +1115,19 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   retreat path and the hunk's own comment says so; the non-retreat path was missed. Moving the four
   lines below the break is the whole change — but check what else reads `lastPage`, because the
   404 guard is `lastPage == page - 1` and that arithmetic must still hold.
+  **2026-08-27, from T38: this task now owns the stalled-run increment guard as well.** T38's notes
+  told it to narrow `RecordBackfillProgress`'s `if (!askedStaleCursor && firstPage is null) return;`
+  to `askedStaleCursor`; it did not, because moving `firstPage ??= page` below the break — T40's
+  whole diff — *is* that narrowing, made where the value is set rather than where it is read, and two
+  tasks editing three lines while disagreeing about the same rule is a conflict waiting to happen.
+  **Read `Gives_up_on_a_backfill_that_spends_run_after_run_on_a_cursor_nothing_answers` before
+  starting.** Its cursor halves 10 → 5 → 2 → 1, and at page 1 no retreat can run (`CursorMayBeStale`
+  requires `page > 1`), so after this change that run leaves `firstPage` null and the counter stops
+  moving: the ship re-requests an unanswerable page once a run for ever, and the test — whose own
+  comment says a ship that "has run out of listing to retreat into is written off rather than left
+  asking" — goes red. That is the decision this task has to make and record, not a test to edit
+  around. T38's restart path means writing a ship off is no longer permanent, which is what makes
+  "keep counting at page 1" defensible; deciding the other way needs a different bound.
 
 ## T42 — An incremental pass must not stop with `Error` on a page it was told to expect
 - status: done
@@ -1982,3 +2013,25 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   the run reaches T63 — see the run-order note — and mark the folded tasks `done` individually as
   each one's verification goes green, so a half-finished pass leaves an accurate list. If the diff
   grows past what one iteration can verify, stop, mark what is green, and leave the rest `todo`.
+
+## T78 — A restart should resume where the walk read to, not where it retreated to
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A ship written off after reading forty pages restarts at page forty, not at page one, so
+  re-arming a backfill does not cost AO3 the pages it already served.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Backfill`
+- notes: Found by T38's review, and it is the reason three of T38's four wording fixes exist.
+  `Ship.BackfillNextPage` is where the *last run landed*, and `JumpCursorBackFrom` halves it once per
+  stalled run — so the path to `Failed` is 40 → 20 → 10 → 5 → 2 → 1, and a ship that had genuinely
+  read 39 pages is stored as sitting on page 1. T38's restart defaults to that cursor, so the
+  one-click path re-walks 39 pages at the shared 5-8 second gate for nothing. Idempotent, so it is a
+  politeness cost rather than a correctness one, which is why it was filed rather than folded in.
+  The fix wants a second column — the deepest page a run actually read for this backfill, advanced
+  only by forward progress and never by a retreat — which is **two migrations**, one per provider.
+  Restart then defaults to that, and the Ships page can say both numbers ("read to page 39, cursor
+  now at page 1"), which is also the first thing on that page that would make the halving visible to
+  an operator at all. Note that `ScrapeRun` already records `LastPageFetched` per run, so a cheaper
+  variant is a `MAX` over this ship's runs since `BackfillStartedAt` — no schema change, but it
+  reads a table T33 has already had to make behave, and a run history that is pruned would lose it.
+  Decide which, and say why in DECISIONS.

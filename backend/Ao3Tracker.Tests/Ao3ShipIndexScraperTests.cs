@@ -926,6 +926,34 @@ public class Ao3ShipIndexScraperTests : IDisposable
         Assert.Equal(ShipBackfillState.Complete, ship.BackfillState);
     }
 
+    [Fact]
+    public async Task Clears_a_stalled_streak_when_a_backfill_begins()
+    {
+        // A streak counts *consecutive* runs of one backfill getting nowhere, so a walk that is
+        // starting has none by definition. The row can still arrive here carrying one — hand-edited,
+        // or rewound to NotStarted by something later — and inheriting it would have the new walk
+        // give up on its first stalled run instead of its twelfth.
+        // Asserted through a run that *stalls*, so the reset has to have happened before the walk
+        // rather than after it: a run that got anywhere would clear the counter on its own, and the
+        // test would pass with the reset deleted.
+        _host.Http.Responds = _ => new ScrapeHttpResponse(
+            "<html><body><h1>Down for maintenance</h1></body></html>",
+            HttpStatusCode.OK, FromCache: false, FinalUrl: "");
+
+        var shipId = await FollowAsync();
+        await SetStalledRunsAsync(shipId, Ao3ShipIndexScraper.MaxStalledBackfillRuns - 1);
+
+        await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        // At most one, rather than exactly one: whether a run whose only page was unreadable counts
+        // against the ship at all is the open question T40 owns. Either answer leaves the streak
+        // this ship arrived with — eleven — discarded, which is what this test is about; asserting
+        // the exact value would pin T40's decision from a test about something else.
+        var ship = await ReloadAsync(shipId);
+        Assert.InRange(ship.BackfillStalledRuns, 0, 1);
+        Assert.Equal(ShipBackfillState.InProgress, ship.BackfillState);
+    }
+
     // ---- what a page with no readable works may conclude ----------------------------------------------
 
     [Fact]

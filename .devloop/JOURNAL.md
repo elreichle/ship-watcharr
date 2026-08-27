@@ -1982,3 +1982,78 @@ build. Not something a task should chase.
   the task's own written verification (`npm run build && npm run lint`) is not a filter at all —
   it cannot see this change, which is why the live check is the verification and the build is the
   floor. Still zero and still suspect: none known. T40's `~PagesFetched` is zero by design.
+
+## 2026-08-27 — T38 An operator way back out of a failed backfill — done
+
+- did: `POST /api/admin/ships/{id}/backfill/restart` (new `AdminShipsController`) puts a `Failed`
+  backfill back to `InProgress` from a page the admin names or the ship's stored cursor, zeroing
+  `BackfillStalledRuns`, clearing `BackfillCompletedAt` and dropping `BackfillMinUpdatedAtSeen`. It
+  refuses a backfill that is not `Failed`, a tag AO3 has denied, a ship with no enabled schedule, and
+  a page below 1. `BeginBackfill` zeroes the counter too. `WatchedShipDto` gained
+  `BackfillNextPage`/`BackfillStalledRuns`, and the Ships page renders both a given-up and a merely
+  stalled backfill with a `warning` tone and the numbers behind them, plus the restart form for
+  admins.
+- files: `Api/Controllers/AdminShipsController.cs` (new), `Api/Controllers/ShipsController.cs`,
+  `Api/Dtos/ShipDtos.cs`, `Api/Models/Ship.cs`, `Api/Services/Scraping/Ao3ShipIndexScraper.cs`,
+  `Tests/BackfillRestartTests.cs` (new), `Tests/LibraryTestHost.cs`,
+  `Tests/Ao3ShipIndexScraperTests.cs`, `Tests/ShipsControllerTests.cs`,
+  `frontend/src/{api/types.ts,api/client.ts,index.css,pages/ShipsPage.tsx}`,
+  `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter ~Backfill` → 31 passed (13 before); `dotnet test` → 769 (751 before);
+  `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only; a live check on
+  a throwaway instance (API :5351, vite :5352, chrome-headless-shell) through the given-up render,
+  the restart click, the stalled-but-running render, and both new refusals. Mutations: deleting the
+  controller's counter reset, deleting `BeginBackfill`'s, and deleting the floor clear each red a
+  different test and nothing else.
+- commit: (recorded below)
+- next: **T39 is next in plain file order** (`blocked-by: none`) — its fixture landed on 2026-08-24
+  and the task shrank to a test that pins `HasListing`, so read its own notes rather than its title.
+  **T40 now owns the stalled-run increment guard** as well as the `firstPage` placement, and its
+  notes carry the whole argument and name the test it has to re-decide. **T78 is new.** T77 is still
+  taken instead of T63.
+- **Only half of what the notes asked for was built, deliberately.** T38's notes said "decide both
+  halves here": ship the recovery path *and* narrow `RecordBackfillProgress`'s increment guard to
+  `askedStaleCursor`. Tracing the narrowing against
+  `Gives_up_on_a_backfill_that_spends_run_after_run_on_a_cursor_nothing_answers` kills it: the cursor
+  halves 10 → 5 → 2 → 1, and at page 1 `CursorMayBeStale` is false by construction (`page > 1`), so
+  `askedStaleCursor` is false from that run on, the counter freezes at 3, and `Failed` becomes
+  unreachable — a ship asking an unanswerable page once a run for ever. The test's own comment states
+  the current behaviour as intended. Since T36's review that whole argument already lives on **T40**,
+  whose one-line move of `firstPage ??= page` *is* the narrowing made at its root. **The review
+  independently derived the same trap**, which is the strongest evidence available that the split is
+  right rather than convenient. See DECISIONS.
+- **`delivers` was the contract again, cutting the other way.** T36's entry generalised "when a
+  task's notes offer a cheaper option than `delivers` describes, `delivers` is the contract". Here
+  the notes offered *more*, and the same rule applies: build the `delivers` line, hand the surplus to
+  the task that owns it, and write down why. Both halves of that convention are now on the record.
+- **The review found three real defects in this diff and they are all fixed.** The floor guard
+  compared `fromPage` against a cursor the halving retreat had already dragged below the pages the
+  floor came from, so the common case kept a floor that blinds shift detection for the whole re-walk
+  (now dropped unconditionally); four places claimed the cursor was "where the walk gave up" when it
+  is where the last run *landed*; and the restart was offered and accepted for `NotFoundOnAo3` and
+  unscheduled ships, which can never run, leaving a row saying "in progress" for ever. Its fourth
+  finding is T40's, and two of its sub-points were acted on here — `Ship.cs`'s summary sentence now
+  describes what the counter counts instead of what it was meant to, and the new `BeginBackfill` test
+  asserts `InRange(0, 1)` rather than `== 1` so a test about the reset does not pin T40's decision
+  about the increment.
+- **The cursor is a worse default than it looks, and that is now T78.** `BackfillNextPage` is where
+  the last run landed; `JumpCursorBackFrom` halves it once per stalled run, so a ship that read 39
+  pages is stored on page 1 and the one-click restart re-walks all 39 at the shared gate. Idempotent,
+  so it is politeness rather than correctness — filed rather than folded in, because the honest fix
+  wants a "deepest page read" column and two migrations.
+- **The live check caught nothing and was still worth running twice.** First pass verified the three
+  renders and a real restart click end to end; second pass, after the review's copy and gating
+  changes, verified the corrected wording and both new refusals in the browser as well as at the API.
+  **A trap for the next iteration: the Bash tool's working directory persists between calls**, and
+  launching vite from `backend/Ao3Tracker.Api` (left over from an earlier `cd backend`) served an
+  empty document and had `npx` silently install a second vite. Symptom was a 39-character DOM with a
+  correct `location.pathname`, which reads like a CDP problem and is not. Launch with an absolute
+  `cd` in the same command.
+- **Leaked processes from earlier iterations, unchanged.** pid 1963836 (`dotnet run --project
+  Ao3Tracker.Api --no-launch-profile`) and its child, plus T19's chrome-headless-shell tree (1994238
+  and children, 1996041). None of them this task's; kill **by pid**. This iteration's own six were
+  killed by pid across two rounds and :5351/:5352/:9333 confirmed free; the systemd dev instance
+  (pid 2033) was not touched.
+  Filters checked to bite, per T22's lesson: `~Backfill` matched 13 before and 31 after — the new
+  class is named `BackfillRestartTests` so every test in it matches whatever the method is called.
+  Still zero and still suspect: none known. T40's `~PagesFetched` is zero by design.

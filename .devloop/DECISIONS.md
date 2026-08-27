@@ -2405,3 +2405,103 @@ site. Four findings elsewhere, and **no new task came out of them**:
 
 Three of the four are tasks a review has now found more than once. The list is doing its job; what
 it costs is that each review spends its budget re-deriving it, which is what T77 exists to stop.
+
+## 2026-08-27 — T38: the recovery path is T38's; the counting half went to T40 on the evidence
+
+T38's notes carried an instruction from T44's review: "Decide both halves here: narrow the increment
+to `askedStaleCursor` to match the documented intent, *and* ship the recovery path." Only the second
+half was built, and the reason is a fact the note could not have known.
+
+Narrowing `RecordBackfillProgress`'s guard from `if (!askedStaleCursor && firstPage is null) return;`
+to `askedStaleCursor` alone **removes the bound entirely for a ship sitting at page 1**. Trace
+`Gives_up_on_a_backfill_that_spends_run_after_run_on_a_cursor_nothing_answers`: the cursor halves its
+way 10 → 5 → 2 → 1, and at page 1 `CursorMayBeStale` is false by construction (`page > 1`), so no
+retreat runs and `askedStaleCursor` is false from that run onward. Under the narrowing the counter
+freezes at 3 and the ship re-requests an unanswerable page once a run for ever. That test's own
+comment states the current behaviour as intended — "the cursor halves its way down to page 1 on the
+way and **goes on counting there**, so a ship that has run out of listing to retreat into is written
+off rather than left asking" — so the narrowing is not a small correction, it is re-deciding a rule a
+test was written to hold.
+
+Meanwhile T36's review moved the whole argument onto **T40**: `firstPage ??= page` runs above the
+`if (unreadable) break`, and moving those four lines below it — T40's entire diff — *is* the
+narrowing, made at its root rather than by editing the guard. One task owns the line. Two tasks
+editing the same three lines while disagreeing about the page-1 bound is how a run produces a
+conflict it then has to unpick.
+
+So T38 is its `delivers` line: the way out. Consistent with the convention T36's entry recorded —
+**`delivers` is the contract, the notes are one reader's guess at the implementation** — which cut
+the other way there (the notes offered less than `delivers`) and cuts this way here.
+
+## 2026-08-27 — T38: only a `Failed` backfill may be restarted, and a restart does not make the ship due
+
+Two scope decisions in the endpoint, both about what it costs AO3 rather than what it costs us.
+
+**`Failed` only.** `POST /api/admin/ships/{id}/backfill/restart` returns 409 for a Complete,
+InProgress or NotStarted backfill. Re-arming a Complete one would walk a back catalogue already read,
+at 5-8 seconds a page, off one mis-click; re-arming an InProgress one would move the cursor out from
+under a walk that is working. Neither is what "an outage should not cost a back catalogue" asks for,
+and a narrower endpoint can be widened later on a real request.
+
+**The schedule is left alone.** The obvious alternative — `NextRunAt = null` plus a `ScrapeWake`
+signal, which is what following a new tag does — would put a walk that has been failing for days at
+the front of the queue the moment somebody pressed a button. A back catalogue that has waited twelve
+intervals can wait one more, and the decision about request spacing stays in the scheduler rather
+than being made twice. The button says so, so nothing looks broken while nothing happens.
+
+Two writes beyond the state and the cursor. `BackfillStalledRuns = 0` is not a nicety: both of the
+scraper's own reset sites sit on paths a `Failed` ship no longer reaches and giving up does not clear
+it either, so a restart that left the counter at twelve would hand back a ship that fails again on
+its very next stalled run — indistinguishable, from outside, from a restart that did nothing. Three
+reviews (T26's, T30's, T8's) had each derived that independently. And `BackfillMinUpdatedAtSeen` is
+cleared **when the cursor moves backwards only**: the floor is the oldest work a contiguous walk has
+reached, and `TrackBackfillFloor` reports anything newer as the listing shifting underneath, so
+carried into a walk restarting nearer the top it makes every page of the redo warn about a listing
+that never moved. A restart at the ship's own cursor is the same walk, so it keeps its floor.
+
+`BeginBackfill` also zeroes the counter now, which is the fix T26's, T30's and T8's reviews reported.
+Nothing on today's paths sets a `NotStarted` ship's counter above zero, so it is defence rather than
+a live bug — asserted through a run that *stalls*, because a run that got anywhere clears the counter
+on its own and the test would pass with the reset deleted.
+
+## 2026-08-27 — T38's review: three defects in its own diff, and the cursor is not what it looked like
+
+`/code-review high` ran to completion (the third in a row to survive) and read the working tree
+rather than the branch, since `@{upstream}...HEAD` was 59 already-reviewed commits behind. Four
+findings, three of them in T38's own changes and all three fixed in it.
+
+**The floor guard was backwards in the common case.** T38 cleared `BackfillMinUpdatedAtSeen` only
+`if (fromPage < ship.BackfillNextPage)`, on the assumption that the stored cursor is how deep the
+walk got. It is not: `JumpCursorBackFrom` halves the cursor on every run where the cursor page and
+the page before it are both unreadable, which is exactly the path to `Failed`. A walk that reached
+page 40 and read its floor from page 39 ends up parked at page 1, and a default restart then finds
+`1 < 1` false and keeps a floor no page of the re-walk can be newer than — so `TrackBackfillFloor`
+logs "a full sweep will be needed" on every page and never updates again. **The floor is now dropped
+unconditionally.** One page of shift detection is lost at the restart point; the next page
+re-establishes it. That is strictly cheaper than a comparison that is wrong whenever the halving has
+run, and the halving has run by definition on every ship this endpoint can be used on.
+
+**"Where the walk gave up" was not where the walk gave up**, in four places — the controller comment,
+`RestartBackfillRequest.FromPage`, the `restartBackfill` JSDoc, and the Ships page's detail line,
+which named the cursor as the page AO3 would not answer for. All four now say what the cursor is:
+where the last run *landed*. The improvement the reviewer suggested — record the deepest page
+actually read and default to that — is **T78**, filed rather than folded in because it wants a
+column and two migrations, and because re-walking pages is a politeness cost rather than a
+correctness one.
+
+**The restart was offered, and accepted, for ships that cannot scrape.** A `Failed` ship whose tag
+AO3 has denied, or whose schedule is off, showed the form under a status line saying "AO3 has no such
+tag" or "Paused" — and the endpoint took it, because it checked only `BackfillState`. Neither ship
+would ever run: `Ao3ShipIndexScraper` returns before its first request for a `NotFoundOnAo3` tag, and
+the worker only takes enabled jobs. So a "restarted" ship sat at `InProgress` for ever, which is
+worse than the written-off state it replaced — that one at least said so. The endpoint now returns
+409 with the reason for both, and the page has a `canRestartBackfill` predicate carrying the same two
+conditions `describeStatus` returns early on.
+
+**The fourth finding is T40's**, and the reviewer derived both halves of the reasoning already on the
+record above — including, unprompted, that narrowing to `askedStaleCursor` alone would make `Failed`
+unreachable for a ship parked at page 1. Two of its sub-points were acted on here: `Ship.cs`'s
+summary line now describes what the counter actually counts and names T40 as the owner of the
+discrepancy, rather than stating an intent the code does not implement; and
+`Clears_a_stalled_streak_when_a_backfill_begins` asserts `InRange(0, 1)` rather than `== 1`, so a
+test about the *reset* stops pinning T40's decision about the *increment*.

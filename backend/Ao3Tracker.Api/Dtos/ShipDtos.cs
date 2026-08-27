@@ -18,6 +18,13 @@ namespace Ao3Tracker.Api.Dtos;
 /// and only after at least one attempt.</param>
 /// <param name="RequestedTagName">What this user typed, when AO3 turned out to call the tag
 /// something else. Null in the ordinary case — the UI shows it only to explain the difference.</param>
+/// <param name="BackfillNextPage">The listing page the back-catalogue walk will ask for next, or
+/// null before it has started. Where the last run *landed*, not how deep the walk ever got — the
+/// halving retreat moves it backwards. Shown so that "stuck" and "gave up" can name a page rather
+/// than nothing, and so a restart has a default.</param>
+/// <param name="BackfillStalledRuns">Consecutive runs that got no further through the listing. Non-
+/// zero means the ship is spending requests on a page AO3 will not answer, which the run history
+/// knew and this page did not.</param>
 public record WatchedShipDto(
     int ShipId,
     string TagName,
@@ -32,7 +39,9 @@ public record WatchedShipDto(
     bool ScraperAvailable,
     string VerificationState,
     string? VerificationError,
-    string? RequestedTagName);
+    string? RequestedTagName,
+    int? BackfillNextPage,
+    int BackfillStalledRuns);
 
 /// <summary>
 /// The ships list, wrapped so it can carry one instance-wide fact alongside them.
@@ -74,3 +83,27 @@ public record WatchedShipsDto(
 /// </remarks>
 public record AddWatchedShipRequest(
     [Required(ErrorMessage = "Enter the relationship tag you want to track.")] string TagName);
+
+/// <summary>
+/// Where an admin wants a written-off backfill to start again.
+/// </summary>
+/// <param name="FromPage">
+/// The listing page to resume from, 1-based. Null means the ship's stored cursor — where its last
+/// run landed, which is not where the walk got to: the halving retreat drags that cursor down once
+/// per stalled run, so a ship written off after reading forty pages is usually parked at page 1.
+/// It is the honest default because it is the only page this instance records, and it is why the
+/// choice exists at all.
+/// </param>
+public record RestartBackfillRequest(int? FromPage);
+
+/// <summary>
+/// What a restart left on the ship. Deliberately not a <see cref="WatchedShipDto"/>: that row is
+/// scoped to one user's subscription, and this endpoint acts on the shared ship on behalf of an
+/// admin who may not be watching it at all.
+/// </summary>
+public record BackfillRestartedDto(
+    int ShipId,
+    string TagName,
+    string BackfillState,
+    int? BackfillNextPage,
+    int BackfillStalledRuns);

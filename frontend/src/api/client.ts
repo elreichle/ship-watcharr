@@ -1,6 +1,7 @@
 import type {
   AccountEmail,
   Ao3TagType,
+  BackfillRestarted,
   CurrentUser,
   DatabaseStatus,
   Download,
@@ -167,6 +168,18 @@ export const api = {
     request<WatchedShip>('/ships', { method: 'POST', body: JSON.stringify({ tagName }) }),
 
   unwatchShip: (shipId: number) => request<void>(`/ships/${shipId}`, { method: 'DELETE' }),
+
+  /**
+   * Puts a written-off backfill back to InProgress. Admin-only, and shared: the walk belongs to the
+   * ship every watcher shares, not to the caller's subscription. `fromPage` null means the ship's
+   * stored cursor — where its last run landed, which the halving retreat may have dragged well
+   * above where the walk actually read to.
+   */
+  restartBackfill: (shipId: number, fromPage: number | null) =>
+    request<BackfillRestarted>(`/admin/ships/${shipId}/backfill/restart`, {
+      method: 'POST',
+      body: JSON.stringify({ fromPage }),
+    }),
 
   getWorks: ({
     page,

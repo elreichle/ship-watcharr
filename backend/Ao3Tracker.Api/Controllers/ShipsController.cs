@@ -81,6 +81,8 @@ public class ShipsController : ControllerBase
                 w.CreatedAt,
                 w.RequestedTagName,
                 w.Ship.BackfillState,
+                w.Ship.BackfillNextPage,
+                w.Ship.BackfillStalledRuns,
                 w.Ship.VerificationState,
                 w.Ship.VerificationError,
 
@@ -114,7 +116,9 @@ public class ShipsController : ControllerBase
             r.Job is not null && _scraperRegistry.TryGet(r.Job.ScraperKey) is not null,
             r.VerificationState.ToString(),
             r.VerificationError,
-            r.RequestedTagName))];
+            r.RequestedTagName,
+            r.BackfillNextPage,
+            r.BackfillStalledRuns))];
     }
 
     [HttpPost]

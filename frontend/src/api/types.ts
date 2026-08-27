@@ -36,6 +36,26 @@ export interface WatchedShip {
   verificationError: string | null;
   /** What you typed, when AO3 turned out to call the tag something else. Null when they agree. */
   requestedTagName: string | null;
+  /**
+   * The listing page the back-catalogue walk asks for next, or null before it has started. Where
+   * the last run landed rather than how deep the walk got: a stalling ship's cursor is dragged
+   * backwards once per run, so a written-off one is often parked well above where it read to.
+   */
+  backfillNextPage: number | null;
+  /**
+   * Consecutive runs that got no further through the listing. Above zero the ship is spending
+   * requests on a page AO3 will not answer; at the scraper's limit the backfill is `Failed`.
+   */
+  backfillStalledRuns: number;
+}
+
+/** What an admin's restart left on a ship whose backfill this instance had given up on. */
+export interface BackfillRestarted {
+  shipId: number;
+  tagName: string;
+  backfillState: WatchedShip['backfillState'];
+  backfillNextPage: number | null;
+  backfillStalledRuns: number;
 }
 
 export interface WatchedShipsResponse {

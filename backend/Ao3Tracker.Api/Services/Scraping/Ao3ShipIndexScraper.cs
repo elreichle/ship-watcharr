@@ -743,6 +743,13 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             ship.BackfillState = ShipBackfillState.InProgress;
             ship.BackfillStartedAt = _time.GetUtcNow().UtcDateTime;
             ship.BackfillNextPage ??= 1;
+
+            // Part of starting, not a tidy-up. A streak counts *consecutive* runs of one backfill
+            // getting nowhere, so a walk that is beginning has no streak by definition — and a ship
+            // arriving here carrying one (a NotStarted row written by hand, or a future path that
+            // rewinds a ship to NotStarted) would otherwise inherit a count it did not earn and give
+            // up on its first stalled run rather than its twelfth.
+            ship.BackfillStalledRuns = 0;
         }
     }
 

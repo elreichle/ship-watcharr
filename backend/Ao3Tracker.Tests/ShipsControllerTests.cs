@@ -412,6 +412,31 @@ public class ShipsControllerTests : IDisposable
         Assert.True(List(await host.Ships(emma).GetWatchedShips(default)).Single().ScraperAvailable);
     }
 
+    [Fact]
+    public async Task Reports_where_the_backfill_stands_and_how_long_it_has_been_stuck()
+    {
+        // "Backfill failed" on its own tells an operator nothing they can act on. The page they are
+        // told to fix it from needs the page it gave up at and the streak behind it, and the run
+        // history is the only other place either number lives.
+        var emma = _host.SeedUser();
+        var shipId = Created(await _host.Ships(emma).WatchShip(new("Clarke Griffin/Lexa"), default)).ShipId;
+
+        await using (var db = _host.NewContext())
+        {
+            var ship = await db.Ships.SingleAsync(s => s.Id == shipId);
+            ship.BackfillState = ShipBackfillState.Failed;
+            ship.BackfillNextPage = 40;
+            ship.BackfillStalledRuns = 12;
+            await db.SaveChangesAsync();
+        }
+
+        var listed = List(await _host.Ships(emma).GetWatchedShips(default)).Single();
+
+        Assert.Equal("Failed", listed.BackfillState);
+        Assert.Equal(40, listed.BackfillNextPage);
+        Assert.Equal(12, listed.BackfillStalledRuns);
+    }
+
     // ---- fixture -------------------------------------------------------------------------------
 
     private static Work Work(long id, bool isDeleted = false) => new()

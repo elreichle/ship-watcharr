@@ -642,6 +642,30 @@
     white-space: normal;
   }
 
+  /* Sits inside a status cell, under the detail line explaining what it is for. Wraps rather than
+     stretching the column: the table is already wide. */
+  .backfill-restart {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--size-4-2);
+    max-width: 28rem;
+    margin-top: var(--size-4-2);
+  }
+
+  .backfill-restart label {
+    display: flex;
+    flex-direction: column;
+    gap: var(--size-2-2);
+    color: var(--text-muted);
+    font-family: var(--font-interface);
+    font-size: var(--font-ui-smaller);
+  }
+
+  .backfill-restart input {
+    width: 7rem;
+  }
+
   /* Key/value layout rather than a data grid: labels stay narrow, values wrap freely. */
   .identity-table th {
     width: 1%;
@@ -890,6 +914,13 @@
 
   .error {
     color: var(--text-error);
+    font-size: var(--font-ui-small);
+  }
+
+  /* The counterpart of .error for something that is degraded rather than stopped — a backfill this
+     instance gave up on, whose ship still collects new works. */
+  .warning {
+    color: var(--text-warning);
     font-size: var(--font-ui-small);
   }
 

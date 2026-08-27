@@ -7,7 +7,7 @@ const BACKFILL_LABELS: Record<WatchedShip['backfillState'], string> = {
   NotStarted: 'Not started',
   InProgress: 'Reading the back catalogue',
   Complete: 'Back catalogue read',
-  Failed: 'Backfill failed',
+  Failed: 'Back catalogue given up on',
 };
 
 function formatDate(value: string | null): string {
@@ -16,8 +16,12 @@ function formatDate(value: string | null): string {
 
 interface Status {
   label: string;
-  /** Set when the status is the reason nothing will ever happen for this ship. */
-  bad?: boolean;
+  /**
+   * How loudly to say it. `error` is for a state in which nothing will ever happen for this ship;
+   * `warning` for one that is degraded but still running — a given-up backfill leaves the
+   * incremental pass collecting new works, so calling it an error would overstate it.
+   */
+  tone?: 'error' | 'warning';
   detail?: string;
 }
 
@@ -25,9 +29,26 @@ interface Status {
  * What is actually happening to this ship. Ordered by what blocks what: a tag AO3 has never
  * confirmed can't be scraped, so its verification state outranks anything the schedule says.
  */
+/**
+ * Whether an admin restarting this ship's backfill would achieve anything.
+ *
+ * The same two conditions `describeStatus` returns early on, and for the same reason: a tag AO3 has
+ * denied is skipped before the scraper's first request, and an unscheduled ship is never picked up
+ * at all — so a restart on either leaves a row reading "in progress" that no run will ever touch.
+ * The endpoint refuses both; this keeps the button from being offered under a status line that
+ * already says the ship is going nowhere.
+ */
+function canRestartBackfill(ship: WatchedShip): boolean {
+  return (
+    ship.backfillState === 'Failed' &&
+    ship.verificationState !== 'NotFoundOnAo3' &&
+    ship.isScheduled
+  );
+}
+
 function describeStatus(ship: WatchedShip, verificationEnabled: boolean): Status {
   if (ship.verificationState === 'NotFoundOnAo3') {
-    return { label: 'AO3 has no such tag', bad: true, detail: 'Check the spelling and add it again.' };
+    return { label: 'AO3 has no such tag', tone: 'error', detail: 'Check the spelling and add it again.' };
   }
 
   if (ship.verificationState === 'Pending') {
@@ -38,7 +59,39 @@ function describeStatus(ship: WatchedShip, verificationEnabled: boolean): Status
 
   if (!ship.scraperAvailable) return { label: 'Tag confirmed — waiting for the AO3 scraper' };
   if (!ship.isScheduled) return { label: 'Paused' };
-  return { label: BACKFILL_LABELS[ship.backfillState] };
+
+  const label = BACKFILL_LABELS[ship.backfillState];
+  const page = ship.backfillNextPage ?? 1;
+
+  // Both of these lived only in the run history, which is a different page. From here a ship stuck
+  // on a page AO3 will not answer has looked exactly like one quietly working through its listing.
+  //
+  // Neither says the cursor is the page AO3 refused, because it usually isn't: a stalling walk steps
+  // its cursor backwards once a run looking for a page that answers, so by the time it gives up the
+  // number below is where it ended up, not what went wrong.
+  if (ship.backfillState === 'Failed') {
+    return {
+      label,
+      tone: 'warning',
+      detail:
+        `${ship.backfillStalledRuns} runs in a row got nothing AO3 would answer, so this instance ` +
+        `stopped asking; its cursor is at page ${page}. New works still arrive; the older ones are ` +
+        'on hold.',
+    };
+  }
+
+  if (ship.backfillState === 'InProgress' && ship.backfillStalledRuns > 0) {
+    return {
+      label,
+      tone: 'warning',
+      detail:
+        `${ship.backfillStalledRuns} ` +
+        `${ship.backfillStalledRuns === 1 ? 'run has' : 'runs in a row have'} got no further ` +
+        `through the listing; its cursor is at page ${page}. It keeps trying for a while yet.`,
+    };
+  }
+
+  return { label };
 }
 
 export function ShipsPage() {
@@ -205,8 +258,14 @@ export function ShipsPage() {
                     </td>
                     <td>{ship.workCount.toLocaleString()}</td>
                     <td>
-                      <span className={status.bad ? 'error' : undefined}>{status.label}</span>
+                      <span className={status.tone}>{status.label}</span>
                       {status.detail && <span className="ship-status-detail">{status.detail}</span>}
+                      {/* Admin-only, because a restart spends requests on behalf of everyone
+                          watching the tag — and because it is the only thing in the product that
+                          moves a ship out of Failed. */}
+                      {user?.isAdmin && canRestartBackfill(ship) && (
+                        <BackfillRestart ship={ship} onRestarted={() => void load().catch(() => {})} />
+                      )}
                     </td>
                     <td>{formatDate(ship.lastScrapedAt)}</td>
                     <td>{formatDate(ship.nextScrapeAt)}</td>
@@ -235,5 +294,65 @@ export function ShipsPage() {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * The way back out of a written-off backfill.
+ *
+ * The page is editable rather than fixed because the two reasons a backfill gives up want different
+ * answers: after an outage the cursor is exactly where to resume, and after a listing that shrank it
+ * is the one page that will fail again. The stored cursor is the default, so the common case is one
+ * click.
+ *
+ * Restarting does not make the ship due — it resumes on its next scheduled run, and saying so here
+ * is what stops the button looking broken when nothing happens for an hour.
+ */
+function BackfillRestart({ ship, onRestarted }: { ship: WatchedShip; onRestarted: () => void }) {
+  const [page, setPage] = useState(String(ship.backfillNextPage ?? 1));
+  const [restarting, setRestarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+
+    const parsed = Number(page);
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      setError('A listing page is numbered from 1.');
+      return;
+    }
+
+    setError(null);
+    setRestarting(true);
+    try {
+      await api.restartBackfill(ship.shipId, parsed);
+      onRestarted();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to restart the backfill.');
+    } finally {
+      setRestarting(false);
+    }
+  };
+
+  return (
+    <form className="backfill-restart" onSubmit={(e) => void submit(e)}>
+      <label>
+        Restart at page
+        <input
+          type="number"
+          min={1}
+          value={page}
+          onChange={(e) => setPage(e.target.value)}
+          disabled={restarting}
+        />
+      </label>
+      <button type="submit" disabled={restarting}>
+        {restarting ? 'Restarting…' : 'Restart'}
+      </button>
+      <span className="ship-status-detail">
+        Picks up on this ship’s next scheduled scrape, not straight away.
+      </span>
+      {error && <span className="error">{error}</span>}
+    </form>
   );
 }
