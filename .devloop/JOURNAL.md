@@ -1870,7 +1870,7 @@ build. Not something a task should chase.
   `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only. Mutation:
   replacing the normalized-group match with `1 = 1` reds
   `Two_different_creators_on_one_work_both_survive` and nothing else.
-- commit: <pending>
+- commit: baf862d
 - next: **T36 is next in plain file order**, `blocked-by: none`. Two things this iteration filed that
   change what the run looks like: **T76**, a verified defect in the same migration (below), and
   **T77**, the download-path pass the run order has been asking three iterations for — take T77
