@@ -1937,7 +1937,7 @@ build. Not something a task should chase.
   a live check on a throwaway instance (API :5341, vite :5342, chrome-headless-shell) through all
   three states. Mutations: propagating every blocker as `IdentityProblem` reds all three new backend
   assertions; putting both frontend defects back reproduces the exact symptom in the browser.
-- commit: PENDING
+- commit: 9004c7d
 - next: **T37 is `done` already; the next `todo` in plain file order is T38** (an operator way back
   out of a failed backfill), `blocked-by: none`. T10 is earlier and still blocked by T51. Remember
   **T77 is taken instead of T63** when the run reaches T63.
