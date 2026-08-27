@@ -2256,3 +2256,99 @@ onto one destination and two `WorkDownloadFile` inserts, only the second of whic
 is that the download path's defects are now all filed, and a high-effort review spends its budget
 re-finding them. The observation has been recorded three iterations running; it is now written into
 the run order as something to file rather than observe again.
+
+## 2026-08-26 — T35: the migration was rewritten in place, and the merge rule changed shape
+
+The task's notes warned against rewriting an applied migration and asked for an idempotent guard
+instead. That warning is conditional — "if it has shipped anywhere" — and it has not:
+`20260822182752_NormalizedPseudIdentity` exists only on `devloop/dashboard-completion`, which
+`git branch --contains` confirms. So the migration was corrected in place rather than followed by a
+repair migration.
+
+The reasoning that makes in-place safe here is worth stating, because it is not general. The old
+merge either produced the right answer (one or two capitalisations) or threw on
+`PK_WorkAuthors` and rolled its transaction back (three or more). There is no third outcome where it
+committed something wrong, so no database can be sitting in a state the corrected version needs to
+find and repair. A database that already applied it successfully applied a version that was correct
+for its data; a database that failed never recorded the migration and will get the new one.
+
+**The rule changed from "drop a link that duplicates one already on the survivor" to "drop a link
+that has a lower-id sibling in the same normalized group on the same work."** The old form asked
+whether the work was *already* linked to the group's `MIN(Id)` row, which is only true when the
+canonical spelling is one of the ones present. Three spellings with the work linked to the second and
+third answer no, nothing is dropped, and the repoint then moves two links onto one row. The new form
+never mentions the canonical row: it thins each work's link set to one link per creator, keeping the
+lowest id present, and the repoint that follows moves that survivor to `MIN(Id)` as before. It is the
+same answer as the old form wherever the old form worked.
+
+The correlated references were also moved out of the subquery's `JOIN ... ON` clauses and into its
+`WHERE`. Both forms are legal in both providers; the second needs no argument about where PostgreSQL
+permits an outer reference without `LATERAL`, which is worth more than the two lines it costs in a
+file nothing executes until an upgrade.
+
+**Only SQLite was executed.** The Postgres twin is byte-identical in the changed block (checked with
+`diff`) and `dotnet ef migrations script` renders it, so the C# is right and the SQL is what was
+intended — but no PostgreSQL server ran it. That gap is not new to this task; it is how every
+migration on this branch stands.
+
+## 2026-08-26 — T35: migration SQL had no test seam, and now has one
+
+Every other test in the suite starts from `EnsureCreated`, which builds the current schema directly
+and executes no migration at all — so the SQL inside a migration was, until now, code the suite could
+not reach. `PseudMigrationTests` reaches it by taking `IMigrator` off the context's infrastructure and
+migrating to a named revision: to `20260822182050_RetirePerUserAo3Credential` in the constructor,
+then raw-SQL seeding by hand against that older schema, then `Migrate` to the one under test.
+
+Two things about the shape. It targets the migration under test by name rather than migrating to
+latest, so a later migration cannot fail this test for reasons that have nothing to do with it. And it
+seeds with `ExecuteSqlRaw` rather than through the entity model, because the model describes today's
+schema and the seed has to be valid against the older one — an `Ao3Pseuds` row before the normalized
+columns exist cannot be written through `SqliteAppDbContext`.
+
+Four cases, and the two that are not about the bug are the ones that make the diff safe: a work linked
+to the survivor *and* a duplicate must keep one link (the case that already worked), and two different
+creators on one work must both survive (the over-deletion a "drop a link with a lower-id sibling"
+rule invites). Mutating the group match to `1 = 1` reds the second and nothing else, which is what
+says that assertion is load-bearing.
+
+## 2026-08-26 — T35's review died on the spend limit, and its last thought was worth chasing
+
+`/code-review high` terminated on the account's monthly spend limit before reporting — the second
+review this branch has lost that way, after T14's. The diff was reviewed by reading instead.
+
+What makes this one different from T14's is that the agent's final visible thought survived: *"Let me
+empirically verify a suspicion about the migration's pseud deletion cascading."* Chased by hand, it
+found a real defect, now filed as **T76** and verified rather than reported. `SavedWorkFilterAuthors`
+carries a `PseudId` FK to `Ao3Pseuds` declared `onDelete: Cascade`, and the migration repoints
+`WorkAuthors` only — so the final `DELETE FROM "Ao3Pseuds"` silently takes a saved filter's author
+criterion with the loser row. A throwaway probe through the new seam confirmed it: `PRAGMA
+foreign_keys` reads `1` under Microsoft.Data.Sqlite's defaults, the pseuds merged to `[1]`, and
+`SavedWorkFilterAuthors` came out empty.
+
+**It was not folded into T35.** T35's `delivers` is that the upgrade does not fail; this is an upgrade
+that succeeds and quietly loses data, in a different table, needing its own dedup-and-repoint pair and
+its own decision about what `Exclude` means when an include and an exclude of one creator merge. One
+task per iteration is the rule that keeps these diffs reviewable, and the seam T35 built is what makes
+T76 cheap for whoever takes it.
+
+**A dead agent's reasoning is still evidence.** The notification carried one sentence of it, and that
+sentence was worth more than the report would have been on the three findings it had presumably
+already discarded. Worth doing again: when a review dies mid-flight, read what it was doing when it
+died before concluding the diff went unreviewed.
+
+## 2026-08-26 — T77: the download-path pass is filed rather than observed a sixth time
+
+The run order has carried "worth filing as a task rather than observing again" since T33, and the
+journal has recorded the same thing in three consecutive entries. It is now **T77**.
+
+It delivers nothing new. It is a scheduling decision: T63, T64, T65, T66, T67, T69, T70, T71, T73, T74
+and T75 are eleven tasks over `DownloadsController`, `DownloadFetcher`, `RateLimitedAo3HttpClient` and
+`Ao3SessionProvider`, several of which interact — T64's re-arm orphans the file T71 is about, T67 and
+T73 are the same clock, T63 and T75 are adjacent lines. Eleven diffs would each re-read the same code
+and at least four would conflict.
+
+Two constraints keep it from becoming an unreviewable mega-diff. The folded tasks stay on the list and
+are marked `done` one at a time as each one's verification goes green, so a pass that runs out of room
+leaves an accurate list rather than an ambiguous one. And it is taken **instead of T63** when the run
+reaches T63 — not from its own position at the end of the file, which would mean walking past every
+task it exists to absorb.

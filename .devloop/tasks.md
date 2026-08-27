@@ -109,6 +109,19 @@ work that has not started yet** — see the 2026-08-24 entry in `DECISIONS.md`:
 - **T58 is new**, from a defect Emma found in the browser: the incremental pass sends a filter
   parameter the tag-listing endpoint discards. Not a correctness bug — a politeness one.
 
+**2026-08-26: T35 is done.** Next in plain file order is **T36** (the scraping-identity page shows
+blockers that are not about identity), `blocked-by: none`. T35's review **did not run** — `/code-review
+high` died on the account's monthly spend limit, the second time this branch has lost a review that
+way (T14 was the first), and the limit resets at 22:20 America/Chicago. The diff was reviewed by
+reading instead, but the dead agent's last thought was a real lead and chasing it found a verified
+defect: **T76**, the same migration cascade-deleting a saved filter's author criterion. A migration
+test seam now exists — `backend/Ao3Tracker.Tests/PseudMigrationTests.cs` — and it is the only place
+in the suite where migration SQL executes at all; everything else starts from `EnsureCreated`.
+
+**T77 is filed**, closing out the standing instruction three iterations have been carrying: one pass
+over the download path rather than eleven. It is a scheduling task over T63–T75 and should be taken
+**instead of T63** when the run reaches T63, not in its own file position at the end.
+
 Read `.devloop/spec.md` before starting any task. Every task additionally has to leave
 `cd backend && PATH="$HOME/.dotnet:$PATH" dotnet test`, `cd frontend && npm run build` and
 `npm run lint` green — that is the floor, not the verification.
@@ -882,7 +895,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   to follow. Check the filter bites before trusting it — `~Backfill` matched 6 at T24.
 
 ## T35 — The pseud dedup migration collides on a third capitalisation
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: `NormalizedPseudIdentity` folds any number of capitalisation variants without failing
@@ -1887,3 +1900,55 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   already injected, so the test can pin it by advancing the clock inside a stub establisher.
   **Do not** reuse the pre-check `now` for both: the check and the record are different questions
   about different instants.
+
+## T76 — The pseud merge cascade-deletes a saved filter's author criterion
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A saved filter that names a creator under a losing capitalisation still names that
+  creator after the upgrade.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~PseudMigration`
+- notes: Found by the `/code-review` launched for T35 — its last act before the account's spend
+  limit killed it was "verify a suspicion about the migration's pseud deletion cascading" — and
+  **verified empirically in that iteration** with a throwaway probe through T35's new seam.
+  `NormalizedPseudIdentity` repoints `WorkAuthors` onto the surviving pseud and then deletes the
+  losers. `SavedWorkFilterAuthors` also has a `PseudId` FK to `Ao3Pseuds`, declared
+  `onDelete: Cascade` (`Data/Migrations/Sqlite/20260809193949_SavedWorkFilters.cs:99`), and the
+  migration never repoints it — so the final `DELETE FROM "Ao3Pseuds"` silently takes the criterion
+  with it. The probe seeded a filter naming pseud 2 of a 1/2 pair: after the upgrade, `PRAGMA
+  foreign_keys` read `1`, the pseuds merged to `[1]`, and `SavedWorkFilterAuthors` was **empty**.
+  Not a failed upgrade — a filter that quietly stops narrowing to the creator it was saved for,
+  which is a worse shape than a crash.
+  The fix is T35's own dedup-then-repoint pattern applied to the second table, and it needs both
+  halves: `PK_SavedWorkFilterAuthors (SavedWorkFilterId, PseudId)` collides exactly the way
+  `PK_WorkAuthors` does, so a repoint without the thinning `DELETE` in front of it swaps silent
+  loss for a failed upgrade. Both providers. **Latent, not live** for the same reason T35 was:
+  nothing populated `Ao3Pseuds` before this branch. Note `Exclude` when two criteria merge — an
+  include and an exclude of the same creator collapsing onto one row is a judgement the fix has to
+  make and state.
+  The seam exists: `backend/Ao3Tracker.Tests/PseudMigrationTests.cs` migrates to the revision
+  before this one, seeds by hand, and runs the one migration. Seeding a filter needs an
+  `AspNetUsers` row and a `SavedWorkFilters` row first; the probe's inserts are in T35's journal
+  entry.
+
+## T77 — One pass over the download path instead of eleven
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: T63, T64, T65, T66, T67, T69, T70, T71, T73, T74 and T75 closed together, in one diff
+  over the subsystem they all live in.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Download`, plus
+  each folded task's own filter.
+- notes: Filed on the run order's own standing instruction, after five consecutive reviews landed
+  nearly every finding in the same few hundred lines and three iterations recorded that a dedicated
+  pass would be cheaper than meeting them one at a time. The eleven tasks are over
+  `DownloadsController`, `DownloadFetcher`, `RateLimitedAo3HttpClient` and `Ao3SessionProvider`, and
+  several of them interact — T64's controller re-arm orphans the file T71 is about, T67's deadline
+  and T73's fleet-wide `Retry-After` are the same clock, T63's missing lock and T75's stale `now`
+  are adjacent lines of `Ao3SessionProvider`. Fixing them separately means eleven diffs that each
+  re-read the same code and four of which conflict.
+  **This is a scheduling task, not new work**: it delivers nothing the eleven do not already
+  specify, and each folded task keeps its own notes as the checklist. Take it *instead of* T63 when
+  the run reaches T63 — see the run-order note — and mark the folded tasks `done` individually as
+  each one's verification goes green, so a half-finished pass leaves an accurate list. If the diff
+  grows past what one iteration can verify, stop, mark what is green, and leave the rest `todo`.

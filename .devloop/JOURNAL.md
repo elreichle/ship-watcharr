@@ -1852,3 +1852,71 @@ build. Not something a task should chase.
   Filters checked to bite, per T22's lesson: `~Ingest` 8 → 9, covering the new test. Still zero and
   still suspect: none known — T31 retired `~TotalWorks` and T32 fixed `~Monotonic`. T40's
   `~PagesFetched` is zero by design.
+
+## 2026-08-26 — T35 The pseud dedup migration collides on a third capitalisation — done
+
+- did: `NormalizedPseudIdentity`'s merge now thins each work's author links to one per creator —
+  keeping the lowest pseud id present in the normalized group — before repointing what is left at
+  the group's `MIN(Id)`. The old `DELETE` only dropped a link when the work was *already* linked to
+  the canonical row, so three spellings with the work linked to the second and third dropped
+  nothing and the repoint then moved two links onto one row, failing `PK_WorkAuthors` mid-upgrade.
+  Corrected in both providers, in place.
+- files: `Api/Data/Migrations/Sqlite/20260822182752_NormalizedPseudIdentity.cs`,
+  `Api/Data/Migrations/Postgres/20260822182800_NormalizedPseudIdentity.cs`,
+  `Tests/PseudMigrationTests.cs` (new), `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter FullyQualifiedName~PseudMigration` → 4 passed (2 red first, both with
+  `SQLite Error 19: UNIQUE constraint failed: WorkAuthors.WorkId, WorkAuthors.PseudId` — the defect
+  itself); `--filter ~Pseud` → 13 (9 before); `dotnet test` → 749 passed (745 before);
+  `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only. Mutation:
+  replacing the normalized-group match with `1 = 1` reds
+  `Two_different_creators_on_one_work_both_survive` and nothing else.
+- commit: <pending>
+- next: **T36 is next in plain file order**, `blocked-by: none`. Two things this iteration filed that
+  change what the run looks like: **T76**, a verified defect in the same migration (below), and
+  **T77**, the download-path pass the run order has been asking three iterations for — take T77
+  **instead of T63** when the run reaches T63, not from its position at the end of the file.
+- **The task's warning was conditional and the condition was false.** Its notes said not to rewrite
+  an applied migration *if it has shipped anywhere*; `git branch --contains` says this one exists
+  only on `devloop/dashboard-completion`. So it was corrected in place. What makes that safe is
+  narrower than "it is a dev branch": the old merge either produced the right answer or threw and
+  rolled back, so no database can be holding a wrong state that a repair migration would have to
+  find. Check that property, not the branch name, before doing this again.
+- **The suite could not reach migration SQL at all until this task.** Everything starts from
+  `EnsureCreated`, which builds today's schema and executes no migration. `PseudMigrationTests`
+  takes `IMigrator` off the context's infrastructure, migrates to the revision *before* the one
+  under test, seeds with `ExecuteSqlRaw` (the entity model describes today's schema and cannot
+  write a row to yesterday's), and migrates one step. It targets the migration by name rather than
+  migrating to latest, so a future migration cannot red it for unrelated reasons. **Any of the
+  remaining migration-shaped defects can use this now.**
+- **The review died on the account's monthly spend limit — and its last thought was the best thing
+  it produced.** Second review lost this way after T14's; the limit resets at 22:20 America/Chicago.
+  The notification carried one sentence of the agent's reasoning: *"Let me empirically verify a
+  suspicion about the migration's pseud deletion cascading."* Chased by hand, that is **T76**, and
+  it is filed as verified rather than reported: `SavedWorkFilterAuthors` has a `PseudId` FK to
+  `Ao3Pseuds` declared `onDelete: Cascade`, the migration repoints `WorkAuthors` only, and so the
+  final `DELETE FROM "Ao3Pseuds"` silently takes a saved filter's author criterion with the loser.
+  A throwaway probe through the new seam confirmed it — `PRAGMA foreign_keys` reads `1`, pseuds
+  merged to `[1]`, `SavedWorkFilterAuthors` came out **empty**. **Read what a dead agent was doing
+  when it died before concluding the diff went unreviewed.**
+- **T76 was not folded into this task**, though the file was open and the pattern was already
+  written. T35 delivers "the upgrade does not fail"; T76 is an upgrade that succeeds and loses data,
+  in a different table, and it needs a judgement T35 does not — what `Exclude` means when an include
+  and an exclude of one creator merge onto one row. The seam is what makes it cheap for whoever
+  takes it.
+- **Only SQLite was executed.** The Postgres twin's changed block is byte-identical (`diff`) and
+  `dotnet ef migrations script --context PostgresAppDbContext` renders it, so the C# is right and
+  the SQL is what was intended — but no PostgreSQL server ran it. Not new to this task; it is how
+  every migration on this branch stands. The correlated references were moved out of the subquery's
+  `JOIN ... ON` clauses into its `WHERE` so the form needs no argument about where PostgreSQL allows
+  an outer reference without `LATERAL`.
+- **`Position` comes out of the merge with gaps** — a work linked to spellings at positions 0 and 1
+  keeps position 0. Harmless: `WorkIngestor` rewrites every position from blurb order on the next
+  ingest (`WorkIngestor.cs:206`), and nothing reads Position expecting it to be contiguous.
+- **Leaked processes, unchanged.** pid 1963836 (`dotnet run --project Ao3Tracker.Api
+  --no-launch-profile`) and its child, plus T19's chrome-headless-shell tree (1994238 and children,
+  1996041). None of them this task's; kill **by pid** if a future iteration wants the port. Killing
+  by pattern is what the "never pkill" rule exists to prevent — the pattern matches the systemd dev
+  instance (pid 2033) too. This task started no processes of its own and did not touch it.
+  Filters checked to bite, per T22's lesson: `~Pseud` matched 9 before (all `WorkIngestorPseudTests`,
+  none about migrations — as predicted) and 13 after; `~PseudMigration` matches the 4 new ones.
+  Still zero and still suspect: none known. T40's `~PagesFetched` is zero by design.

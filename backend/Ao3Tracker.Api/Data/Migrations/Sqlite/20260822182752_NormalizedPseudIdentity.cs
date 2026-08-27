@@ -9,9 +9,10 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
     /// byline was rendered in.
     ///
     /// The unique key moves from (Username, PseudName) to their uppercased forms. Existing rows are
-    /// backfilled, and any that were already split across two capitalisations are merged into the
-    /// lowest id — their work links repointed, and links that would then collide with an existing
-    /// one dropped rather than duplicated.
+    /// backfilled, and any that were already split across capitalisations are merged into the
+    /// lowest id of the group — each work's link set first thinned to one link per creator, then
+    /// what is left repointed at the survivor. However many spellings a work is linked to, it comes
+    /// out of this linked to that creator exactly once.
     ///
     /// One documented limitation: the backfill uses SQL <c>UPPER</c>, which on SQLite folds ASCII
     /// only, while the application normalizes with <c>ToUpperInvariant</c>. AO3 usernames are
@@ -57,20 +58,26 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                     "PseudNameNormalized" = UPPER("PseudName");
                 """);
 
-            // A work linked to both capitalisations of one creator would end up linked twice to the
-            // survivor, which its own primary key forbids. Drop the loser link first.
+            // A work linked to more than one capitalisation of one creator would end up linked to
+            // the survivor once per spelling, which its own primary key forbids. Thin each work's
+            // link set down to one link per creator first, keeping the lowest pseud id of the
+            // group — which is the id the repoint below moves the survivor onto anyway.
+            //
+            // The rule is deliberately "a lower-id link on the same work in the same normalized
+            // group wins", not "a link to the group's canonical row already exists". The latter
+            // drops nothing at all when a work is linked to the second and third spelling but not
+            // the first, and the repoint then collides two links onto one row mid-upgrade.
             migrationBuilder.Sql("""
                 DELETE FROM "WorkAuthors"
                 WHERE EXISTS (
                     SELECT 1 FROM "WorkAuthors" other
+                    JOIN "Ao3Pseuds" theirs ON theirs."Id" = other."PseudId"
+                    JOIN "Ao3Pseuds" mine
+                      ON mine."UsernameNormalized" = theirs."UsernameNormalized"
+                     AND mine."PseudNameNormalized" = theirs."PseudNameNormalized"
                     WHERE other."WorkId" = "WorkAuthors"."WorkId"
-                      AND other."PseudId" <> "WorkAuthors"."PseudId"
-                      AND other."PseudId" = (
-                          SELECT MIN(keep."Id") FROM "Ao3Pseuds" keep
-                          JOIN "Ao3Pseuds" dup
-                            ON keep."UsernameNormalized" = dup."UsernameNormalized"
-                           AND keep."PseudNameNormalized" = dup."PseudNameNormalized"
-                          WHERE dup."Id" = "WorkAuthors"."PseudId"));
+                      AND other."PseudId" < "WorkAuthors"."PseudId"
+                      AND mine."Id" = "WorkAuthors"."PseudId");
                 """);
 
             migrationBuilder.Sql("""
