@@ -110,8 +110,10 @@ export function AdminScrapingPage() {
       <h1>Scraping identity</h1>
 
       {/* Every user sees the same fact on the Ships page; an admin sees it here, where the form
-          that fixes it is. */}
-      {identity.identityConfigured && !identity.ao3LoginConfigured && (
+          that fixes it is. Not gated on the identity being configured too: an instance missing
+          both blockers is the case that most needs telling, and this is the only section that
+          says anything about the login. */}
+      {!identity.ao3LoginConfigured && (
         <p className="callout callout-error">
           Scraping is held: no AO3 login is stored for this instance. Followed ships stay scheduled
           and nothing is fetched until one is saved below.
@@ -127,11 +129,13 @@ export function AdminScrapingPage() {
 
       <h2>What AO3 currently sees</h2>
       {/* Keyed off the identity gate, not scrapingEnabled: an instance held for want of an AO3
-          login still has a User-Agent, and this section is about what AO3 sees. */}
+          login still has a User-Agent, and this section is about what AO3 sees. `identityProblem`
+          rather than `problem` for the same reason — the login blocker is reported by the callout
+          above, and repeating it here would answer a question this heading did not ask. */}
       {identity.identityConfigured ? (
         <pre className="user-agent">{identity.userAgent}</pre>
       ) : (
-        <p className="error pre-wrap">{identity.problem}</p>
+        <p className="error pre-wrap">{identity.identityProblem}</p>
       )}
 
       <table className="identity-table">

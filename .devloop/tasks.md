@@ -122,6 +122,14 @@ in the suite where migration SQL executes at all; everything else starts from `E
 over the download path rather than eleven. It is a scheduling task over T63–T75 and should be taken
 **instead of T63** when the run reaches T63, not in its own file position at the end.
 
+**2026-08-27: T36 is done.** Next in plain file order is **T38** (an operator way back out of a
+failed backfill), `blocked-by: none` — T37 between them is already `done`. T10 is earlier and still
+blocked by T51. **T77 is still taken instead of T63** when the run reaches T63. T36's `verification`
+line (`npm run build && npm run lint`) cannot see the change it was written for: the fix is what a
+page renders, and there is no test runner in `frontend/`. The live check is the verification, and
+the recipe is in T36's journal entry — a fresh install is already the both-missing case, so there is
+nothing to arrange.
+
 Read `.devloop/spec.md` before starting any task. Every task additionally has to leave
 `cd backend && PATH="$HOME/.dotnet:$PATH" dotnet test`, `cd frontend && npm run build` and
 `npm run lint` green — that is the floor, not the verification.
@@ -914,7 +922,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   Getting a test around a migration is the hard part here — say in the notes what seam was used.
 
 ## T36 — The scraping-identity page shows blockers that are not about identity
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: "What AO3 currently sees" explains the User-Agent and nothing else; a missing AO3 login
@@ -1186,6 +1194,22 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   out, and every later `GetAsync` in that run then goes out anonymous. So page 1 sets the latch, the
   session dies, page 5 writes a short anonymous total, and the flag is stored `true` over it. No
   cache entry and no unparseable page needed.
+
+  **T36's review re-derived this and named a consequence T40 was not filed with.** Because
+  `firstPage ??= page` runs before the break, a backfill whose page 1 is unreadable passes
+  `RecordBackfillProgress`'s `if (!askedStaleCursor && firstPage is null) return;` guard — the guard
+  that exists to say "the archive told this run nothing" — and increments `BackfillStalledRuns`.
+  `CursorMayBeStale` needs `page > 1`, so no retreat and no `JumpCursorBackFrom` halving ever runs
+  for this shape, and the halving converging is the whole justification the doc comment gives for
+  the 12-run bound. Twelve scheduler intervals of a markup change or a 200 error page therefore
+  write every in-progress ship off as `ShipBackfillState.Failed`, permanently: nothing revisits
+  `Failed`, and the sweep that could is T15, which does not exist yet. **Fixing the counter is what
+  closes this**, so it belongs in T40's diff rather than T46's — T46 is the opposite case, a 404 at
+  page 1 that should count and does not.
+  One adjacent line, same family and cheap to take in the same pass: the `LogError` at
+  `Ao3ShipIndexScraper.cs:875` formats `{Page}` from `ship.BackfillNextPage`, which is null on a
+  backfill that never started, so the sentence that explains the give-up names no page at all. Same
+  shape as T32.
 
 ## T45 — An incremental pass that cannot get past page 1 has no bound
 - status: todo
@@ -1535,6 +1559,12 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   reader who closes the editor mid-save and reopens it has it slammed shut by the resolving write.
   The same captured-draft guard does not cover this one — the close needs its own condition, or the
   two need to be decided together.
+
+  **Re-derived by T36's review, with the fix already written next door.** `WorkDetailPage.commitNote`
+  guards the identical shape with `setNoteDraft((draft) => (draft === sent ? null : draft))` and
+  carries a comment saying why; `WorksPage.tsx:191` is the copy that is missing it. The feed's
+  textarea is also not disabled during the round trip — only the buttons are — which is what makes
+  the race reachable by ordinary typing rather than by a fast second click.
 
 ## T58 — The incremental pass sends a filter AO3 discards
 - status: todo

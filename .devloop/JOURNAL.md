@@ -1920,3 +1920,65 @@ build. Not something a task should chase.
   Filters checked to bite, per T22's lesson: `~Pseud` matched 9 before (all `WorkIngestorPseudTests`,
   none about migrations — as predicted) and 13 after; `~PseudMigration` matches the 4 new ones.
   Still zero and still suspect: none known. T40's `~PagesFetched` is zero by design.
+
+## 2026-08-27 — T36 The scraping-identity page shows blockers that are not about identity — done
+
+- did: "What AO3 currently sees" now renders `identityProblem` — the identity gate's blocker alone,
+  a new field on `ScrapingGateState` and the DTO — instead of `problem`, which is every blocker
+  joined; and the login callout above it lost its `identity.identityConfigured &&` guard. A fresh
+  install missing both used to print "No AO3 login is stored for this instance" inside the block
+  about the User-Agent while the callout that exists for the login was suppressed.
+- files: `Api/Services/Scraping/ScrapingGate.cs`, `Api/Dtos/AdminDtos.cs`,
+  `Api/Controllers/AdminScrapingController.cs`, `Tests/ScrapeWorkerGateTests.cs`,
+  `frontend/src/api/types.ts`, `frontend/src/pages/AdminScrapingPage.tsx`,
+  `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter ~ScrapeWorkerGate` → 9 passed (7 before); `dotnet test` → 751 passed
+  (749 before); `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only;
+  a live check on a throwaway instance (API :5341, vite :5342, chrome-headless-shell) through all
+  three states. Mutations: propagating every blocker as `IdentityProblem` reds all three new backend
+  assertions; putting both frontend defects back reproduces the exact symptom in the browser.
+- commit: PENDING
+- next: **T37 is `done` already; the next `todo` in plain file order is T38** (an operator way back
+  out of a failed backfill), `blocked-by: none`. T10 is earlier and still blocked by T51. Remember
+  **T77 is taken instead of T63** when the run reaches T63.
+- **The task's two suggested fixes were not alternatives.** Its notes said "either render only the
+  identity blocker in that section, or drop the `identityConfigured &&` guard — the second is
+  smaller", but its `delivers` names both outcomes, and dropping the guard alone leaves the identity
+  section still printing the login blocker. Worth generalising: **when a task's notes offer a
+  cheaper option than its `delivers` describes, `delivers` is the contract** — the notes are one
+  reader's guess at the implementation, written before anybody opened the file.
+- **The page had no honest way to render half of `problem`.** `ScrapingGateState` exposed `Blockers`
+  (never sent to the client) and `Problem` (joined by `\n\n`), so the alternative to a new field was
+  splitting the joined string in the page — putting the separator and the blocker order into the
+  frontend, which is the drift the gate's class doc exists to prevent. See DECISIONS.
+- **The live check is the mutation test for UI work, again.** There is no test runner in `frontend/`
+  by decision, so both frontend defects were put *back* and the page reloaded: the callout vanished
+  and the login blocker reappeared under "What AO3 currently sees", which is the defect verbatim.
+  Restoring the fix restored the correct render. The recipe is now three iterations old and cheap:
+  `browse.js` from T19's scratchpad adapted in about ten minutes, node 22's own `WebSocket`, no
+  `npm install`. **A fresh install is already the both-missing case** — registration takes no email,
+  the contact falls back to the admin's email, so there is nothing to arrange: register and look.
+- **`problem` is now read by no frontend code.** Left in the DTO and the TS interface deliberately:
+  it is the endpoint's honest "every reason at once" view and the worker's log uses the same shape.
+  Deleting a field because its one consumer stopped needing it would narrow the API to today's page.
+- **The review ran to completion for the first time in three tasks, and found nothing in the diff.**
+  It stated T36's invariant back in its own words — `IdentityProblem` non-null exactly when
+  `IdentityConfigured` is false, still `Blockers[0]`, one construction site — which is the assertion
+  worth having from a reviewer that read the whole branch. Its four other findings produced **no new
+  task**: two are T40 and T57 with sharper notes now folded in, one is T63 (six reviews running,
+  absorbed by T77), and one was a claim that T35 rewrote an already-applied migration. That last one
+  is checkably wrong on its premise — `git log --diff-filter=A` puts the migration's commit on this
+  branch only — and argues past T35's real reasoning, which was the *rollback* property rather than
+  the branch name. See DECISIONS. **Worth generalising: a review that reads the whole branch will
+  re-derive the list, and its findings need checking against the list and against the journal before
+  being filed** — the second check is the one that caught this.
+- **Leaked processes from earlier iterations, unchanged.** pid 1963836 (`dotnet run --project
+  Ao3Tracker.Api --no-launch-profile`) and its child, plus T19's chrome-headless-shell tree
+  (1994238 and children, 1996041). None of them this task's; kill **by pid** if a future iteration
+  wants the port. This iteration's own three (API 2516941, vite 2517739/2517755, chrome 2518875)
+  were killed by pid and :5341/:5342 confirmed free; the systemd dev instance (pid 2033) was not
+  touched.
+  Filters checked to bite, per T22's lesson: `~ScrapeWorkerGate` matched 7 before and 9 after, and
+  the task's own written verification (`npm run build && npm run lint`) is not a filter at all —
+  it cannot see this change, which is why the live check is the verification and the build is the
+  floor. Still zero and still suspect: none known. T40's `~PagesFetched` is zero by design.

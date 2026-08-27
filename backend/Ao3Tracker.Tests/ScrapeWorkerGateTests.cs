@@ -100,6 +100,34 @@ public class ScrapeWorkerGateTests : IDisposable
     }
 
     [Fact]
+    public async Task The_identity_blocker_is_readable_on_its_own_when_both_are_missing()
+    {
+        // The admin screen's "What AO3 currently sees" section is about the User-Agent. Handing it
+        // every blocker made it print "No AO3 login is stored for this instance" under that
+        // heading, which is true and is not what the section is about.
+        _host.OperatorContact = null;
+
+        var state = await _host.EvaluateScrapingGateAsync();
+
+        Assert.NotNull(state.IdentityProblem);
+        Assert.DoesNotContain(ScrapingGate.NoAo3LoginMessage, state.IdentityProblem);
+        Assert.Contains("contact", state.IdentityProblem, StringComparison.OrdinalIgnoreCase);
+
+        // Still the first entry of the full list: the worker's view of a half-configured instance
+        // is unchanged by the screen's needing one blocker on its own.
+        Assert.Equal(state.IdentityProblem, state.Blockers[0]);
+    }
+
+    [Fact]
+    public async Task No_identity_blocker_is_reported_when_only_the_login_is_missing()
+    {
+        var state = await _host.EvaluateScrapingGateAsync();
+
+        Assert.True(state.IdentityConfigured);
+        Assert.Null(state.IdentityProblem);
+    }
+
+    [Fact]
     public async Task Reports_only_the_missing_login_when_the_identity_is_fine()
     {
         var state = await _host.EvaluateScrapingGateAsync();
@@ -138,6 +166,10 @@ public class ScrapeWorkerGateTests : IDisposable
         Assert.True(before.IdentityConfigured);
         Assert.False(before.Ao3LoginConfigured);
         Assert.Equal(ScrapingGate.NoAo3LoginMessage, before.Problem);
+
+        // The page renders this one under "What AO3 currently sees"; an identifiable instance held
+        // for want of a login has nothing to say there.
+        Assert.Null(before.IdentityProblem);
 
         await _host.SaveAo3LoginAsync();
 

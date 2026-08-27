@@ -2352,3 +2352,56 @@ are marked `done` one at a time as each one's verification goes green, so a pass
 leaves an accurate list rather than an ambiguous one. And it is taken **instead of T63** when the run
 reaches T63 — not from its own position at the end of the file, which would mean walking past every
 task it exists to absorb.
+
+## 2026-08-27 — T36: the gate grew a field rather than the page growing a parser
+
+T36's notes offered two fixes and called the second smaller: render only the identity blocker in
+"What AO3 currently sees", *or* drop the `identityConfigured &&` guard on the login callout. Its
+`delivers` needs both — dropping the guard alone leaves the identity section still printing "No AO3
+login is stored for this instance" under a heading about the User-Agent, and the section is half the
+task. Both were done.
+
+Rendering only the identity blocker needed a value the frontend did not have. `ScrapingGateState`
+carried `Blockers` (a list the page never saw) and `Problem` (all of them joined by `\n\n`), so the
+page's options were to split `Problem` on the separator and take the first entry, or to be handed
+the identity blocker on its own. **The gate grew `IdentityProblem`.** Splitting the joined string
+would put knowledge of the join order and separator in the page, which is exactly the drift
+`ScrapingGate`'s class doc exists to prevent — one place answers what is blocking scraping, and the
+worker and the admin screen both read that answer rather than each deriving one. `Problem` is
+unchanged and still says everything at once, which is what the worker's log wants.
+
+The frontend's `problem` field is now read by nothing. Left in place: it is the honest "every
+reason" view of the endpoint, and removing it from the DTO to match one consumer's current needs
+would be the tail wagging the dog.
+
+## 2026-08-27 — T36's review: nothing in the diff, and the one new-looking finding was already ruled on
+
+`/code-review high` ran to completion this time (the previous two died on the spend limit) and read
+the whole branch rather than only T36's diff. It found **nothing in T36's changes**, and stated the
+invariant the change turns on in its own words: `IdentityProblem` is non-null exactly when
+`IdentityConfigured` is false, it stays `Blockers[0]`, and `ScrapingGateState` has one construction
+site. Four findings elsewhere, and **no new task came out of them**:
+
+- **`RecordBackfillProgress` counts an unreadable page 1 as a stalled-cursor run** — this is **T40**,
+  whose defect is `firstPage ??= page` running before the `if (unreadable) break`. The consequence is
+  new and worse than T40 was filed with, and is now written into T40's notes: no retreat can run for
+  this shape, so the halving that justifies the 12-run bound never converges, and twelve intervals of
+  a markup change fail every in-progress backfill permanently.
+- **The feed's note editor drops text typed while a save is in flight** — **T57**, and the reviewer
+  found the guard already written in `WorkDetailPage`. Added to T57's notes, because "copy the twin"
+  is most of that task.
+- **Two workers can each perform the same AO3 login** — **T63**, now derived by six consecutive
+  reviews. Absorbed by **T77**.
+- **T35 rewrote a migration that has already been applied** — **not filed, and the reason is on the
+  record.** The reviewer argued from "already at the merge base", which is checkable and false:
+  `git log --diff-filter=A` puts the migration's introducing commit `78940c9` on
+  `devloop/dashboard-completion` and nowhere else. More to the point it argues past T35's actual
+  reasoning, which was never "it is a dev branch". The old SQL either produced the right answer or
+  violated `PK_WorkAuthors` and rolled the migration back unrecorded — enumerate the cases and there
+  is no third one — so no database can be holding the un-merged state a repair migration would have
+  to find, and any database that failed re-runs the corrected SQL. **The property is what makes an
+  in-place rewrite safe, not the branch name**; T35's entry says so, and a reader who checks only
+  the branch will keep re-filing this.
+
+Three of the four are tasks a review has now found more than once. The list is doing its job; what
+it costs is that each review spends its budget re-deriving it, which is what T77 exists to stop.

@@ -43,8 +43,15 @@ public sealed class ScrapingGate
         var (identityOk, userAgent, identityError) = await _userAgents.TryGetUserAgentAsync(ct);
         var hasLogin = await _credentials.HasCredentialAsync(ct);
 
+        // Kept as its own value as well as being folded into the list: the admin screen has a
+        // section about the User-Agent and nothing else, and printing every blocker there says
+        // "no AO3 login is stored" inside a block that is not about the login.
+        var identityProblem = identityOk
+            ? null
+            : identityError ?? "This instance cannot identify itself to AO3.";
+
         var blockers = new List<string>();
-        if (!identityOk) blockers.Add(identityError ?? "This instance cannot identify itself to AO3.");
+        if (identityProblem is not null) blockers.Add(identityProblem);
         if (!hasLogin) blockers.Add(NoAo3LoginMessage);
 
         return new ScrapingGateState(
@@ -52,6 +59,7 @@ public sealed class ScrapingGate
             UserAgent: identityOk ? userAgent : null,
             IdentityConfigured: identityOk,
             Ao3LoginConfigured: hasLogin,
+            IdentityProblem: identityProblem,
             Blockers: blockers);
     }
 }
@@ -60,12 +68,18 @@ public sealed class ScrapingGate
 /// <param name="UserAgent">The header this instance would send, or null if it cannot build one.</param>
 /// <param name="IdentityConfigured">Whether an honest User-Agent could be built.</param>
 /// <param name="Ao3LoginConfigured">Whether an instance AO3 login is stored.</param>
+/// <param name="IdentityProblem">
+/// Why no honest User-Agent could be built, or null when one could. The identity gate's reason on
+/// its own, for the one caller that is explaining the User-Agent rather than listing every reason
+/// scraping is held.
+/// </param>
 /// <param name="Blockers">One reason per failing gate, in the order above. Empty when scraping may run.</param>
 public sealed record ScrapingGateState(
     bool CanScrape,
     string? UserAgent,
     bool IdentityConfigured,
     bool Ao3LoginConfigured,
+    string? IdentityProblem,
     IReadOnlyList<string> Blockers)
 {
     /// <summary>Every blocker as one block of text, or null when there are none.</summary>

@@ -401,6 +401,8 @@ export interface ScrapingIdentity {
   identityConfigured: boolean;
   /** Whether the deployment's AO3 login is stored. The other gate. */
   ao3LoginConfigured: boolean;
+  /** Why no honest User-Agent can be built, or null when one can. `problem`'s identity half alone. */
+  identityProblem: string | null;
 }
 
 export interface DatabaseStatus {

@@ -109,7 +109,8 @@ public class AdminScrapingController : ControllerBase
             ProductToken: _options.ProductToken,
             InstanceId: _instance.Id,
             IdentityConfigured: gate.IdentityConfigured,
-            Ao3LoginConfigured: gate.Ao3LoginConfigured);
+            Ao3LoginConfigured: gate.Ao3LoginConfigured,
+            IdentityProblem: gate.IdentityProblem);
     }
 
     private async Task<bool> IsCurrentUserAdminAsync()

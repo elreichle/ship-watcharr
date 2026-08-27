@@ -33,6 +33,11 @@ public record UpdateDatabaseSettingsRequest(
 /// Whether an AO3 login is stored for the deployment. The other gate — see
 /// <see cref="InstanceAo3CredentialDto"/>.
 /// </param>
+/// <param name="IdentityProblem">
+/// Why this instance can build no honest User-Agent, or null when it can. The identity gate's
+/// reason alone, so a screen explaining the User-Agent can say what is wrong with it without
+/// reprinting <paramref name="Problem"/>'s other blockers, which are about other things.
+/// </param>
 public record ScrapingIdentityDto(
     string? UserAgent,
     string? OperatorContact,
@@ -44,7 +49,8 @@ public record ScrapingIdentityDto(
     string ProductToken,
     string InstanceId,
     bool IdentityConfigured,
-    bool Ao3LoginConfigured);
+    bool Ao3LoginConfigured,
+    string? IdentityProblem);
 
 public record UpdateScrapingIdentityRequest(
     /* Null or blank clears the override and reverts to the admin account's address. */
