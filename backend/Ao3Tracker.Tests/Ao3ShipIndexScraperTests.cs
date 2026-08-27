@@ -357,7 +357,7 @@ public class Ao3ShipIndexScraperTests : IDisposable
         // the question is what the run *sent*, the transport is what knows, and here it says no
         // session. Believing the page instead stamps "counted while logged in" on a total fetched
         // without a session — on the strength of a markup premise nothing in this repo verifies,
-        // which is T39's open question about a neighbouring one.
+        // which is T79's open question about a neighbouring one.
         //
         // The contradiction is worth a log line, and gets one. It is not worth a conclusion.
         _host.Http.Responds = Pages(Page(1, [Blurb(1, restricted: true)], total: 4317));
@@ -1089,6 +1089,48 @@ public class Ao3ShipIndexScraperTests : IDisposable
         // Next link, and a backfill of it really is complete — refusing to conclude here would
         // leave the ship re-requesting an empty listing on every scheduled run forever.
         _host.Http.Responds = Pages(Page(1, []));
+        var shipId = await FollowAsync();
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
+        Assert.Equal(ShipBackfillState.Complete, (await ReloadAsync(shipId)).BackfillState);
+    }
+
+    [Fact]
+    public async Task Reads_AO3s_own_zero_result_Listing_as_nothing_new_rather_than_an_error()
+    {
+        // The same rules as the two tests above, but over the page AO3 actually served instead of
+        // over the Page(n, []) helper — which emits the results container unconditionally and so
+        // agrees with the premise whatever the archive does. This is a real capture of a filtered
+        // request matching nothing (Ao3EmptyListingTests has its shape), which is the shape of
+        // every incremental pass on a ship nobody is writing for. Error here would be neither
+        // Watermark nor LastPage, so the watermark would never move and every scheduled run on
+        // every quiet ship would be filed as a failure for ever.
+        _host.Http.Responds = Pages(new FakePage(1, Fixtures.Load(Fixtures.EmptyListing)));
+
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(5));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
+        Assert.Null(outcome.ErrorMessage);
+        Assert.Equal(0, outcome.WorksSeen);
+    }
+
+    [Fact]
+    public async Task Concludes_a_backfill_on_AO3s_own_zero_result_Listing()
+    {
+        // The unfiltered side. Note what this does *not* pin: page 1 short-circuits
+        // PlausiblyTheEndOfTheListing before any heading is read, so the conclusion here rests on
+        // the short-circuit alone and would be identical if the capture carried no heading at all —
+        // as Still_treats_an_empty_first_page_as_an_empty_tag, whose Page(1, []) emits none,
+        // demonstrates. What the capture adds is that a genuinely empty listing *does* carry a
+        // "0 Works in <tag>" heading, which is what makes requiring one on page 1 safe rather than
+        // a change that would strand every empty tag. Making that requirement is T80; until it
+        // lands, T28's C7 is open and this test is the happy half of it.
+        _host.Http.Responds = Pages(new FakePage(1, Fixtures.Load(Fixtures.EmptyListing)));
         var shipId = await FollowAsync();
 
         var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);

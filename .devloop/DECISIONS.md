@@ -2505,3 +2505,61 @@ summary line now describes what the counter actually counts and names T40 as the
 discrepancy, rather than stating an intent the code does not implement; and
 `Clears_a_stalled_streak_when_a_backfill_begins` asserts `InRange(0, 1)` rather than `== 1`, so a
 test about the *reset* stops pinning T40's decision about the *increment*.
+
+## 2026-08-27 — T39: the capture answered three questions and a fourth was still pointing at it
+
+**T39 shipped as tests, not as a fix, and that was settled before this iteration started.** The
+2026-08-24 entry above recorded that the capture confirms every premise T39 was written to doubt:
+the container is present on a zero-result page, its class is `work index group` rather than the bare
+`index group` the fallback selector guesses at, and a genuinely empty listing carries a `0 Works in
+<tag>` heading. No code changed. What this iteration added is the tests that hold those three facts,
+so the next re-capture diffs against an assertion instead of against a paragraph of prose.
+
+**The scraper tests are part of the task, not surplus.** T39's `delivers` line says "parser tests",
+and the convention T36 and T38 put on the record is that `delivers` is the contract. But its purpose
+clause names `PlausiblyTheEndOfTheListing`, which is not in the parser — and a parser test pins only
+that method's *inputs*. The gap T39 was written against is precisely that every scraper test reaching
+the zero-work path goes through the `Page(n, [])` helper, which emits the container unconditionally
+and therefore agrees with the premise whatever AO3 does; leaving that helper as the only route to
+that path would have closed the task without closing the hole it names. So two tests in
+`Ao3ShipIndexScraperTests` feed the real capture through a whole run: the filtered/incremental side
+stops `LastPage` rather than `Error`, and the unfiltered/backfill side concludes `Complete` off the
+`0 Works` heading. Mutation-checked apart: breaking `FindListing` reds both, and removing
+`PlausiblyTheEndOfTheListing`'s `page == 1` short-circuit reds only the backfill one — the filtered
+one survives on the heading waiver, which is the design saying so out loud.
+
+**T28's §C7 is unblocked, not closed — and this iteration first wrote down that it was closed.**
+The fear recorded there was that an unfiltered page 1 with the container, no works, no Next link and
+no heading concludes `LastPage` — for a backfill, `Complete`, a whole back catalogue written off from
+the absence of every piece of evidence. The capture says a real empty listing *does* carry a heading,
+and it reads `0 Works`, and the first draft of this entry and of the audit's C7 row both read that as
+the finding being answered. It is not. `PlausiblyTheEndOfTheListing` short-circuits on `page == 1`
+**before any heading is consulted**, so the no-heading page 1 still concludes exactly as it did
+before; nothing in the diff changed it. What the capture actually buys is the freedom to fix it — a
+heading requirement on page 1 can no longer strand a genuinely empty tag, because a genuinely empty
+tag has a heading. That fix is **T80**, and C7 stays open until it lands.
+
+The claim was caught by T39's own review, and it is the more useful kind of finding: not a defect in
+the code, but a document asserting a guarantee the code does not make. `Still_treats_an_empty_first_
+page_as_an_empty_tag` had been sitting in the suite the whole time, green, with `Page(1, [])` — which
+emits no heading — concluding `Complete`. The disproof of the claim was already a passing test.
+**A note that says "X is now safe" is worth grepping the code for before it is written down.**
+
+**T39's fourth question was never in T39's notes, and is now T79.**
+`Ao3ShipIndexScraper.cs:335` says "that premise is T39's business, and this line is how it would
+first announce itself" about a different premise entirely: that AO3 does not show restricted works to
+a request carrying no session. T39's notes were rewritten on 2026-08-24 around the three questions
+the capture answers and this one was dropped on the floor. The capture cannot answer it — it is a
+zero-result page, so it carries no blurb at all, and it was taken *logged in*, so it is not an
+anonymous request either. Closing T39 silently would have left a comment in shipped code pointing at
+a `done` task, which is how a premise stops being anyone's business. Filed as **T79**, `blocked` on a
+capture only Emma can take, per the loop policy on fixture tasks. It does not touch
+`LastKnownTotalWasAuthenticated`: T30 and T44 settled that the transport, not the markup, says what a
+request carried, and that holds whichever way T79 lands. What it decides is whether the warning
+beside it can ever fire.
+
+**A lesson about tasks whose scope a capture rewrites.** T39's notes were revised in place when the
+fixture landed, and the revision was written as an answer sheet for the three questions in front of
+it. A fourth obligation that lived in a code comment rather than in the task body did not survive the
+edit. Where a task is rewritten around new evidence, the check worth making is `grep` for the task id
+across the source tree, not only across `.devloop/`.

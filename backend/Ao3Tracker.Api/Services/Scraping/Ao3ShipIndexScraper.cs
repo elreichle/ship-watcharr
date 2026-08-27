@@ -332,7 +332,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             // is wrong. Reported, never acted on: letting the page overrule the transport about what
             // this run sent would write the flag `true` over a total demonstrably fetched without a
             // session — the exact claim the field exists to make trustworthy — on the strength of a
-            // markup premise nothing in this repo has verified. That premise is T39's business, and
+            // markup premise nothing in this repo has verified. That premise is T79's business, and
             // this line is how it would first announce itself.
             //
             // Read over every work on the page rather than the ones handed to the ingestor: the two

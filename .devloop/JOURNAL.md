@@ -2057,3 +2057,67 @@ build. Not something a task should chase.
   Filters checked to bite, per T22's lesson: `~Backfill` matched 13 before and 31 after — the new
   class is named `BackfillRestartTests` so every test in it matches whatever the method is called.
   Still zero and still suspect: none known. T40's `~PagesFetched` is zero by design.
+
+## 2026-08-27 — T39 Confirm what AO3 serves for a works index with no results — done
+
+- did: Wrote the tests that hold what the 2026-08-24 capture already showed. New
+  `Ao3EmptyListingTests` pins the five markup facts a zero-result index carries — the container is
+  present, it is classed `work index group` rather than the bare `index group` the parser's fallback
+  guesses at, no works, no parse warnings, a `0 Works` heading, no pagination. Two tests in
+  `Ao3ShipIndexScraperTests` walk the same capture through a whole run: the filtered/incremental side
+  stops `LastPage` rather than `Error`, and the unfiltered/backfill side reaches `Complete`. No
+  production code changed except two comments repointed from T39 to T79.
+- files: `Tests/Ao3EmptyListingTests.cs` (new), `Tests/Ao3ShipIndexScraperTests.cs`,
+  `Api/Services/Scraping/Ao3ShipIndexScraper.cs` (comment only),
+  `.devloop/{tasks,DECISIONS,JOURNAL,scraper-audit}.md`
+- ran: `dotnet test --filter ~Listing` → 24 passed (17 before); `dotnet test` → 776 (769 before);
+  `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only. Mutations:
+  breaking `FindListing` reds `Renders_the_results_container...` and both scraper tests; making
+  `ParseTotalWorks` return null for a zero count reds `Counts_its_empty_result_set_in_the_heading`
+  and nothing else; changing `PlausiblyTheEndOfTheListing`'s `page == 1` to `page == 0` reds only the
+  backfill test — the filtered one survives on the heading waiver, which is the design saying so.
+- commit: see the follow-up entry
+- next: **T40 is next in plain file order** and is on T15's `blocked-by`, so it is the load-bearing
+  one; T38's journal entry, not T40's notes, carries the argument about the increment guard.
+  **T79 and T80 are both new and both from this task.**
+- **The review found one thing in this diff and it was in a document, not in the code.** I wrote
+  "T28's §C7 is closed" into `scraper-audit.md` and `DECISIONS.md` because the capture answers the
+  premise C7 was parked on. It does not close C7: `PlausiblyTheEndOfTheListing` short-circuits on
+  `page == 1` *before any heading is read*, so an unfiltered page 1 with the container, no works, no
+  Next link and no heading still concludes `Complete` — a ten-thousand-work back catalogue written
+  off in one request. What the capture buys is the freedom to *fix* it without stranding genuinely
+  empty tags. Now **T80**, and C7 is open again in the audit.
+- **The disproof was a passing test I had already read.** `Still_treats_an_empty_first_page_as_an_empty
+  _tag` uses `Page(1, [])`, whose helper emits no heading, and asserts `Complete`. I read that helper
+  in this iteration, mutation-tested against it, and still wrote the claim. The lesson worth carrying:
+  **a note saying "X is now safe" is a claim about code, and is worth grepping the code for before it
+  is written down** — the capture answered a question about AO3, and I let that stand in for an answer
+  about this repo.
+- **A task rewritten around new evidence can lose an obligation that lives in a code comment.** T39's
+  notes were revised in place when the fixture landed, as an answer sheet for the three questions the
+  capture settles. A fourth — that AO3 does not show restricted works to an anonymous request — lived
+  only in `Ao3ShipIndexScraper.cs:335` ("that premise is T39's business") and in one scraper test, and
+  did not survive the edit. Closing T39 would have left two comments in shipped code pointing at a
+  `done` task. Now T79, `blocked` on a capture, and both comments repointed. **`grep` the source tree
+  for the task id before closing a task whose scope was rewritten, not only `.devloop/`.**
+- **`git checkout <path>` to revert a throwaway probe also reverts the task's own work in that file.**
+  I added a probe test to `Ao3ShipIndexScraperTests.cs`, then reverted it with `git checkout` on the
+  path — which took both new tests and the T79 comment repoint with it, since the file was modified
+  and not committed. Rebuilt from the tool call that wrote them. Revert a probe with the same
+  targeted edit that added it, or commit first.
+- **The probe was not needed anyway.** The question it was going to answer — what an unfiltered
+  page 1 with no heading does — is asserted by an existing green test. Reaching for a scratch
+  experiment before checking whether the suite already answers the question cost the file.
+- **The review's other three findings are all already on the list**, each independently re-derived
+  for the sixth consecutive review: `DownloadWorker`'s unguarded startup sweep is **T62**, a transport
+  failure permanently failing a reader's download is **T70**, and two workers racing
+  `EnsureSessionAsync` is **T63**. **T77 — one dedicated pass over the download path — is still the
+  cheapest thing on the list**, and this is now the fourth iteration to write that down without acting
+  on it.
+- Filters checked to bite, per T22's lesson: `~Listing` matched 17 before and 24 after; the new class
+  is `Ao3EmptyListingTests` so every method in it matches whatever it is called, and both scraper
+  tests carry `Listing` in their own names. T79's `~Restricted` matches 1 today.
+- Leaked processes from earlier iterations, unchanged and none of them this task's: pid 1963836
+  (`dotnet run`) and child, and T19's chrome-headless-shell tree (1994238, 1996041). This task started
+  no processes — it is test-only, and needed no live check. The systemd dev instance (pid 2033) was
+  not touched.

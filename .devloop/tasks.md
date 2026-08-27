@@ -109,6 +109,17 @@ work that has not started yet** — see the 2026-08-24 entry in `DECISIONS.md`:
 - **T58 is new**, from a defect Emma found in the browser: the incremental pass sends a filter
   parameter the tag-listing endpoint discards. Not a correctness bug — a politeness one.
 
+**2026-08-27: T39 is done.** Next in plain file order is **T40** (an unreadable page must not be
+counted as a page that was read), `blocked-by: none`, and it is on T15's `blocked-by` list — so it is
+also the load-bearing one. Read T38's journal entry before starting it: T38 handed T40 the
+`RecordBackfillProgress` increment guard as well as the `firstPage ??= page` move, and the argument
+for why narrowing the guard directly kills
+`Gives_up_on_a_backfill_that_spends_run_after_run_on_a_cursor_nothing_answers` is written out there
+rather than in T40's notes. **T79 and T80 are new**, both from T39. T79 is `blocked` on a capture only
+Emma can take — an anonymous listing containing a restricted work — and it is the fourth premise T39
+was pointed at by a code comment but never absorbed into its own notes. T80 is T28's §C7, which T39
+unblocked without closing and which this iteration briefly and wrongly recorded as closed.
+
 **2026-08-26: T35 is done.** Next in plain file order is **T36** (the scraping-identity page shows
 blockers that are not about identity), `blocked-by: none`. T35's review **did not run** — `/code-review
 high` died on the account's monthly spend limit, the second time this branch has lost a review that
@@ -1033,7 +1044,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   line-move is the same change made at its root. See DECISIONS, 2026-08-27.
 
 ## T39 — Confirm what AO3 serves for a works index with no results
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none — **the fixture has landed.**
   `backend/Ao3Tracker.Tests/Fixtures/ao3-empty-listing.html`, saved by Emma on 2026-08-24: the
@@ -1153,11 +1164,12 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   next to it. Waiving `page > 1` when `listingWasFiltered` is the small fix; check first whether it
   weakens the backfill guard T34 and T37 built, which is the same method (a backfill is unfiltered,
   so it should not be reachable — confirm rather than assume).
-  Note what this shares with T39, which is `blocked` on a capture: both are about what a zero-blurb
-  page means under a `revised_at` filter, and T39's fixture would inform this one. This task does
-  **not** wait on it — the defect here is in the `page` condition, not in `HasListing`, and is
-  demonstrable against the existing fake HTTP client. Do not let the fix depend on the unverified
-  premise T39 exists to settle.
+  Note what this shares with T39, **done 2026-08-27**: both are about what a zero-blurb page means
+  under a `revised_at` filter. T39's capture is now available to build against —
+  `Fixtures.EmptyListing`, a filtered request matching nothing — and it says the container and a
+  `0 Works` heading are both present. That settles `HasListing`, which this task never depended on:
+  the defect here is in the `page` condition and is demonstrable against the existing fake HTTP
+  client. Use the capture as a second, realistic case rather than as the fix's premise.
 
 ## T43 — A 404 must not conclude what the retreat beside it refuses to conclude
 - status: done
@@ -2035,3 +2047,67 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   variant is a `MAX` over this ship's runs since `BackfillStartedAt` — no schema change, but it
   reads a table T33 has already had to make behave, and a run history that is pruned would lose it.
   Decide which, and say why in DECISIONS.
+
+## T79 — Does an anonymous listing show restricted works at all?
+- status: blocked
+- attempts: 0
+- blocked-by: **a capture only Emma can take.** The loop's shell has no network. Needed: a works
+  index for a tag known to contain at least one restricted work, saved **logged out** — the same
+  page saved logged in is the useful second half, because the question is what the two differ by.
+  Save as `backend/Ao3Tracker.Tests/Fixtures/ao3-anonymous-listing.html` (and, if taken,
+  `ao3-authenticated-listing.html`).
+- delivers: The restricted-work premise held by a test rather than by a comment: either a fixture
+  showing an anonymous listing carries no restricted blurb, pinning `Ao3ShipIndexScraper.cs:341`'s
+  warning as unreachable-in-practice; or one showing it does, which retires the warning and the
+  paragraph of reasoning above it.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Restricted`
+- notes: **This was T39's fourth question and T39 could not answer it.** `Ao3ShipIndexScraper.cs:335`
+  says in as many words "that premise is T39's business, and this line is how it would first announce
+  itself" — but the capture Emma saved is a *zero-result* listing taken *while logged in*, so it
+  carries no blurb of any kind and no anonymous request. T39's own notes were rewritten around the
+  three questions the capture does answer and never absorbed this one; closing T39 without filing it
+  would have left a code comment pointing at a done task. See DECISIONS, 2026-08-27.
+  What hangs on it: `RecordTotal` writes `LastKnownTotalWasAuthenticated` from what the *transport*
+  says the request carried, and refuses to let a restricted blurb overrule it (T30, T44). That
+  refusal is right either way — the transport knows what it sent — so this task does not change the
+  flag. What it changes is whether the warning beside it is a real alarm worth an operator's
+  attention or a line that can never fire, and a warning nobody can act on is worse than no warning.
+  If the premise turns out **false** (anonymous listings do show restricted blurbs), the warning is
+  noise on every unauthenticated pass over a tag with one restricted work in it, which is most tags.
+
+## T80 — An unfiltered page 1 with no heading must not complete a backfill
+- status: todo
+- attempts: 0
+- blocked-by: none — T39 removed the reason this could not be fixed.
+- delivers: `PlausiblyTheEndOfTheListing`'s `page == 1` short-circuit requires the page to carry a
+  readable heading counting zero works, so a backfill concludes `Complete` on what the page says
+  rather than on everything it failed to say.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Listing`
+- notes: T28's §C7, open since the audit and **not** closed by T39 — found by T39's review, which
+  caught this iteration writing "C7 is closed" into `scraper-audit.md` and `DECISIONS.md` on the
+  strength of a capture that answers the premise without touching the code. See DECISIONS,
+  2026-08-27.
+  The defect: `page == 1` short-circuits the whole heading branch, so an unfiltered page 1 carrying
+  the container, no blurbs, no Next link and **no readable `h2.heading`** evaluates true → `LastPage`
+  → `ShipBackfillState.Complete`, and nothing revisits the ship. A tag with ten thousand works whose
+  page 1 comes back with a broken heading is written off in one request. This is precisely the shape
+  T47 refused one page later — no evidence is not permission — and page 1 is the one place still
+  exempt from it.
+  Why it is now safe to fix, which is the whole of T39's contribution here: requiring a heading would
+  have stranded a genuinely empty tag if a genuinely empty tag rendered none. The capture says it
+  renders `0 Works in <tag>`. So the requirement costs nothing real.
+  **The test to re-decide is `Still_treats_an_empty_first_page_as_an_empty_tag`.** Its `Page(1, [])`
+  emits no heading, and it asserts `LastPage` + `Complete` — it is the current behaviour written down
+  as intended, and it is also the disproof of the claim T39's review caught. It has to change: give
+  its fixture a `0 Works` heading (`Page(1, [], total: 0)` renders one) and add a sibling asserting
+  that the *headingless* page 1 now stops with `Error` instead. `Page`'s helper does render a zero
+  total — checked, it is gated on `total is null`, not on falsiness — but it renders it as
+  "1 - 20 of 0 Works in <tag>", which is not what AO3 serves ("0 Works in <tag>", no range). The
+  parser reads both as 0, so the helper is usable; a test wanting the real shape should take the
+  fixture instead.
+  Watch the interaction with T50, which is about *filtered* page 1 accepting a contradiction page 2
+  refuses. Same short-circuit, different half of it; do not let one fix silently make the other's
+  test vacuous. `Reads_a_quiet_filtered_pass_with_a_populated_heading_as_nothing_new` and
+  `Reads_AO3s_own_zero_result_Listing_as_nothing_new_rather_than_an_error` are the two that pin the
+  filtered path today and both must stay green — an incremental pass must keep concluding
+  `LastPage`, never `Error`, on a quiet ship.

@@ -98,9 +98,13 @@ backfill is `Complete` and which nothing later revisits.
   `LastPage` too — and for a backfill that is `Complete`, the whole back catalogue written off from
   the absence of every piece of evidence. C3's rule for filtered pages is that no evidence is not
   permission (T47); page 1 has the opposite rule, on the premise that AO3 renders the container for a
-  genuinely empty tag. That premise is **T39's**, unverified, and T39's capture is what decides
-  whether a zero-result index carries a heading — which is what would let page 1 be held to C3's
-  standard. Line added to T39.
+  genuinely empty tag. That premise was **T39's**, and **T39 settled the premise on 2026-08-27**
+  without closing this row: the capture shows a zero-result index rendering the container *and* a
+  `0 Works in <tag>` heading. What that buys is the *freedom to fix this* — requiring a heading on
+  page 1 can no longer strand a genuinely empty tag, because a genuinely empty tag has one. The code
+  is unchanged: `page == 1` still short-circuits before any heading is read, so an unfiltered page 1
+  with no heading at all still concludes `LastPage` and, for a backfill, `Complete`. **C7 stays open
+  and the fix is T80.**
 
 ## D. What is written back to the ship, and what a later pass may believe
 
@@ -225,7 +229,7 @@ listing, and the rules it inherits are now written down rather than inferred.
 | The authenticated-total flag ORs across a run whose total is written per page | D13 | T44 — **done 2026-08-25**; the flag is written inside `RecordTotal` from the response the heading came off |
 | Nothing refreshes a watermarked ship's tag total | D12 | T15's notes — its sweep is both the only refresher and the only consumer |
 | Filtered page 1 accepts the contradiction page 2 refuses | C7 | T50 (already queued) |
-| Unfiltered page 1 with no heading may complete a backfill | C7 | T39's capture list |
+| Unfiltered page 1 with no heading may complete a backfill | C7 | **T80** (new) — T39's capture removed the reason not to fix it, but the code is unchanged and still concludes |
 | A 404 at page 1 never counts as a stalled run; a denied tag reports `LastPage` | D6, A2 | T46's notes |
 | Two tasks describe the same CA2017 warning | — | T41 folded into T49; see `DECISIONS.md` |
 
