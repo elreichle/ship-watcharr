@@ -2076,7 +2076,7 @@ build. Not something a task should chase.
   `ParseTotalWorks` return null for a zero count reds `Counts_its_empty_result_set_in_the_heading`
   and nothing else; changing `PlausiblyTheEndOfTheListing`'s `page == 1` to `page == 0` reds only the
   backfill test — the filtered one survives on the heading waiver, which is the design saying so.
-- commit: see the follow-up entry
+- commit: e9f58c3
 - next: **T40 is next in plain file order** and is on T15's `blocked-by`, so it is the load-bearing
   one; T38's journal entry, not T40's notes, carries the argument about the increment guard.
   **T79 and T80 are both new and both from this task.**
