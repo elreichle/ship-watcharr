@@ -655,3 +655,35 @@ Append-only. One entry per iteration, newest last.
   the rest were left alone rather than swept. Not filed as a task — line numbers in a document rot on
   every diff, and a task for that would be noise — but a reader following one should expect to search
   rather than jump.
+
+## 2026-08-28 — T15 The full-sweep pass — done
+
+- did: A third `ScrapeRunMode` inside `Ao3ShipIndexScraper` — reusing the cursor, retreat, breaker
+  and end-of-listing rules rather than duplicating them in a scraper of its own — that walks the
+  listing sorted by posting date, resumes from the new `Ship.FullSweepNextPage` across runs, and on
+  reaching a page with no next link marks the `ShipWork` rows whose `LastSeenAt` predates the
+  sweep's start as having left the tag. `ScrapeWorker` chooses it over the incremental pass every
+  30 days, staggered per ship. Nothing else in the app concludes absence; this is the first code
+  that ever does.
+- files: `Api/Models/Ship.cs`, `Api/Services/Scraping/{Ao3ShipIndexScraper,ScrapeWorker}.cs`,
+  `Api/Controllers/AdminShipsController.cs`, `Api/Data/Migrations/{Sqlite,Postgres}/*FullSweepCursor*`,
+  `Tests/{Ao3ShipIndexFullSweepTests,Ao3ListingFixtures,Ao3ShipIndexScraperTests,BackfillRestartTests,LibraryTestHost}.cs`,
+  `.devloop/{tasks,DECISIONS,JOURNAL,scraper-audit}.md`
+- ran: `dotnet test --filter ~FullSweep` → 20 (0 before); `dotnet test` → 829 (808 before);
+  `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only. `dotnet ef
+  database update` on a scratch SQLite file applied the whole chain including the new migration.
+  Seventeen mutations, all red in their own place.
+- commit: (below)
+- next: **T16 (notifications) is next** — T15 was its only blocker, and it is next in plain file
+  order too. It unblocks T17 → T20. Three new tasks: **T84** (the sweep's mark has one reader and it
+  is not the feed — read its notes before touching `WorkQueries.Library`; the one-clause fix 404s
+  the detail page and downloads), **T85** and **T86** from the review.
+- **The review found real defects for the first time on this branch, and the tests agreed with the
+  code on two of them.** The session guard read `LastKnownTotalWasAuthenticated`, which is the *last
+  heading's* flag — so a sweep whose session died in run 1 and returned in run 2 would have concluded
+  anyway; and every already-followed ship would have gone into a sweep on the same tick, stopping new
+  works instance-wide until the backlog drained. Both had passing tests written against what the code
+  did. A mutation cannot catch a rule that is wrong in the same direction the test asserts.
+- **Restoring a mutated file with `shutil.move` leaves MSBuild thinking the tree is up to date**, so
+  the *next* run executes the previous mutant — one phantom failure cost half an hour before the
+  cause was clear. `os.utime(path, None)` after the restore. The harness is in the scratchpad.

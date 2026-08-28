@@ -676,3 +676,113 @@ reading — the `lastFailedPage` fix and two de-hardcoded constants — and it r
 re-reviewed rather than reporting on a tree that no longer existed. It recovered, and independently
 confirmed both fixes were correct, but the honest rule is to freeze the diff before launching, since
 the recovery was the reviewer's to make and might not have been made.
+
+## 2026-08-28 — T15: the full sweep is a mode of the walk, and what it may conclude
+
+**The sweep is a third `ScrapeRunMode` inside `Ao3ShipIndexScraper`, not a scraper of its own.**
+That class's own comment said the opposite — a different stopping rule deserves a different
+implementation — and it was written before the walk grew everything T22–T52 put in it. The sweep
+needs the cursor, the stale-cursor retreat, the halving jump, the breaker bound, the unreadable-page
+rules and the end-of-listing evidence; a second copy would be a second place to fix each of them,
+and the download path's nine open tasks are the standing demonstration of what that costs. What is
+genuinely the sweep's own is small — a sort order, a start it measures absence from, and the
+conclusion — and the class comment now says so instead.
+
+**It asks AO3 for `work_search[sort_column]=created_at`.** A sweep of a tag longer than one run's
+budget spans several runs and possibly several days, and under `revised_at` the listing re-sorts
+underneath it: a work deeper than the cursor that anyone edits jumps to page 1, which the sweep has
+already walked past, so the sweep never sees it and would conclude it had left the tag. Posting date
+does not change. The value is not a remembered parameter — `ao3-empty-listing.html` carries the sort
+dropdown and labels `created_at` "Date Posted" — and nothing depends on the direction AO3 applies,
+only on the order being stable. The price is that a sweep may never propose a watermark, since its
+page 1 holds the newest work *posted*; `FinishAsync` now names the two revised_at-ordered passes
+explicitly rather than excluding the incremental pass's early stops.
+
+**D12, answered: the sweep trusts its own walk and no count at all.** Its evidence for having seen
+the whole listing is the walk — page 1 to a page with no next link, every page read, since an
+unreadable page stops the run and a stopped run concludes nothing. It does not compare what it saw
+against `LastKnownTotalWorks`: the sweep's pages are unfiltered, so it *writes* that number as it
+goes (D11), and a number the sweep just wrote cannot also check it. Nor would the comparison be one
+— works are posted and deleted while a multi-run sweep walks, and any tolerance wide enough for that
+is a guess with a library behind it. So D12's field is refreshed by the only pass entitled to
+refresh it and read as a count by nothing.
+
+**T44's field gets its consumer, and it is a narrow one.** The sweep concludes only against a
+heading it read *itself* (`LastKnownTotalWorksAt >= LastFullSweepStartedAt`) and read *logged in*
+(`LastKnownTotalWasAuthenticated`). Restricted works are invisible to a logged-out request, so an
+anonymous sweep is about to declare every restricted work in the library gone at once. What it
+catches is a session that lapsed under a sweep already walking; what it does not catch is a single
+anonymous page in the middle of an otherwise logged-in sweep. Accepted rather than fixed with a
+second column: the mark is reversible, the next pass that sees the work clears it, and nothing is
+deleted.
+
+**A sweep that gets no further than the page it started on is abandoned on the spot** — against the
+backfill's twelve-run allowance one screen away. Two reasons, and both are about what is at stake: a
+backfill is the only way its back catalogue can ever be read, while a sweep's evidence is
+re-obtainable by definition and a fresh walk an interval later is no less likely to finish; and a
+sweep run *displaces* the ship's incremental pass for that tick, so a sweep that spins costs the
+ship its new works rather than merely costing requests. The interval is therefore measured from the
+last sweep's **start**, not its completion — an abandoned sweep leaves no completion, and measuring
+from one it never reached would make it due again on the next tick for ever.
+
+**Rejected: reusing `BackfillNextPage` for the sweep's cursor.** They can both be owed — a Failed
+backfill keeps its cursor as the record of where it gave up, and that ship is exactly the one a
+sweep is for — so one column would have the two walks resuming at each other's pages. The new
+`Ship.FullSweepNextPage` is also what says a sweep is in flight at all, which is why both a
+completed and an abandoned sweep clear it. Two migrations, one per provider, as the spec requires.
+
+**Rejected for now: hiding a missing work from `WorkQueries.Library`.** It is one clause, and it is
+what user story 16 asks for, but that query also scopes the work detail page, the per-work state
+write and the download request — so the clause would 404 a work its reader had rated, noted and
+downloaded, on the strength of a soft mark a sweep can get wrong. Filed as **T84** with the three
+products it could be instead. T15 therefore ships the write and the one reader that was already
+there (`ShipsController`'s work count), and says so rather than half-taking the clause.
+
+## 2026-08-28 — T15's review: six findings taken into the diff, two filed
+
+`/code-review high` on an explicitly named eight-file target ran to completion — the fourth in a row
+— and returned **eight findings**, all in this diff or created by it. Six were fixed here; the
+distinction that decided each was whether the defect was T15's to have, not whether the file was.
+
+**The session guard did not do what its own comment claimed** (finding 3), and this was the one
+worth the review on its own. `LastKnownTotalWasAuthenticated` is a plain assignment from whichever
+page last carried a heading, so a sweep whose session died in run 1 and came back in run 2 read the
+flag `true` and would have marked every restricted work on run 1's pages as having left the tag —
+while the docstring said it caught exactly that case. Fixed by making the rule compose: **a run that
+reads any page without a session abandons the sweep**, so no sweep surviving to conclude has read
+one in any of its runs, and the stored-flag check is left as the half that catches a sweep whose
+pages carried no heading at all. Both halves are now stated as halves.
+
+**An outage was being charged to the sweep** (finding 2). `RecordSweepProgressAsync` abandoned on any
+run that failed to advance the cursor, so AO3 being unreachable for one tick abandoned the sweep
+*and* — the interval being measured from the start — cost the ship a whole interval of absence
+detection on a run that read nothing. It now takes the same three counters `RecordBackfillProgress`
+takes and makes the same distinction: told nothing, stay in flight; answered and got nowhere,
+abandon.
+
+**Every ship would have swept on the same tick** (finding 1). Every already-followed ship has a
+backfill completion or a follow date well over an interval old, so the first poll after this
+deployed would have put all of them into a sweep at once — and a sweep in flight beats the
+incremental pass, so the instance would have stopped collecting new works everywhere until the
+backlog drained sequentially behind the shared gate. `FullSweepIsDue` now adds a per-ship offset
+derived from the ship id, which makes a ship's sweeps 30–60 days apart. Derived rather than random
+because the check runs every poll: a random offset re-rolls every minute and spreads nothing.
+
+**Two smaller ones, both about what a column or a message claims.** A sweep that declined to
+conclude was still writing `LastFullSweepCompletedAt`, so the column an operator reads as "the last
+time this listing was walked" would name a walk that established nothing — it now writes the date
+only alongside a conclusion. And `JumpCursorBackFrom`'s run-history line promised "retrying from page
+N/2", which is true of a backfill and never of a sweep: the halved cursor is precisely what puts it
+below the run's start page, which is the abandon condition. It now says which will happen.
+
+**`AdminShipsController.RestartBackfill` clears the sweep cursor** (finding 7) — a file this task did
+not otherwise touch, taken because the hazard is one this task created. A `Failed` ship is eligible
+for both a sweep and a restart, so a sweep could sit at page 40 through however many ticks the
+re-run backfill needed and then resume, claiming to have walked one listing from pages read weeks
+and a whole re-walk apart. The start date is deliberately left, so the next sweep is spaced from the
+last attempt rather than beginning the moment the backfill finishes.
+
+**Filed rather than fixed: T85** (the worker schedules off `DateTime.UtcNow` while everything it
+drives reads the injected `TimeProvider` — pre-existing, and a seam rather than a defect) and
+**T86** (no DTO or page shows sweep state, so a ship sweeping for several ticks looks like a ship
+doing nothing). Both are real; neither is in `delivers`, and both are cheaper as their own diff.

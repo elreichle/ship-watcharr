@@ -31,6 +31,29 @@ public class ScrapeWorker : BackgroundService
     /// <summary>Fraction by which each job's next-run time is spread. See <see cref="NextRunAfter"/>.</summary>
     private const double ScheduleJitterFactor = 0.1;
 
+    /// <summary>
+    /// How long a ship goes between full sweeps of its listing.
+    ///
+    /// A sweep is the most expensive thing this application does to one tag: one request per page of
+    /// the whole listing, so a 4,000-work tag is 200 requests against an incremental pass's one, and
+    /// at the shared 5–8 second gate it occupies this instance's only outbound channel for the best
+    /// part of half an hour. Thirty days puts that at roughly twice a month's incremental traffic
+    /// for that ship rather than dozens of times it.
+    ///
+    /// The thing it fixes bears the same interval. A work whose author removed the relationship tag
+    /// is not urgent — nothing else in the library is wrong, the work is simply still listed under a
+    /// ship it has left — and the only cost of noticing a fortnight late is a work count a fortnight
+    /// stale. Nothing else in this application concludes absence, so this interval is also the
+    /// worst case for noticing it.
+    /// </summary>
+    internal static readonly TimeSpan FullSweepInterval = TimeSpan.FromDays(30);
+
+    /// <summary>
+    /// How many slots the sweep interval is divided into when spreading ships across it. See
+    /// <see cref="FullSweepIsDue"/>; 30 over a 30-day interval is one slot a day.
+    /// </summary>
+    private const int FullSweepStaggerSlots = 30;
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<ScrapeWorker> _logger;
     private readonly Ao3HttpClientOptions _httpOptions;
@@ -234,6 +257,56 @@ public class ScrapeWorker : BackgroundService
     }
 
     /// <summary>
+    /// Whether this tick is one the ship spends re-walking its whole listing rather than reading the
+    /// newest end of it.
+    ///
+    /// A sweep already under way always wins: it holds a cursor, and the pages it has walked so far
+    /// are worth nothing until it reaches the end of the listing, so leaving one part-finished for a
+    /// tick is leaving it part-finished for ever. That does mean a ship the sweep takes several runs
+    /// to walk gets no incremental pass while it walks — its new works are picked up when the sweep
+    /// ends, later than usual but not lost, since the watermark has not moved.
+    ///
+    /// Otherwise it is the interval, measured from the last sweep's *start*. From the start rather
+    /// than its completion because a sweep that got nowhere is abandoned rather than completed (see
+    /// <c>Ao3ShipIndexScraper.RecordSweepProgressAsync</c>), and measuring from a completion it never
+    /// reached would make the next tick due it again — a ship whose listing refuses a page would then
+    /// spend every tick on a sweep that cannot finish, and never run an incremental pass again.
+    ///
+    /// A ship that has never swept measures from its backfill instead: the backfill is a walk of the
+    /// whole listing too, so a ship that has just finished one has exactly the coverage a sweep would
+    /// have given it. A backfill that was written off leaves no completion date, and that ship falls
+    /// back to when it was first followed — which is the case the comment in
+    /// <c>RecordBackfillProgress</c> means by "a full sweep is what can close the gap".
+    /// </summary>
+    internal static bool FullSweepIsDue(Ship ship, DateTime now)
+    {
+        if (ship.FullSweepNextPage is not null) return true;
+
+        var lastWholeListing =
+            ship.LastFullSweepStartedAt ?? ship.BackfillCompletedAt ?? ship.CreatedAt;
+
+        return now - lastWholeListing >= FullSweepInterval + StaggerOf(ship.Id);
+    }
+
+    /// <summary>
+    /// A fixed per-ship offset on the sweep interval, so that ships do not all sweep at once.
+    ///
+    /// The case this exists for is the first tick after the sweep shipped: every ship already
+    /// followed has a backfill that completed, or a follow date, well over an interval ago, so
+    /// without an offset every one of them is due on the same poll — and since a sweep in flight
+    /// beats the incremental pass, the instance would stop collecting new works on every ship at
+    /// once until the whole backlog of full-listing walks drained, one after another behind the
+    /// shared gate. It is <see cref="NextRunAfter"/>'s problem one level up, and the same answer.
+    ///
+    /// Derived from the ship id rather than drawn at random, because this is read on every poll and
+    /// must give the same answer each time: a random offset would re-roll the due date every minute
+    /// and average out to no spread at all. It makes a ship's sweeps one interval plus up to one
+    /// more apart — 30 to 60 days as configured — which the thing being detected can afford.
+    /// </summary>
+    private static TimeSpan StaggerOf(int shipId) =>
+        FullSweepInterval * ((shipId % FullSweepStaggerSlots) / (double)FullSweepStaggerSlots);
+
+    /// <summary>
     /// Schedules the next run at <c>now + interval</c>, spread by ±<see cref="ScheduleJitterFactor"/>.
     ///
     /// Without the jitter every job with the same interval converges: they all complete at roughly
@@ -274,11 +347,13 @@ public class ScrapeWorker : BackgroundService
             return;
         }
 
-        // A ship still working through its back catalogue keeps backfilling; everything else
-        // takes the cheap newest-first pass.
+        // A ship still working through its back catalogue keeps backfilling; everything else takes
+        // the cheap newest-first pass, or the sweep when one is owed.
         var mode = job.Ship.BackfillState is ShipBackfillState.NotStarted or ShipBackfillState.InProgress
             ? ScrapeRunMode.Backfill
-            : ScrapeRunMode.Incremental;
+            : FullSweepIsDue(job.Ship, DateTime.UtcNow)
+                ? ScrapeRunMode.FullSweep
+                : ScrapeRunMode.Incremental;
 
         if (!scraper.Supports(mode))
         {

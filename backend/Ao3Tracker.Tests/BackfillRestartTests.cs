@@ -117,6 +117,30 @@ public class BackfillRestartTests : IDisposable
         Assert.Null((await ReloadAsync(shipId)).BackfillCompletedAt);
     }
 
+    [Fact]
+    public async Task A_restart_puts_away_a_full_sweep_that_was_in_flight()
+    {
+        // A Failed backfill is eligible for both a sweep and this restart, so the two can be owed
+        // at once — and the backfill wins, for however many ticks it needs. A sweep resumed after
+        // all that would reach the end of the listing still claiming to have walked pages 1..N of
+        // one listing, when its first pages were read weeks and a whole re-walk ago. Its start date
+        // is deliberately left alone: it is what spaces the next sweep, which would otherwise begin
+        // on the tick the backfill finishes.
+        var shipId = await FollowAsync();
+        await FailBackfillAtAsync(shipId, page: 40);
+        await MutateAsync(shipId, s =>
+        {
+            s.FullSweepNextPage = 40;
+            s.LastFullSweepStartedAt = new DateTime(2023, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        });
+
+        await Admin().RestartBackfill(shipId, new(null), default);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Null(ship.FullSweepNextPage);
+        Assert.Equal(new DateTime(2023, 1, 1, 0, 0, 0, DateTimeKind.Utc), ship.LastFullSweepStartedAt);
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(null)]

@@ -655,10 +655,20 @@ internal sealed class StubScraper(string key, string stopReason = "stub", string
 {
     public string Key { get; } = key;
 
+    /// <summary>
+    /// Which pass the worker asked for, in order. The worker chooses between three of them off the
+    /// ship's own state, and that choice is not visible anywhere else — a stub that discarded it
+    /// would leave the rule testable only through a real walk.
+    /// </summary>
+    public List<ScrapeRunMode> ModesRun { get; } = [];
+
     public bool Supports(ScrapeRunMode mode) => true;
 
-    public Task<ScrapeOutcome> ExecuteAsync(ScrapeContext context, CancellationToken ct = default) =>
-        Task.FromResult(ScrapeOutcome.Empty(stopReason) with { ErrorMessage = errorMessage });
+    public Task<ScrapeOutcome> ExecuteAsync(ScrapeContext context, CancellationToken ct = default)
+    {
+        ModesRun.Add(context.Mode);
+        return Task.FromResult(ScrapeOutcome.Empty(stopReason) with { ErrorMessage = errorMessage });
+    }
 }
 
 /// <summary>

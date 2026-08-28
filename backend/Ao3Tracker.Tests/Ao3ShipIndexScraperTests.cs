@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using static Ao3Tracker.Tests.Ao3ListingFixtures;
 
 namespace Ao3Tracker.Tests;
 
@@ -20,8 +21,6 @@ namespace Ao3Tracker.Tests;
 /// </summary>
 public class Ao3ShipIndexScraperTests : IDisposable
 {
-    private const string Lexa = "Clarke Griffin/Lexa";
-
     /// <summary>
     /// Every line the scraper logged during a test, kept as structured values. A warning is the
     /// only output some of these stopping rules produce, so it is the only thing a test can assert
@@ -817,7 +816,7 @@ public class Ao3ShipIndexScraperTests : IDisposable
         var first = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
 
         Assert.Equal(ScrapeStopReason.Error, first.StopReason);
-        Assert.Contains("shorter than the backfill cursor", first.ErrorMessage);
+        Assert.Contains("shorter than the cursor", first.ErrorMessage);
         Assert.Equal(20, (await ReloadAsync(shipId)).BackfillNextPage);
 
         // And it keeps halving until it lands on a page the listing will answer for, rather than
@@ -2253,8 +2252,6 @@ public class Ao3ShipIndexScraperTests : IDisposable
 
     private static ScrapeBudget OneRequest() => new(maxRequests: 1, maxConsecutiveFailures: 3, maxDuration: TimeSpan.FromHours(1));
 
-    private static DateTime Jan(int day) => new(2023, 1, day, 12, 0, 0, DateTimeKind.Utc);
-
     private async Task<int> FollowAsync(string tagName = Lexa)
     {
         var result = await _host.Ships(_host.SeedUser(Guid.NewGuid().ToString("N")[..8]))
@@ -2367,12 +2364,24 @@ public class Ao3ShipIndexScraperTests : IDisposable
     /// Puts the ship past its back catalogue, which is what makes the worker choose the incremental
     /// pass — it backfills anything NotStarted or InProgress.
     /// </summary>
+    /// <summary>
+    /// Puts a ship in the steady state the incremental pass is the ship's whole life: back
+    /// catalogue read, and not owed a full sweep either.
+    ///
+    /// The sweep matters here because the worker chooses between the two — a ship whose listing was
+    /// last walked in full longer ago than <see cref="ScrapeWorker.FullSweepInterval"/> spends its
+    /// tick sweeping rather than reading the newest end — and <see cref="Jan"/> is three years in
+    /// the past, so a backfill settled at it is owed one immediately. The sweep is dated to now
+    /// rather than to the fixture's clock because that is what <c>ScrapeWorker.FullSweepIsDue</c>
+    /// compares against.
+    /// </summary>
     private async Task SettleBackfillAsync(int shipId)
     {
         await using var db = _host.NewContext();
         var ship = await db.Ships.SingleAsync(s => s.Id == shipId);
         ship.BackfillState = ShipBackfillState.Complete;
         ship.BackfillCompletedAt = Jan(1);
+        ship.LastFullSweepStartedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
     }
 
@@ -2396,94 +2405,5 @@ public class Ao3ShipIndexScraperTests : IDisposable
         await using var db = _host.NewContext();
         (await db.Ships.SingleAsync(s => s.Id == shipId)).Ao3TagId = tagId;
         await db.SaveChangesAsync();
-    }
-
-    private static ScrapeHttpResponse Ok(string url, string html) =>
-        new(html, HttpStatusCode.OK, FromCache: false, FinalUrl: url);
-
-    /// <summary>
-    /// Answers each request with the page its query string asks for. Page 1 carries no
-    /// <c>page=</c> parameter, which is what the scraper actually sends.
-    /// </summary>
-    private static Func<string, ScrapeHttpResponse> Pages(params FakePage[] pages) => url =>
-    {
-        var number = 1;
-        var marker = url.IndexOf("page=", StringComparison.Ordinal);
-        if (marker >= 0)
-        {
-            var digits = new string([.. url[(marker + 5)..].TakeWhile(char.IsDigit)]);
-            number = int.Parse(digits);
-        }
-
-        var page = pages.FirstOrDefault(p => p.Number == number);
-        return page is null
-            ? new ScrapeHttpResponse("", HttpStatusCode.NotFound, FromCache: false, FinalUrl: url)
-            : Ok(url, page.Html);
-    };
-
-    private sealed record FakePage(int Number, string Html);
-
-    /// <summary>
-    /// A blurb the parser selects and then cannot name: <c>li.blurb</c> with a <c>work_</c> id
-    /// carrying no number and no heading link to fall back to, which is what
-    /// <see cref="Ao3Tracker.Api.Services.Scraping.Ao3BlurbParser"/> counts a parse warning for.
-    /// A blurb with no <c>work_</c> id at all is never selected, so it produces no warning either.
-    /// </summary>
-    private static string Nameless() => """<li id="work_" class="work blurb group"></li>""";
-
-    private static FakePage Page(int number, string[] blurbs, bool nextPage = false, int? total = null) =>
-        new(number, $"""
-            <div id="main">
-              {(total is null ? "" : $"<h2 class='heading'>1 - 20 of {total} Works in {Lexa}</h2>")}
-              <ol class="work index group">{string.Join('\n', blurbs)}</ol>
-              {(nextPage ? """<ol class="pagination actions"><li><a href="?page=next">Next &rarr;</a></li></ol>""" : "")}
-            </div>
-            """);
-
-    /// <summary>
-    /// One blurb. <paramref name="undated"/> renders the shape AO3 has served on occasion and the
-    /// parser reports as DateTime.MinValue: no <c>updated_at</c> comment, and a visible date in
-    /// none of the formats it knows.
-    /// </summary>
-    private static string Blurb(
-        long id,
-        DateTime? updatedAt = null,
-        int kudos = 10,
-        string[]? freeforms = null,
-        bool undated = false,
-        bool restricted = false)
-    {
-        var epoch = new DateTimeOffset(updatedAt ?? Jan(1)).ToUnixTimeSeconds();
-        var tags = string.Join('\n', (freeforms ?? ["Fluff"])
-            .Select(f => $"""<li class="freeforms"><a class="tag" href="/tags/{f}/works">{f}</a></li>"""));
-
-        return $"""
-            <li id="work_{id}" class="work blurb group">
-              <div class="header module">
-                <h4 class="heading">
-                  {(restricted ? """<img class="symbol" title="Restricted" alt="Restricted" />""" : "")}
-                  <a href="/works/{id}">Work {id}</a>
-                  by <a rel="author" href="/users/someuser/pseuds/somepseud">somepseud (someuser)</a>
-                </h4>
-                <ul class="required-tags">
-                  <li><span class="rating-teen rating" title="Teen And Up Audiences"></span></li>
-                  <li><span class="warning-no warnings" title="No Archive Warnings Apply"></span></li>
-                  <li><span class="category-femslash category" title="F/F"></span></li>
-                  <li><span class="complete-yes iswip" title="Complete Work"></span></li>
-                </ul>
-                {(undated ? "" : $"<!-- updated_at={epoch} -->")}
-                <p class="datetime">{(undated ? "some time ago" : "1 Jan 2023")}</p>
-              </div>
-              <ul class="tags commas">
-                <li class="relationships"><a class="tag" href="/tags/lexa/works">{Lexa}</a></li>
-                {tags}
-              </ul>
-              <dl class="stats">
-                <dt class="words">Words:</dt><dd class="words">1,000</dd>
-                <dt class="chapters">Chapters:</dt><dd class="chapters">1/1</dd>
-                <dt class="kudos">Kudos:</dt><dd class="kudos">{kudos}</dd>
-              </dl>
-            </li>
-            """;
     }
 }

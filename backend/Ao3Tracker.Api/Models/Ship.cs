@@ -128,8 +128,33 @@ public class Ship
     /// </summary>
     public bool LastKnownTotalWasAuthenticated { get; set; }
 
+    /// <summary>
+    /// When the sweep currently under way began walking page 1. Also the cutoff it concludes
+    /// against: a <see cref="ShipWork"/> whose <see cref="ShipWork.LastSeenAt"/> is older than this
+    /// was not seen by the sweep, and a sweep that reached the end of the listing is entitled to
+    /// say so. Kept across the several runs one sweep takes, so it dates the sweep and not the run.
+    ///
+    /// It is also what spaces sweeps out: the next one is due an interval after this, whether the
+    /// last one finished or was abandoned — see <c>ScrapeWorker.FullSweepIsDue</c>. Measuring from
+    /// the start rather than from <see cref="LastFullSweepCompletedAt"/> is what stops a sweep that
+    /// gets nowhere from being retried on every tick.
+    /// </summary>
     public DateTime? LastFullSweepStartedAt { get; set; }
+
     public DateTime? LastFullSweepCompletedAt { get; set; }
+
+    /// <summary>
+    /// Next listing page the sweep under way will walk, or null when no sweep is in flight.
+    ///
+    /// Separate from <see cref="BackfillNextPage"/> rather than shared with it because the two
+    /// walks are not the same walk and can both be owed: a sweep is a periodic re-walk of a ship
+    /// whose backfill has already finished or been written off, and a Failed backfill keeps its
+    /// cursor as the record of where it gave up.
+    ///
+    /// Non-null is also what says a sweep is under way at all, which is why a sweep that reaches
+    /// the end of the listing and one that is abandoned both clear it.
+    /// </summary>
+    public int? FullSweepNextPage { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

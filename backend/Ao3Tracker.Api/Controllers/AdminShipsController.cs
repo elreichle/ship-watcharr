@@ -126,6 +126,14 @@ public class AdminShipsController : ControllerBase
         // run rather than twelve runs later.
         ship.BackfillStalledRuns = 0;
 
+        // A sweep in flight is put away too, because this restart is about to run a backfill for as
+        // many ticks as it needs and the sweep would resume afterwards holding a start date and a
+        // set of already-walked pages from before all of it. A sweep's whole claim is that it read
+        // pages 1..N of *one* listing; the pages it read weeks ago are no longer evidence of that.
+        // The start date is left alone, so the next sweep is spaced from the last attempt rather
+        // than beginning on the tick the backfill finishes.
+        ship.FullSweepNextPage = null;
+
         await _db.SaveChangesAsync(ct);
 
         _logger.LogInformation(

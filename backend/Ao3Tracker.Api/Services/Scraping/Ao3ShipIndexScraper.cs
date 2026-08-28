@@ -10,7 +10,8 @@ namespace Ao3Tracker.Api.Services.Scraping;
 /// <summary>
 /// Walks a relationship tag's works index on AO3.
 ///
-/// Two passes over the same listing, differing only in where they start and where they stop:
+/// Three passes over the same listing, differing in where they start, where they stop, and what
+/// they are entitled to conclude:
 ///
 /// <list type="bullet">
 /// <item><description>
@@ -22,12 +23,21 @@ namespace Ao3Tracker.Api.Services.Scraping;
 /// catalogue, and expects to run out of budget long before it runs out of pages. It resumes from
 /// the cursor next time rather than starting over.
 /// </description></item>
+/// <item><description>
+/// <see cref="ScrapeRunMode.FullSweep"/> re-walks the whole listing periodically, and is the only
+/// pass allowed to conclude a work has *left* the tag. See <see cref="ConcludeSweepAsync"/> for
+/// what it may conclude and <c>ScrapeWorker.FullSweepIsDue</c> for how rarely it runs.
+/// </description></item>
 /// </list>
 ///
-/// <see cref="ScrapeRunMode.FullSweep"/> is not implemented here. It is the only pass allowed to
-/// conclude a work has *left* a tag, which needs a complete walk to have finished before absence
-/// means anything — a different stopping rule, not a different starting page, so it gets its own
-/// implementation rather than a flag on this one.
+/// The sweep is a mode here rather than a scraper of its own, which is what this class's own
+/// comment used to say it would be — on the reasoning that a different stopping rule deserves a
+/// different implementation. That reasoning did not survive the walk: the sweep needs the cursor,
+/// the retreat, the breaker bound, the unreadable-page rules and the end-of-listing evidence this
+/// class spent a dozen tasks getting right, and a second copy of them would be a second place to
+/// fix each one. What is genuinely the sweep's own — a stable sort order, a start it measures
+/// absence from, and the conclusion itself — is small, and reads better as the three places this
+/// file names it than as five hundred duplicated lines.
 /// </summary>
 public sealed class Ao3ShipIndexScraper : IAo3Scraper
 {
@@ -113,7 +123,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     public string Key => Ao3ScraperKeys.ShipIndex;
 
     public bool Supports(ScrapeRunMode mode) =>
-        mode is ScrapeRunMode.Incremental or ScrapeRunMode.Backfill;
+        mode is ScrapeRunMode.Incremental or ScrapeRunMode.Backfill or ScrapeRunMode.FullSweep;
 
     public async Task<ScrapeOutcome> ExecuteAsync(ScrapeContext context, CancellationToken ct = default)
     {
@@ -136,7 +146,11 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                     + "and nothing re-verifies a tag once its verification has settled.",
             };
 
-        var startPage = context.Mode == ScrapeRunMode.Backfill ? Math.Max(1, ship.BackfillNextPage ?? 1) : 1;
+        // Both walking passes resume from a cursor of their own; the incremental pass has none and
+        // always starts at the newest end.
+        var startPage = context.Mode == ScrapeRunMode.Incremental
+            ? 1
+            : Math.Max(1, CursorOf(ship, context.Mode) ?? 1);
 
         // Read once, before the walk, from the run history this pass has already written. Only the
         // incremental pass needs it: a backfill that cannot get past a page has a cursor to carry
@@ -211,6 +225,17 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         // than the one its failures were spent on. Only BudgetStopMessage reads it, and naming the
         // wrong page there is the whole of what it would cost.
         int? lastFailedPage = null;
+
+        // Whether any page this run *read* came back without a session behind it. Only the sweep
+        // reads it, and reading it is what lets its one conclusion compose across runs: a sweep
+        // that saw an anonymous page is abandoned there and then, so no later run of it survives to
+        // conclude on pages whose restricted works were invisible. See ConcludeSweepAsync.
+        //
+        // Set from pages the walk counted as read, not from every response: a 404 and an error page
+        // carry no evidence either way and report `Authenticated: false` for that reason, so
+        // counting them would abandon a sweep over the very 404 the retreat exists to answer.
+        var readAPageAnonymously = false;
+
         DateTime? newestSeen = null;
 
         string stopReason;
@@ -220,6 +245,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         string? errorMessage = null;
 
         if (context.Mode == ScrapeRunMode.Backfill) BeginBackfill(ship);
+        if (context.Mode == ScrapeRunMode.FullSweep) BeginSweep(ship);
 
         while (true)
         {
@@ -314,7 +340,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 if (CursorMayBeStale(context.Mode, page, pagesRequested, retreatedFrom))
                 {
                     retreatBecause = $"AO3 returned 404 for page {page.ToString(CultureInfo.InvariantCulture)}";
-                    RetreatFromStaleCursor(ship, page, retreatBecause);
+                    RetreatFromStaleCursor(ship, context.Mode, page, retreatBecause);
                     retreatedFrom = page;
                     page--;
                     continue;
@@ -328,7 +354,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 stopReason = ScrapeStopReason.Error;
                 errorMessage = retreatedFrom is { } from
                     ? JumpCursorBackFrom(
-                        ship, from, retreatBecause!,
+                        ship, context.Mode, from, retreatBecause!,
                         $"page {page.ToString(CultureInfo.InvariantCulture)} before it returned 404 as well")
                     : lastPage == page - 1
                         ? $"AO3 returned 404 for page {page.ToString(CultureInfo.InvariantCulture)}, which "
@@ -387,7 +413,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 retreatBecause =
                     $"page {page.ToString(CultureInfo.InvariantCulture)} parsed to no works, and "
                     + WhyNotTheEnd(listing, page, listingWasFiltered, blurbsRead);
-                RetreatFromStaleCursor(ship, page, retreatBecause);
+                RetreatFromStaleCursor(ship, context.Mode, page, retreatBecause);
                 retreatedFrom = page;
                 page--;
                 continue;
@@ -418,7 +444,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 stopReason = ScrapeStopReason.Error;
                 errorMessage = retreatedFrom is { } from
                     ? JumpCursorBackFrom(
-                        ship, from, retreatBecause!,
+                        ship, context.Mode, from, retreatBecause!,
                         $"page {page.ToString(CultureInfo.InvariantCulture)} before it did not read either")
                     : $"Page {page} parsed to no works, and {WhyNotTheEnd(listing, page, listingWasFiltered, blurbsRead)}";
 
@@ -446,6 +472,8 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             parseWarnings += listing.ParseWarnings;
             firstPage ??= page;
             lastPage = page;
+
+            if (!response.Authenticated) readAPageAnonymously = true;
 
             blurbsRead += listing.Works.Count;
 
@@ -565,12 +593,14 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 break;
             }
 
-            if (context.Mode == ScrapeRunMode.Backfill)
+            if (context.Mode is ScrapeRunMode.Backfill or ScrapeRunMode.FullSweep)
             {
                 // Advanced only once the page's works are committed, so a crash resumes on the page
-                // that was in flight rather than after it.
-                ship.BackfillNextPage = page + 1;
-                TrackBackfillFloor(ship, page, listing);
+                // that was in flight rather than after it. The sweep needs this as much as the
+                // backfill does and for a stronger reason: a sweep that resumed after a page it had
+                // not ingested would conclude that page's works had left the tag.
+                SetCursor(ship, context.Mode, page + 1);
+                if (context.Mode == ScrapeRunMode.Backfill) TrackBackfillFloor(ship, page, listing);
                 await _db.SaveChangesAsync(ct);
             }
 
@@ -626,7 +656,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         await FinishAsync(
             context, ship, stopReason, startPage, firstPage, newestSeen,
             askedStaleCursor: retreatedFrom is not null, pagesServed: pagesServed,
-            pagesNotFound: pagesNotFound, ct);
+            pagesNotFound: pagesNotFound, readAPageAnonymously: readAPageAnonymously, ct);
 
         return new ScrapeOutcome(
             pagesFetched, budget.RequestsMade, worksSeen, worksAdded, worksUpdated,
@@ -664,7 +694,25 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// the page that did not answer, which makes it this run's question next time.
     /// </summary>
     private static bool CursorMayBeStale(ScrapeRunMode mode, int page, int pagesRequested, int? retreatedFrom) =>
-        mode == ScrapeRunMode.Backfill && pagesRequested == 1 && page > 1 && retreatedFrom is null;
+        mode is ScrapeRunMode.Backfill or ScrapeRunMode.FullSweep
+        && pagesRequested == 1 && page > 1 && retreatedFrom is null;
+
+    /// <summary>
+    /// The page the pass will walk next, for whichever of the two cursored passes is running.
+    ///
+    /// Read and written through here rather than by naming the column, because everything between
+    /// the two — the retreat, the halving jump, the per-page advance — is shared, and a walk that
+    /// read one cursor and wrote the other would resume somewhere neither pass had been.
+    /// </summary>
+    private static int? CursorOf(Ship ship, ScrapeRunMode mode) =>
+        mode == ScrapeRunMode.FullSweep ? ship.FullSweepNextPage : ship.BackfillNextPage;
+
+    /// <inheritdoc cref="CursorOf"/>
+    private static void SetCursor(Ship ship, ScrapeRunMode mode, int page)
+    {
+        if (mode == ScrapeRunMode.FullSweep) ship.FullSweepNextPage = page;
+        else ship.BackfillNextPage = page;
+    }
 
     /// <summary>
     /// Steps the cursor back one page before the walk re-aims at it.
@@ -674,14 +722,14 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// back to where it was. Retreating can never skip anything — it only re-reads pages, and
     /// ingestion is idempotent.
     /// </summary>
-    private void RetreatFromStaleCursor(Ship ship, int page, string because)
+    private void RetreatFromStaleCursor(Ship ship, ScrapeRunMode mode, int page, string because)
     {
         _logger.LogWarning(
-            "Backfill cursor for ship {ShipId} ({Tag}) points at page {Page}, but {Because}. Re-reading "
+            "The {Mode} cursor for ship {ShipId} ({Tag}) points at page {Page}, but {Because}. Re-reading "
             + "page {Previous} to let the listing say whether page {Page} should exist.",
-            ship.Id, ship.CanonicalTagName, page, because, page - 1);
+            mode, ship.Id, ship.CanonicalTagName, page, because, page - 1);
 
-        ship.BackfillNextPage = page - 1;
+        SetCursor(ship, mode, page - 1);
     }
 
     /// <summary>
@@ -699,19 +747,31 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// which is what makes the allowance a bound on a broken listing rather than on a big one. The
     /// pages between the landing point and where the walk was are simply re-read.
     /// </summary>
-    private string JumpCursorBackFrom(Ship ship, int cursor, string cursorBecause, string retreatBecause)
+    private string JumpCursorBackFrom(
+        Ship ship, ScrapeRunMode mode, int cursor, string cursorBecause, string retreatBecause)
     {
         var landing = Math.Max(1, cursor / 2);
 
         _logger.LogWarning(
-            "Backfill of ship {ShipId} ({Tag}) found neither page {Cursor} nor page {Previous} readable; "
-            + "moving the cursor back to page {Landing} to look for a page the listing will answer for.",
-            ship.Id, ship.CanonicalTagName, cursor, cursor - 1, landing);
+            "The {Mode} pass over ship {ShipId} ({Tag}) found neither page {Cursor} nor page {Previous} "
+            + "readable; moving the cursor back to page {Landing} to look for a page the listing will "
+            + "answer for.",
+            mode, ship.Id, ship.CanonicalTagName, cursor, cursor - 1, landing);
 
-        ship.BackfillNextPage = landing;
+        SetCursor(ship, mode, landing);
 
-        return $"{cursorBecause}, and {retreatBecause}, so the listing is shorter than the backfill "
-            + $"cursor by more than one page; retrying from page {landing.ToString(CultureInfo.InvariantCulture)}";
+        // This line goes in the run history, so it names the cursor rather than "the backfill
+        // cursor" — both cursored passes reach it — and it says what will actually happen next,
+        // which is not the same for the two. A sweep never resumes from the landing page: the jump
+        // is what puts the cursor below where the run started, which is the very condition
+        // RecordSweepProgressAsync abandons on. Telling an operator it would retry from page N/2
+        // would be describing the backfill's behaviour over a sweep's run.
+        var next = mode == ScrapeRunMode.FullSweep
+            ? "the sweep is abandoned, and the next one starts again from page 1"
+            : $"retrying from page {landing.ToString(CultureInfo.InvariantCulture)}";
+
+        return $"{cursorBecause}, and {retreatBecause}, so the listing is shorter than the cursor by "
+            + $"more than one page; {next}";
     }
 
     /// <summary>
@@ -980,7 +1040,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         {
             // Explicit rather than relying on AO3's default, which is a site preference and not a
             // guarantee. Every stopping rule here assumes newest-first ordering.
-            "work_search%5Bsort_column%5D=revised_at",
+            $"work_search%5Bsort_column%5D={SortColumn(mode)}",
         };
 
         if (page > 1) query.Add($"page={page.ToString(CultureInfo.InvariantCulture)}");
@@ -990,6 +1050,28 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
         return $"{_options.BaseUrl.TrimEnd('/')}/tags/{segment}/works?{string.Join('&', query)}";
     }
+
+    /// <summary>
+    /// Which of AO3's sort orders a pass asks the listing for.
+    ///
+    /// <c>revised_at</c> — the archive's "Date Updated" — for the two passes whose stopping rules
+    /// are built on it: the incremental pass stops when it reaches works older than its watermark,
+    /// and the backfill's floor tracking reads the same ordering.
+    ///
+    /// The sweep asks for <c>created_at</c> ("Date Posted") instead, because it is the one pass
+    /// that is still walking the same listing several runs and possibly several days later, and
+    /// under <c>revised_at</c> that listing re-sorts underneath it: a work deeper than the cursor
+    /// that someone edits jumps to page 1, which the sweep has already walked past, so the sweep
+    /// never sees it and would conclude it had left the tag. A work's posting date does not change,
+    /// so ordering by it moves a work only when works around it are added or deleted.
+    ///
+    /// The value is AO3's own, not a remembered parameter: <c>ao3-empty-listing.html</c> carries
+    /// the sort dropdown, and <c>created_at</c> is the option it labels "Date Posted". Nothing here
+    /// depends on the *direction* AO3 applies to it — the sweep walks every page either way — only
+    /// on the order being stable while it walks.
+    /// </summary>
+    private static string SortColumn(ScrapeRunMode mode) =>
+        mode == ScrapeRunMode.FullSweep ? "created_at" : "revised_at";
 
     /// <summary>
     /// The <c>work_search[revised_at]</c> bound a run's requests carry, or null when they ask for
@@ -1025,6 +1107,195 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             // up on its first stalled run rather than its twelfth.
             ship.BackfillStalledRuns = 0;
         }
+    }
+
+    /// <summary>
+    /// Marks the start of a sweep, which is both when it began and the line it will later conclude
+    /// against.
+    ///
+    /// A sweep in flight — a cursor already stored — resumes and keeps the start it had. That is
+    /// the whole of how a sweep spans runs: one start, one cursor, and a conclusion only when the
+    /// walk that carries them reaches the end of the listing.
+    /// </summary>
+    private void BeginSweep(Ship ship)
+    {
+        if (ship.FullSweepNextPage is not null) return;
+
+        ship.LastFullSweepStartedAt = _time.GetUtcNow().UtcDateTime;
+        ship.FullSweepNextPage = 1;
+    }
+
+    /// <summary>
+    /// What a finished sweep run leaves on the ship: a sweep that reached the end of the listing,
+    /// one that is part-walked and will resume, one the archive said nothing to, or one that is
+    /// abandoned.
+    ///
+    /// Only the first concludes anything. A sweep stopped by its budget, by the breaker, by a
+    /// refused page or by the process dying has not seen the whole listing, and absence from a walk
+    /// that stopped early is not absence from the tag — so those runs leave the cursor where it is
+    /// and say nothing at all.
+    ///
+    /// **A run the archive told nothing does not count against the sweep**, exactly as it does not
+    /// count against a backfill (<see cref="RecordBackfillProgress"/>, which is where these three
+    /// counters come from). An afternoon of AO3 being unreachable would otherwise abandon the sweep
+    /// *and* — since the next one is spaced from this one's start — cost the ship a whole interval
+    /// of absence detection on the strength of a run that read nothing.
+    ///
+    /// **A run that read a page anonymously abandons the sweep on the spot**, whatever else it did.
+    /// This is what makes <see cref="ConcludeSweepAsync"/>'s session rule compose across the several
+    /// runs one sweep takes: a sweep that ever saw an anonymous page does not survive to conclude,
+    /// so the conclusion can be stated about the sweep rather than about its last page. It is the
+    /// expensive direction and deliberately so — the walk so far is discarded — but the alternative
+    /// is recording every restricted work on that page as having left the tag.
+    ///
+    /// The last case is the sweep's answer to a page that will not answer, and it is deliberately
+    /// blunter than the backfill's: where <see cref="RecordBackfillProgress"/> spends
+    /// <see cref="MaxStalledBackfillRuns"/> runs on a cursor before giving up, a sweep that the
+    /// archive answered and that got no further than it started is abandoned at once. Two reasons.
+    /// A backfill is the only way its back catalogue can ever be read, so it is worth a dozen runs;
+    /// a sweep's evidence is re-obtainable by definition, and a fresh walk an interval later is no
+    /// less likely to finish than a resumed one against a listing that has already refused. And a
+    /// sweep run displaces the ship's incremental pass for that tick, so a sweep that spins costs
+    /// the ship its new works rather than merely costing requests.
+    /// </summary>
+    private async Task RecordSweepProgressAsync(
+        Ship ship,
+        string stopReason,
+        int startPage,
+        bool askedStaleCursor,
+        int pagesServed,
+        int pagesNotFound,
+        bool readAPageAnonymously,
+        DateTime now,
+        CancellationToken ct)
+    {
+        if (readAPageAnonymously)
+        {
+            _logger.LogWarning(
+                "A page of the full sweep of ship {ShipId} ({Tag}) was served without a session, so the "
+                + "sweep is being abandoned rather than carried on with. A logged-out listing hides the "
+                + "tag's restricted works, and a sweep that carried such a page would record them as "
+                + "having left it.",
+                ship.Id, ship.CanonicalTagName);
+
+            AbandonSweep(ship);
+            return;
+        }
+
+        if (stopReason == ScrapeStopReason.LastPage)
+        {
+            await ConcludeSweepAsync(ship, now, ct);
+            return;
+        }
+
+        // Part-walked. The ordinary end of a sweep run on any tag longer than one run's budget:
+        // the cursor holds the place and the next run carries on from it.
+        if (ship.FullSweepNextPage > startPage) return;
+
+        // The archive told this run nothing — down, refusing, or cut off before it asked. The sweep
+        // has learned nothing and lost nothing; it stays in flight and asks again next tick.
+        if (!askedStaleCursor && pagesServed == 0 && pagesNotFound == 0) return;
+
+        _logger.LogWarning(
+            "The full sweep of ship {ShipId} ({Tag}) got no further than page {Page}, where it started, "
+            + "and stopped with {StopReason}. Abandoning the sweep — nothing is concluded from a partial "
+            + "walk, and the next one starts over from page 1 after the sweep interval.",
+            ship.Id, ship.CanonicalTagName, startPage, stopReason);
+
+        AbandonSweep(ship);
+    }
+
+    /// <summary>
+    /// Puts away a sweep that will not be finishing, without recording it as one that did.
+    ///
+    /// <see cref="Ship.LastFullSweepCompletedAt"/> is deliberately left alone: an operator reads it
+    /// as "the last time this ship's whole listing was walked", and a sweep that was abandoned or
+    /// that declined to conclude did not do that. <see cref="Ship.LastFullSweepStartedAt"/> is left
+    /// alone too, and that is what spaces the retry — clearing it would make the ship due again on
+    /// the next tick and turn a sweep that cannot finish into one that is attempted every tick for
+    /// ever, which is the cost this whole branch exists to avoid.
+    /// </summary>
+    private static void AbandonSweep(Ship ship) => ship.FullSweepNextPage = null;
+
+    /// <summary>
+    /// The one conclusion no other pass in this application may reach: that works have left the tag.
+    ///
+    /// A <see cref="ShipWork"/> the completed sweep did not see has a
+    /// <see cref="ShipWork.LastSeenAt"/> older than the sweep's start, because every page the sweep
+    /// read was ingested and every ingest stamps that column. So the walk needs no set of seen ids
+    /// carried across its runs — the rows themselves record what it saw, and the sweep's start is
+    /// the line between "seen by this sweep" and "not".
+    ///
+    /// Leaving a tag is not deletion. The <see cref="Work"/> row stays — other ships may hold it,
+    /// and its reader may have rated, noted or downloaded it — and the mark is cleared the moment
+    /// the work is seen again by any pass (<c>WorkIngestor.ApplyShipLink</c>), so a work that comes
+    /// back comes back rather than arriving as new. Rows already marked are left alone, so
+    /// <see cref="ShipWork.MissingSinceAt"/> keeps saying when the work first went missing rather
+    /// than when the last sweep noticed it again.
+    ///
+    /// **What the sweep checks itself against, and what it does not.** Its evidence for having seen
+    /// the whole listing is the walk: page 1 to a page offering no next link, every page of it read
+    /// (an unreadable page stops the run, and a stopped run concludes nothing). It does *not*
+    /// compare what it saw against <see cref="Ship.LastKnownTotalWorks"/>, and this is the rule
+    /// D12 of the scraper audit asked to have written down: the stored total is refreshed by the
+    /// sweep itself — its pages are unfiltered, so <see cref="RecordTotal"/> writes it as they are
+    /// read — and a number the sweep just wrote cannot also be an independent check on the sweep.
+    /// Nor would a comparison be one: works are posted and deleted while a multi-run sweep walks,
+    /// so the two numbers differ routinely, and any tolerance wide enough to allow for that is a
+    /// guess with a library behind it.
+    ///
+    /// **The session rule, in two halves.** Restricted works are invisible to a logged-out request,
+    /// so a sweep that walked the listing anonymously has been shown a smaller tag than the one
+    /// whose works it is about to declare gone — every restricted work in the library at once. The
+    /// first half is <see cref="RecordSweepProgressAsync"/>'s: a run that read any page without a
+    /// session abandons the sweep, so no sweep reaching here has read one in any of its runs. The
+    /// second is here, and it is about the number rather than the pages:
+    /// <see cref="Ship.LastKnownTotalWasAuthenticated"/> — this field's only consumer in the
+    /// application, and what T44 made trustworthy — must say the tag's own total was read logged in,
+    /// and <see cref="Ship.LastKnownTotalWorksAt"/> must date it to this sweep rather than to some
+    /// earlier run. That is what catches a sweep whose pages carried no heading at all, which the
+    /// first half cannot see.
+    ///
+    /// Declining is not completing. A sweep that gets here and says nothing leaves
+    /// <see cref="Ship.LastFullSweepCompletedAt"/> where it was — the column means "the last time
+    /// this ship's whole listing was walked", and a walk that concluded nothing did not earn it.
+    /// </summary>
+    private async Task ConcludeSweepAsync(Ship ship, DateTime now, CancellationToken ct)
+    {
+        if (ship.LastFullSweepStartedAt is not { } startedAt) return;
+
+        var totalIsThisSweeps = ship.LastKnownTotalWorksAt >= startedAt;
+
+        if (!totalIsThisSweeps || !ship.LastKnownTotalWasAuthenticated)
+        {
+            _logger.LogWarning(
+                "The full sweep of ship {ShipId} ({Tag}) walked the whole listing but is not concluding "
+                + "anything from it: the tag's total was last read at {ReadAt} and {AuthState}, and this "
+                + "sweep started at {StartedAt}. A listing read without a session hides the tag's "
+                + "restricted works, which this pass would otherwise record as having left it.",
+                ship.Id, ship.CanonicalTagName, ship.LastKnownTotalWorksAt,
+                ship.LastKnownTotalWasAuthenticated ? "while logged in" : "without a session", startedAt);
+
+            AbandonSweep(ship);
+            return;
+        }
+
+        ship.LastFullSweepCompletedAt = now;
+        ship.FullSweepNextPage = null;
+
+        var left = await _db.ShipWorks
+            .Where(sw => sw.ShipId == ship.Id && sw.MissingSinceAt == null && sw.LastSeenAt < startedAt)
+            .ToListAsync(ct);
+
+        if (left.Count == 0) return;
+
+        foreach (var link in left) link.MissingSinceAt = now;
+
+        _logger.LogInformation(
+            "The full sweep of ship {ShipId} ({Tag}) walked the listing without seeing {Count} work(s) it "
+            + "holds; recording them as having left the tag. They are not deleted, and reappearing in any "
+            + "later pass clears the mark.",
+            ship.Id, ship.CanonicalTagName, left.Count);
     }
 
     /// <summary>
@@ -1197,6 +1468,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         bool askedStaleCursor,
         int pagesServed,
         int pagesNotFound,
+        bool readAPageAnonymously,
         CancellationToken ct)
     {
         var now = _time.GetUtcNow().UtcDateTime;
@@ -1206,6 +1478,11 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         if (context.Mode == ScrapeRunMode.Backfill)
             RecordBackfillProgress(
                 ship, stopReason, startPage, askedStaleCursor, pagesServed, pagesNotFound, now);
+
+        if (context.Mode == ScrapeRunMode.FullSweep)
+            await RecordSweepProgressAsync(
+                ship, stopReason, startPage, askedStaleCursor, pagesServed, pagesNotFound,
+                readAPageAnonymously, now, ct);
 
         // Two conditions, and both are about what the run was in a position to *know*.
         //
@@ -1235,9 +1512,16 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         // therefore leave a watermark however it stopped, and must — any tag big enough to need
         // several runs ends its first one on the cap, and if that left no watermark the resumed
         // runs may not set one either, so the ship would reach Complete with none at all.
+        // A sweep may never propose one, whatever it read and however it stopped. It asks for the
+        // listing sorted by posting date (see SortColumn), so the newest thing on its page 1 is the
+        // newest work *posted*, not the newest revised — made the watermark, it would send every
+        // later incremental pass asking only for works revised since a date that means nothing to
+        // it, skipping everything revised in between. The two passes that may propose are the two
+        // that read the listing in revised_at order.
         var mayPropose = readTheNewestEnd
             && (context.Mode == ScrapeRunMode.Backfill
-                || stopReason is ScrapeStopReason.Watermark or ScrapeStopReason.LastPage);
+                || (context.Mode == ScrapeRunMode.Incremental
+                    && stopReason is ScrapeStopReason.Watermark or ScrapeStopReason.LastPage));
 
         // Never backwards. Nothing above should now be able to propose an older timestamp than the
         // one on record, but a watermark that moved back would re-read everything between the two

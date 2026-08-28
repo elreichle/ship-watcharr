@@ -229,6 +229,29 @@ It did leave one documentation note, now acted on in the diff: the widened strea
 name the case the rule now accepts (an archive-wide incident that spans three runs while leaving
 page 1 answering will hold page 2 for up to eight runs). No new tasks came out of this iteration.
 
+**2026-08-28: T15 is done.** The full sweep exists, as a third `ScrapeRunMode` inside
+`Ao3ShipIndexScraper` rather than a scraper of its own — see DECISIONS for why, and for the four
+rules that are only the sweep's. **T16 (notifications) is next**, in plain file order and by
+`blocked-by`, and T15 was its only blocker; it unblocks T17 → T20, the rest of the plan. T10 is
+earlier still and still blocked by T51. **T77 is still taken instead of T63** when the run reaches
+T63.
+
+T15 added one column (`Ship.FullSweepNextPage`, two migrations) and one new task, **T84** — the mark
+the sweep writes has exactly one reader, and it is not the feed. Read T84's notes before touching
+`WorkQueries.Library`: the one-clause fix is a trap. Two audit rows are updated rather than left to
+rot: **D12 is answered** and **E7 is closed**; **E6 is still open and is not the sweep's** — a work
+being gone from AO3 is T10's 404, not a tag it left.
+
+T15's review returned **eight findings, all of them in this diff or created by it** — the first
+review on this branch to find real defects in the task's own work rather than re-deriving old ones.
+**Six were fixed here**, including two the tests had agreed with: the session guard did not compose
+across a sweep's runs, and every ship on the instance would have swept on the same tick. Two are
+filed as **T85** (the worker schedules off the wall clock while everything it drives reads the
+injected `TimeProvider`) and **T86** (no page shows sweep state). DECISIONS has the whole list.
+
+T15's verification filter `~FullSweep` matched **20** tests (0 before); the suite went 808 → 829. Its
+`verification` line named no count, which is the first one on this branch that could not be stale.
+
 Read `.devloop/spec.md` before starting any task. Every task additionally has to leave
 `cd backend && PATH="$HOME/.dotnet:$PATH" dotnet test`, `cd frontend && npm run build` and
 `npm run lint` green — that is the floor, not the verification.
@@ -549,7 +572,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   the button does not need to guard against a second click.
 
 ## T15 — The full-sweep pass
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: T29, T30, T38, T40, T44, T46, T47, T52
 - delivers: A third pass over a ship's index that walks every page and, only afterwards, marks the
@@ -2294,3 +2317,66 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   costs one request against a tag AO3 has already denied, so it must be operator-triggered rather
   than periodic — a tag that is gone would otherwise be re-asked for ever, which is the defect T82
   is about.
+
+## T84 — A work that left a tag is marked, and the library still lists it
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A decided, implemented rule for what `ShipWork.MissingSinceAt` means to a reader — the
+  feed, the saved filters, the statistics — rather than a column only the Ships page's work count
+  consults.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Library` —
+  **measure what that matches before trusting it**; it may match nothing.
+- notes: T15 writes the mark and nothing reads it but `ShipsController`'s `WorkCount`, which was
+  already shipped. `WorkQueries.Library` filters `!w.IsDeleted` and nothing else, so a work that has
+  left every ship its reader watches still sits in their feed, their filter counts and their
+  statistics — user story 16 ("works that have left a tag leave my library for that ship") is only
+  half met by T15 and this is the other half.
+  **The obvious one-clause fix is a trap and T15 deliberately did not take it.** Adding
+  `sw.MissingSinceAt == null` inside `Library`'s `Ships.Any(...)` also narrows the six other callers
+  of that query: `WorksController` scopes the work detail page (`:215`) and the per-work state write
+  (`:468`) through it, and `DownloadsController` scopes a download request through it (`:120`) — so
+  a work marked missing would 404 for the reader who had rated it, noted it and downloaded it. A
+  soft, reversible mark is not grounds for taking someone's own data off the screen.
+  So decide the product first, and say which was chosen and why: a saved-filter criterion the reader
+  turns on; a badge on the row with the feed unchanged; a default exclusion from the *feed* only,
+  with the detail page, state writes and downloads kept on the unnarrowed query. Whichever it is,
+  the false-positive cost is the thing to weigh it against — a sweep's mark can be wrong (see T15's
+  `ConcludeSweepAsync` on the one case it does not catch), and it is cleared only when the work is
+  seen again.
+
+## T85 — The worker schedules against a clock no test can move
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: `ScrapeWorker` reading time through the injected `TimeProvider` rather than
+  `DateTime.UtcNow`, so what is due — and what a due job's mode is — can be tested by moving the
+  fixture's clock.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~ScrapeWorker` —
+  **measure what that matches first.**
+- notes: Found by T15's review. `ScrapeWorker` reads `DateTime.UtcNow` in four places (the due
+  query, `NextRunAfter`, `ReconcileInterruptedRunsAsync`'s cutoff, the mode choice's `now`), while
+  every service it drives — the scraper, the ingestor — reads `LibraryTestHost.Clock`. T15's sweep
+  interval is the first rule to straddle the two: `FullSweepIsDue` compares `DateTime.UtcNow`
+  against a `LastFullSweepStartedAt` the scraper stamped from the `TimeProvider`, so a fixture whose
+  clock sits in the past would find every sweep it stamped due again on the next tick. The cost is
+  already visible in the tests: `Ao3ShipIndexScraperTests.SettleBackfillAsync` has to write
+  `DateTime.UtcNow` into a fixture whose every other date is `Jan(...)`, and
+  `Ao3ShipIndexFullSweepTests.ModesTheWorkerChoseAsync` has to arrange in real time. Pre-existing —
+  the worker has always read the wall clock — so this is a seam to fix, not a defect to repair.
+
+## T86 — Nothing in the UI says a ship is being swept
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: The ship's sweep state — last swept, and whether a sweep is walking now — on the Ships
+  page beside the backfill state it already shows.
+- verification: `cd frontend && npm run build && npm run lint`, plus a live check against a
+  throwaway instance with a ship whose `FullSweepNextPage` is set by hand.
+- notes: Found by T15's review. `LastFullSweepStartedAt`, `LastFullSweepCompletedAt` and
+  `FullSweepNextPage` appear in no DTO, no controller projection and no page — grep `Dtos/`,
+  `Controllers/` and `frontend/src` and none of the three is mentioned. A ship can spend several
+  consecutive ticks sweeping, displacing its incremental pass and collecting no new works, with
+  nothing on the Ships or Schedules page saying why; `ScrapeRun.Mode` on the Schedules page is the
+  only place the sweep is visible at all. `ShipsController` already projects `BackfillNextPage` and
+  the Ships page already renders a backfill state, so this is the same shape one field over.

@@ -13,9 +13,11 @@ Line numbers are `backend/Ao3Tracker.Api/Services/Scraping/…` at `6802bfb`. "P
 method in `backend/Ao3Tracker.Tests/`; every name in this file was checked against the suite's own
 discovery list and matches at least one test (see the verification note at the foot).
 
-Three passes exist in the design and two in the code. `FullSweep` (T15) is unimplemented, so it has
-no rows — but the last column of §D is written for its author, because a sweep is the only pass
-permitted to conclude a work has *left* a tag and it inherits every rule below.
+Three passes exist in the design, and since 2026-08-28 all three exist in the code: `FullSweep`
+(T15) shipped as a third mode of the same walk, so it inherits every rule below rather than having
+rows of its own. What is only the sweep's is in `Ao3ShipIndexScraper.RecordSweepProgressAsync` and
+`ConcludeSweepAsync`, and in D12 and E7 here — it is the only pass permitted to conclude a work has
+*left* a tag.
 
 ---
 
@@ -143,13 +145,18 @@ backfill is `Complete` and which nothing later revisits.
 | D9 | An incremental pass may propose only on `Watermark`/`LastPage`; a backfill from page 1 may propose however it stopped | `:920` | both | an early stop leaves works between the watermark and the newest reading unvisited, and nothing looks back | `Does_not_advance_the_watermark_on_a_run_that_ran_out_of_budget`, `Sets_a_watermark_from_page_1_even_when_the_run_stops_on_the_cap`, `Leaves_the_watermark_alone_when_a_page_fails` |
 | D10 | The watermark never moves backwards | `:927` | both | a backstop for a rule proved wrong later | `Leaves_a_multi_run_backfill_with_the_watermark_its_first_page_proposed` |
 | D11 | Only an **unfiltered** page may write `LastKnownTotalWorks`, and only a readable one | `:777`, `:320` | both | the heading counts whatever result set the request produced (T29) | `Records_the_tags_total_for_the_ship`, `Leaves_the_tags_total_alone_when_the_listing_was_filtered`, `Does_not_let_a_page_it_could_not_read_write_the_tags_total` |
-| D12 | **No rule refreshes the total once a ship has a watermark** | — | — | every incremental pass on such a ship is filtered, so the stored total is the last unfiltered run's, indefinitely | — **no rule; nothing decides this.** Noted on T15, whose sweep is the only pass that would refresh it and the only consumer that checks against it |
+| D12 | The full sweep refreshes the total, and **nothing reads it as a count** | `RecordTotal` via the sweep's unfiltered pages | sweep | the stored number is the last unfiltered pass's, and a sweep is the only later unfiltered pass a ship with a watermark gets | **rule written by T15** (2026-08-28): the sweep concludes from its own complete walk, never from a comparison against this number — which it has itself just written. What it does read beside it is `LastKnownTotalWasAuthenticated`; see E7 |
 | D13 | `LastKnownTotalWasAuthenticated` is assigned by whichever **request** read the total, never latched | `RecordTotal` | both | the pair travel together or they say something no request made (T30, one scope further in by T44) | `Does_not_stamp_a_total_it_never_wrote_as_Authenticated`, `Clears_the_Authenticated_flag_when_a_later_run_reads_the_total_anonymously`, `Reads_the_transport_for_whether_the_total_was_Authenticated`, `Does_not_let_a_later_pages_session_stamp_a_total_read_anonymously`, `Takes_the_Authenticated_flag_from_the_last_page_that_wrote_the_total` — **gap closed by T44** (2026-08-25) |
 | D14 | A restricted work on an unauthenticated response is **reported and never acted on** | `:353` | both | a proxy signal may not overrule the transport (T30) | `Does_not_let_a_restricted_blurb_claim_the_total_was_Authenticated` |
 | D15 | `BackfillMinUpdatedAtSeen` tracks the oldest reading; a boundary that moves *up* is logged, not acted on | `:792` | backfill | the listing shifted under the walk and only a sweep can close it | non-monotonic branch unpinned — **T32** owns the message it prints |
 | D16 | `LastIncrementalRunAt` is stamped on every incremental run whatever it concluded | `:887` | incremental | when the pass last ran, not what it achieved | unpinned — see the foot of §F |
 
-**D12 is the row this table exists to produce.** Nothing is wrong today; nothing decides it either.
+**D12 was the row this table existed to produce, and T15 answered it.** The sweep refreshes the
+number because its pages are unfiltered, and reads it as a count for nothing — see the DECISIONS
+entry of 2026-08-28 for why a comparison would not have been a check. The paragraph below is left as
+the statement of the problem it was.
+
+**D12 as it stood.** Nothing is wrong today; nothing decides it either.
 A ship that finished its backfill and has a watermark sends only filtered requests, and a filtered
 heading may not write the total (D11) — so `LastKnownTotalWorks` freezes at whatever the last
 unfiltered run read, while the tag goes on growing. The field is documented as the figure a full
@@ -169,12 +176,12 @@ destroy a complete one.
 | E3 | A byline that says "Anonymous" **does** reconcile to the empty set | `:189` | a work that really lost its creators must lose them here too | `A_work_that_becomes_anonymous_loses_the_authors_it_had` |
 | E4 | An unreadable date leaves whatever a previous run stored, and marks the row approximate | `:124` | overwriting a real timestamp with `MinValue` would drag the watermark backwards | first-seen case only (`Marks_a_work_an_incremental_pass_first_saw_undated_as_having_an_approximate_date`); the **preservation** branch is unpinned — **gap, T54** |
 | E5 | Statistics are written unconditionally, never gated on `UpdatedAt` having moved | `:110` | kudos move without a revision, so gating would freeze these columns | `Rewrites_the_statistics_of_a_work_it_has_seen_before` |
-| E6 | Appearing in a listing clears `IsDeleted`/`DeletedAt` | `:147` | presence is proof; it undoes a deletion recorded earlier | — **nothing sets them true.** No rule; T15's |
-| E7 | Appearing in a listing clears `ShipWork.MissingSinceAt` | `:167` | the one direction safe on a partial pass | — **nothing sets it.** No rule; T15's |
+| E6 | Appearing in a listing clears `IsDeleted`/`DeletedAt` | `:147` | presence is proof; it undoes a deletion recorded earlier | — **still nothing sets them true, and it is not the sweep's to set.** T15 concluded absence from a *tag*, which is `ShipWork.MissingSinceAt` (E7); a work being gone from AO3 is a 404 on its own page, which is T10's fetch |
+| E7 | Appearing in a listing clears `ShipWork.MissingSinceAt` | `:167` | the one direction safe on a partial pass | **closed by T15** (2026-08-28): `Ao3ShipIndexScraper.ConcludeSweepAsync` sets it, from a completed sweep only, for rows whose `LastSeenAt` predates the sweep's start. `Marks_a_work_the_completed_sweep_did_not_see_as_having_left_the_tag`, `Concludes_nothing_from_a_sweep_that_ran_out_of_budget_part_way`, `A_work_that_comes_back_stops_being_missing` |
 | E8 | Tags are reconciled from **a listing blurb** | `:172` | the blurb's tag set is the work's whole tag set | `Drops_a_tag_the_author_has_removed` — **gap: T51.** The spec says a blurb does not carry the complete tag list; T10 fetches the rest from the work's own page, and the next incremental pass then deletes it |
 | E9 | Two blurbs for one work on one page keep the last | `:53` | AO3 can render a work twice and the `(ShipId, WorkId)` key must stay satisfiable | unpinned — see the foot of §F |
 
-**E6 and E7 are the sweep's write side, and they are half-built.** Both directions of "a work left
+**E7 is now built; E6 is not, and is not the sweep's.** Both directions of "a work left
 this tag" exist as columns; only the clearing direction has a rule. That is correct as it stands —
 neither pass below is entitled to set them — but it means T15 is writing the *first* code that ever
 concludes absence, with the reading side of it already shipped and every test in the suite proving
