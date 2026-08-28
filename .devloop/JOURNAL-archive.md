@@ -1920,3 +1920,274 @@ build. Not something a task should chase.
   Filters checked to bite, per T22's lesson: `~Pseud` matched 9 before (all `WorkIngestorPseudTests`,
   none about migrations — as predicted) and 13 after; `~PseudMigration` matches the 4 new ones.
   Still zero and still suspect: none known. T40's `~PagesFetched` is zero by design.
+
+## Former tasks.md run-order notes (moved 2026-08-28; the header was 20 KB of per-iteration commentary)
+
+
+Empty, and deleted with T28: the audit that stood in this slot is done, every pre-loop scraper
+defect this loop inherited is closed, and nothing left is more urgent than file order. The next task
+is the first `todo` in file order whose `blocked-by` are all `done` — **T12**. (T10 is earlier in
+the file but is blocked by T51, which is still `todo`.) **Read T13's notes before starting T12** —
+the capture withdrew T12's original URL-construction design, and building to T11's handoff ships a
+guess T13 then has to undo.
+
+**2026-08-25: T61 is done** — taken because it was already `in_progress`: a previous iteration
+marked it and wrote its two tests before dying, and a claimed task is the next iteration's task
+whatever file order says. Next in plain file order is **T14**, whose `blocked-by` (T12) is done.
+T10 is still earlier and still blocked by T51.
+
+**2026-08-25: T12 is done**, and the instruction to read T13 before starting it has been consumed.
+T13 no longer has a blocker: T12 was built to the capture's finding rather than to T11's withdrawn
+handoff, so T13 is now the remaining formats and the two questions a capture cannot answer. Next in
+file order is **T13**.
+
+**2026-08-25: T13 is done.** Its review looked over the whole branch rather than its own
+(test-only) diff and returned eight findings, none of them in T13's changes and all of them queued
+as **T61–T68**; two were verified in that iteration and six are the reviewer's claim, marked as such
+in each task. Next in plain file order is **T14**, whose `blocked-by` (T12) is done. T10 is still
+earlier and still blocked by T51.
+
+**2026-08-26: T18 is done.** Next in plain file order is **T19** (the Statistics page), whose
+`blocked-by` (T18) is now done. It is a frontend task: read T18's entry in the journal for the
+response shape before designing the page, and read T19's own notes on charting dependencies — the
+API already ships bucket labels and bounds, and every fixed vocabulary zero-filled in a stable
+order, so a correct bar chart needs no library, only CSS.
+
+**2026-08-26: T31 is done.** Next in plain file order is **T32** (the non-monotonic-boundary
+warning names the wrong page), `blocked-by: none`. Note that `dotnet build` emits **CA2017** on
+`Ao3ShipIndexScraper.cs:534` — a logging template with more placeholders than arguments — which is
+plausibly T32's own defect; read the warning before starting. T31's review found nothing in its
+diff and five elsewhere, all in the download code: three were already on the list (**T67**, **T70**,
+**T64** — T64 now verified), and two are new, **T73** and **T74**.
+
+**2026-08-26: T19 is done.** Next in plain file order is **T20** (Docker, actually run), whose
+`blocked-by` are T4, T14, T17 and T19 — T17 is still `todo` and blocked by T16→T15, so T20 is not
+selectable. Nothing between T10 and T20 is: T10 waits on T51, T15 on T38/T40/T46/T52, T16 on T15,
+T17 on T16. **The first selectable task is T31**, and from there the run is the long tail of
+scraper and UI defects (T31–T71) that unblocks T15 and with it the rest of the plan. T19's review
+found five: three were in its own diff and are fixed, one is queued as **T72**, and one was folded
+into **T63**, which it verified.
+
+**2026-08-26: T14 is done.** Everything between T14 and T18 is blocked: T15 still waits on T38, T40,
+T46 and T52, and T16/T17 wait on T15. T10 is earlier still and still blocked by T51.
+
+**2026-08-26: T32 is done.** Next in plain file order is **T33** (`LoadExistingWorksAsync` reads a
+cartesian product), `blocked-by: none` — the cheapest task on the list, a single `.AsSplitQuery()`
+whose verification is that the existing ingest tests stay green. Check that `~Ingest` bites before
+trusting it; T32's own `~Monotonic` matched nothing until this iteration wrote a test for it, which
+is the third verification filter in a row to turn out to be a guess. The build's one remaining code
+warning, **CA2017** on `Ao3ShipIndexScraper.cs:536`, is **T49's**, not T32's — six placeholders over
+five arguments in `RetreatFromStaleCursor`, and it was left alone deliberately. T32's review found
+nothing in its diff; of its four findings three were already listed (**T70**, **T64**, **T74**, each
+re-derived independently) and one is new, **T75**.
+
+**2026-08-26: T33 is done.** Next in plain file order is **T35** (the pseud dedup migration
+collides on a third capitalisation), `blocked-by: none` — and its own notes say the hard part is
+finding a seam to test a migration through, so decide that before writing anything. T33's
+verification filter `~Ingest` did bite (8 tests, 9 now), the first of the last four not to have been
+a guess. T33's review found nothing in its diff and four elsewhere, **all four already on the list**:
+**T64**, **T63**, **T67** (read with **T73**) and **T74** — the first review in five not to add a
+task.
+
+**2026-08-28: T77 is done, and with it T63, T64, T65, T66, T67, T69, T70, T71, T73, T74 and T75** —
+eleven tasks closed in one pass over `DownloadsController`, `DownloadFetcher`,
+`RateLimitedAo3HttpClient`, `DownloadWorker` and `Ao3SessionProvider`, each verified by its own
+filter before being marked. The download path is no longer the thing every review re-derives; what
+is left over it is **T59**, **T60**, **T62**, **T68** and **T72**, none of which T77 claimed. Next in
+plain file order is **T16** (notifications), whose blocker T15 is done — T10 is earlier and still
+blocked by T51, and T48–T51 sit above T16 in the file but were passed over by the same run order that
+sent this pass to T77. The three stated verification filters that used to bite nothing —
+`~Ao3Session`, `~Ao3SessionProvider`, `~RateLimited` — now do: the new test classes are named for
+them.
+
+**The download path has now been re-derived by five consecutive reviews.** T63/T64/T67/T69/T70/T71/
+T73/T74/T75 are nine open tasks over the same few hundred lines of `DownloadsController`,
+`DownloadFetcher`, `RateLimitedAo3HttpClient` and `Ao3SessionProvider`. Three iterations running have
+recorded that one dedicated pass would be cheaper than meeting them one at a time; nothing has acted
+on it, and each review now spends most of its budget re-finding them. Worth filing as a task rather
+than observing again.
+
+**A log-capture seam now exists.** `backend/Ao3Tracker.Tests/CapturingLoggerProvider.cs` keeps every
+log record as its structured values and never formats one, so a test can assert on what a placeholder
+was bound to. **T49 needs the opposite** — a provider that *does* render, because the defect it is
+chasing only appears at format time — so T49 should add that as a second, opt-in seam rather than
+change this one.
+
+**T14's review did not run.** `/code-review high` was launched and died on the account's monthly
+spend limit before reading anything, so this task's diff was reviewed by reading it rather than by
+an agent — see the journal entry for what that pass found and changed. A later iteration re-running
+a review over the branch should expect T14's code to be the least-reviewed on it.
+
+**2026-08-25: T44 is done** — taken ahead of file order for the reason this note used to give, that
+five readers had derived the same two-line fix. It is closed; the run order is plain file order
+again. `.devloop/scraper-audit.md` is what that section's reasoning turned into; read it before
+touching the walk.
+
+**2026-08-24: nothing is `blocked` any more.** Emma saved the three AO3 captures the plan was
+parked on (`ao3-login-page.html`, `ao3-work-page.html`, `ao3-empty-listing.html`, under
+`backend/Ao3Tracker.Tests/Fixtures/`), which released T5, T10, T13 and T39. Reading them answered
+three open questions ahead of the tasks that were going to ask them, and **two of the answers change
+work that has not started yet** — see the 2026-08-24 entry in `DECISIONS.md`:
+
+- **Read T13's notes before starting T12.** AO3's download URLs cannot be constructed from a work
+  id, so T12's original "isolate the URL construction" design is withdrawn. Building T12 to the old
+  note ships a guess T13 then has to undo.
+- **T39 shrank and its premise held.** `HasListing` needs no fix; the task is now the test that
+  pins it.
+- **T58 is new**, from a defect Emma found in the browser: the incremental pass sends a filter
+  parameter the tag-listing endpoint discards. Not a correctness bug — a politeness one.
+
+**2026-08-27: T39 is done.** Next in plain file order is **T40** (an unreadable page must not be
+counted as a page that was read), `blocked-by: none`, and it is on T15's `blocked-by` list — so it is
+also the load-bearing one. Read T38's journal entry before starting it: T38 handed T40 the
+`RecordBackfillProgress` increment guard as well as the `firstPage ??= page` move, and the argument
+for why narrowing the guard directly kills
+`Gives_up_on_a_backfill_that_spends_run_after_run_on_a_cursor_nothing_answers` is written out there
+rather than in T40's notes. **T79 and T80 are new**, both from T39. T79 is `blocked` on a capture only
+Emma can take — an anonymous listing containing a restricted work — and it is the fourth premise T39
+was pointed at by a code comment but never absorbed into its own notes. T80 is T28's §C7, which T39
+unblocked without closing and which this iteration briefly and wrongly recorded as closed.
+
+**2026-08-26: T35 is done.** Next in plain file order is **T36** (the scraping-identity page shows
+blockers that are not about identity), `blocked-by: none`. T35's review **did not run** — `/code-review
+high` died on the account's monthly spend limit, the second time this branch has lost a review that
+way (T14 was the first), and the limit resets at 22:20 America/Chicago. The diff was reviewed by
+reading instead, but the dead agent's last thought was a real lead and chasing it found a verified
+defect: **T76**, the same migration cascade-deleting a saved filter's author criterion. A migration
+test seam now exists — `backend/Ao3Tracker.Tests/PseudMigrationTests.cs` — and it is the only place
+in the suite where migration SQL executes at all; everything else starts from `EnsureCreated`.
+
+**T77 is filed**, closing out the standing instruction three iterations have been carrying: one pass
+over the download path rather than eleven. It is a scheduling task over T63–T75 and should be taken
+**instead of T63** when the run reaches T63, not in its own file position at the end.
+
+**2026-08-27: T36 is done.** Next in plain file order is **T38** (an operator way back out of a
+failed backfill), `blocked-by: none` — T37 between them is already `done`. T10 is earlier and still
+blocked by T51. **T77 is still taken instead of T63** when the run reaches T63. T36's `verification`
+line (`npm run build && npm run lint`) cannot see the change it was written for: the fix is what a
+page renders, and there is no test runner in `frontend/`. The live check is the verification, and
+the recipe is in T36's journal entry — a fresh install is already the both-missing case, so there is
+nothing to arrange.
+
+**2026-08-27: T38 is done.** Next in plain file order is **T39** (confirm what AO3 serves for a works
+index with no results), `blocked-by: none` — its fixture landed on 2026-08-24 and the task shrank to
+the test that pins `HasListing`, so read its own notes before assuming it is still a question. T10 is
+earlier and still blocked by T51. **T77 is still taken instead of T63** when the run reaches T63.
+T38 shipped only the recovery half of its notes: **T40 now owns the stalled-run increment guard**,
+and its notes say why and which test it has to re-decide. T38's review ran to completion and found
+three real defects in its own diff, all fixed in it; its fourth finding is **T78**, newly filed at
+the end of the file.
+
+**2026-08-27: T40 is done.** T41 does not exist and T42/T43/T44 are all `done`, so the next `todo`
+in plain file order is **T45** (an incremental pass that cannot get past page 1 has no bound),
+`blocked-by: none` — and it is the incremental twin of the question T40 just answered for the
+backfill, so read T40's journal entry before starting it. T10 is earlier and still blocked by T51. **T77 is still
+taken instead of T63** when the run reaches T63. T40 settled the increment question T38 handed it:
+an unreadable page AO3 *served* counts against the stalled streak, and the guard now reads a new
+`pagesServed` counter rather than `firstPage`, which had been saying this by accident.
+
+**T15 is now two tasks away from selectable.** Its `blocked-by` is T29, T30, T38, T40, T44, T46,
+T47, T52; six of those are `done` and only **T46** and **T52** remain — both `todo`, both
+`blocked-by: none`, and both later in file order than T45. Clearing them unblocks T15, and T15
+unblocks T16 → T17 → T20, which is the rest of the plan.
+
+T40's review **did not run**: `/code-review high` died on the account's monthly spend limit for the
+third time on this branch (T14 and T35 were the others; the limit resets 20:30 America/Chicago). The
+diff was reviewed by reading, and the mutation runs recorded in the journal stand in for the coverage
+argument a reviewer would have asked for.
+
+**2026-08-27: T45 is done.** Next in plain file order is **T46** (a backfill whose cursor sits at
+page 1 can never reach `Failed`), `blocked-by: none` — and with T45 closed, **T46 and T52 are the
+last two blockers on T15**, which unblocks T16 → T17 → T20 and with them the rest of the plan. T46's
+notes have been corrected in place: T40 rewrote the guard they quoted, and the premise survived the
+rewrite — the guard is now `pagesServed == 0` and a 404 still leaves it at zero. T10 is earlier and
+still blocked by T51. **T77 is still taken instead of T63** when the run reaches T63.
+
+T45 needed **no schema change and no migrations**, against notes that had budgeted for both. The
+answer is a bound on the *depth* of the walk rather than on the schedule or on what a stop may
+conclude: after three incremental runs stopping short at the same page, the walk reads that page and
+does not ask for the one after it (`ScrapeStopReason.Held`, a `Failed` run), lifting for one run
+every eight held ones. The streak is derived from `ScrapeRuns` rather than counted into a column,
+which is why there is nothing to reset. **Two of T45's own notes turned out to be unavailable:**
+dropping the `revised_at` filter to reach the page by a different address is blocked on **T58** —
+AO3 discards that parameter, so the "different" address is the identical request — and it is worth
+revisiting *inside* T58 rather than as its own task.
+
+T45's review **ran to completion** — the first since T38, after three consecutive losses to the
+monthly spend limit (T14, T35, T40). All five findings were in T45's own diff: three are fixed in it,
+one was already fixed before the review returned, and one is **T81**, new and filed at the end of the
+file. **T81 should be taken together with T52**, not in its own file position — they are the same
+fact one column over, and shipping either alone leaves the walk and the run history disagreeing about
+a `Breaker` run. Both task notes now say so.
+
+**2026-08-27: T46 is done.** With it, **T52 is the last blocker on T15** — and T52 should be taken
+**together with T81**, which both tasks' notes already say. So the next task is **T52 + T81 as one
+diff**, not the next `todo` in plain file order (T48, T49, T50 and T51 all sit between). T10 is
+earlier still and blocked by T51. **T77 is still taken instead of T63** when the run reaches T63.
+T46's own verification line claimed `~Backfill` matched 13 tests; it matches 35. The claim in a task's
+`verification` line is a guess written before the task ran — check the count before reading anything
+into it.
+
+T46's review ran to completion (the second in a row), read exactly the working-tree diff it was
+given, and returned **two findings, both in this diff and both about claims rather than code**: the
+guard's comment and the task's `delivers` both said the fix "stops asking forever" when it only stops
+the *backfill* asking, and the operator message T46 wrote named a remedy the product does not
+implement. Both texts are corrected in the diff, and the two gaps under them are filed as **T82** and
+**T83**.
+
+**2026-08-28: T52 and T81 are done, shipped as one diff** as both tasks' notes required. With T52
+closed, **T15's `blocked-by` is now entirely `done`** — T29, T30, T38, T40, T44, T46, T47, T52 — so
+**T15 (the full-sweep pass) is the next task**, and it is next in plain file order too: T10 sits
+earlier and is still blocked by T51, and T48–T51 are all later than T15 in the file. T15 unblocks
+T16 → T17 → T20, which is the rest of the plan. Read `.devloop/scraper-audit.md` §D and §E before
+starting it, as its own notes instruct, and note that three of its blockers were added by that audit
+with reasons recorded in the task.
+
+**T77 is still taken instead of T63** when the run reaches T63; the download path's nine open tasks
+(T63/T64/T67/T69/T70/T71/T73/T74/T75) are unchanged by this pass.
+
+T52's `verification` line claimed `~ScrapeWorker` matched 12; it matched **16** before this task and
+18 after. T81's claimed `~Ao3ShipIndexScraper` matched 91; it matched **94** before and 101 after.
+That is the third and fourth consecutive verification line whose count was a stale guess — treat the
+number in a `verification` line as a hint and measure before reading anything into it.
+
+T52+T81's review **ran to completion** (the third in a row), read exactly the working-tree diff for
+the five files it was given, and returned **zero findings** — the first clean review on this branch.
+It did leave one documentation note, now acted on in the diff: the widened streak's comment did not
+name the case the rule now accepts (an archive-wide incident that spans three runs while leaving
+page 1 answering will hold page 2 for up to eight runs). No new tasks came out of this iteration.
+
+**2026-08-28: T15 is done.** The full sweep exists, as a third `ScrapeRunMode` inside
+`Ao3ShipIndexScraper` rather than a scraper of its own — see DECISIONS for why, and for the four
+rules that are only the sweep's. **T16 (notifications) is next**, in plain file order and by
+`blocked-by`, and T15 was its only blocker; it unblocks T17 → T20, the rest of the plan. T10 is
+earlier still and still blocked by T51. **T77 is still taken instead of T63** when the run reaches
+T63.
+
+T15 added one column (`Ship.FullSweepNextPage`, two migrations) and one new task, **T84** — the mark
+the sweep writes has exactly one reader, and it is not the feed. Read T84's notes before touching
+`WorkQueries.Library`: the one-clause fix is a trap. Two audit rows are updated rather than left to
+rot: **D12 is answered** and **E7 is closed**; **E6 is still open and is not the sweep's** — a work
+being gone from AO3 is T10's 404, not a tag it left.
+
+T15's review returned **eight findings, all of them in this diff or created by it** — the first
+review on this branch to find real defects in the task's own work rather than re-deriving old ones.
+**Six were fixed here**, including two the tests had agreed with: the session guard did not compose
+across a sweep's runs, and every ship on the instance would have swept on the same tick. Two are
+filed as **T85** (the worker schedules off the wall clock while everything it drives reads the
+injected `TimeProvider`) and **T86** (no page shows sweep state). DECISIONS has the whole list.
+
+T15's verification filter `~FullSweep` matched **20** tests (0 before); the suite went 808 → 829. Its
+`verification` line named no count, which is the first one on this branch that could not be stale.
+
+Read `.devloop/spec.md` before starting any task. Every task additionally has to leave
+`cd backend && PATH="$HOME/.dotnet:$PATH" dotnet test`, `cd frontend && npm run build` and
+`npm run lint` green — that is the floor, not the verification.
+
+Schema changes need **two** migrations, one per provider:
+```
+cd backend/Ao3Tracker.Api
+PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context SqliteAppDbContext  -o Data/Migrations/Sqlite
+PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresAppDbContext -o Data/Migrations/Postgres
+```
+

@@ -1,0 +1,12 @@
+# Lessons
+
+Reusable, one line each, deduplicated. Read in full every iteration (keep it under ~25 lines).
+A journal `next:` is for *this* handoff; a lesson is what would have saved a past iteration an hour.
+
+- A task's `delivers` line is the contract; its `notes` are one reader's guess at the implementation.
+- Verification filters in task entries may match zero tests — check the count is nonzero before trusting green.
+- Review only this task's diff (`git diff HEAD~1 --name-only`); a branch-wide review re-derives findings already on the list.
+- A reviewer's claim is not a defect until reproduced; unverified claims go to BACKLOG.md, not tasks.md.
+- Mutation scripts that restore whole files must restore in reverse order, or re-read the diff before review.
+- `/usr/bin/dotnet` is runtime-only: non-interactive shells need `PATH="$HOME/.dotnet:$PATH"`.
+- Never `pkill` on `Ao3Tracker.Api.dll` — it matches the systemd dev instance on :5110; kill by PID.
