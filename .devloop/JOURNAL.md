@@ -906,7 +906,7 @@ Append-only. One entry per iteration, newest last.
   line claimed**); `dotnet test` → 799 (795 before); `npm run build` + `npm run lint` → clean, the
   two known fast-refresh warnings only. No live check: backend-only, and the seam the spec names for
   this is the controller/unit tests. Three mutations below.
-- commit: (this iteration's)
+- commit: 87c1167
 - next: **T52 is the last blocker on T15**, and it is taken **with T81** — the two tasks' notes both
   say so, and they are the same fact one column over. That is the next task, ahead of T48–T51 in
   file order. T15 then unblocks T16 → T17 → T20. **T82 and T83 are new**, both filed from T46's
