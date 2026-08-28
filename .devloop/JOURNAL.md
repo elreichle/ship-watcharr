@@ -617,7 +617,7 @@ Append-only. One entry per iteration, newest last.
   `dotnet test` → 808 (799 before); `npm run build` + `npm run lint` → clean, the two known
   fast-refresh warnings only. No live check: backend-only, and the seam the spec names for this is
   the controller/unit tests. Eight mutations below.
-- commit: (see below)
+- commit: 8e43c24
 - next: **T15, the full-sweep pass, is next** — T52 was its last blocker and all eight are now `done`,
   and T15 is next in plain file order too (T10 is earlier and still blocked by T51; T48–T51 are
   later). It unblocks T16 → T17 → T20. Its notes point at `scraper-audit.md` §D and §E and carry two
