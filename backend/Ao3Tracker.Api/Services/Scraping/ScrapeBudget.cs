@@ -18,7 +18,29 @@ public static class ScrapeStopReason
     /// <summary>Circuit breaker opened after too many consecutive failures.</summary>
     public const string Breaker = "breaker";
 
+    /// <summary>
+    /// The walk stopped short of a page that run after run has refused to answer, without asking
+    /// for it. Not a page that failed this run — a page this run deliberately did not spend a
+    /// request on, because the last several runs each spent one on it and got nothing back.
+    ///
+    /// Recorded as a failed run, because it is one: the pass could not get through the listing. It
+    /// is distinct from <see cref="Error"/> so that the walk can tell its own held runs apart from
+    /// the failures that caused them, which is what times the periodic re-probe — see
+    /// <c>Ao3ShipIndexScraper.HeldAfterPageAsync</c>. Like <see cref="Error"/>, and for the same
+    /// reason, it may never move the watermark.
+    /// </summary>
+    public const string Held = "held";
+
     public const string Error = "error";
+
+    /// <summary>
+    /// The process died mid-run, and startup reconciliation closed the row. Not a stop the walk can
+    /// choose — <c>ScrapeWorker.ReconcileInterruptedRunsAsync</c> is the only writer — but a value
+    /// that appears in <c>ScrapeRun.StopReason</c> like any other, and therefore one that anything
+    /// reading that column as a closed vocabulary has to know about. It was a bare string literal
+    /// until <see cref="Held"/> gave the column a reader.
+    /// </summary>
+    public const string Interrupted = "interrupted";
 }
 
 /// <summary>

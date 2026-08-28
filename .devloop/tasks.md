@@ -168,6 +168,30 @@ third time on this branch (T14 and T35 were the others; the limit resets 20:30 A
 diff was reviewed by reading, and the mutation runs recorded in the journal stand in for the coverage
 argument a reviewer would have asked for.
 
+**2026-08-27: T45 is done.** Next in plain file order is **T46** (a backfill whose cursor sits at
+page 1 can never reach `Failed`), `blocked-by: none` — and with T45 closed, **T46 and T52 are the
+last two blockers on T15**, which unblocks T16 → T17 → T20 and with them the rest of the plan. T46's
+notes have been corrected in place: T40 rewrote the guard they quoted, and the premise survived the
+rewrite — the guard is now `pagesServed == 0` and a 404 still leaves it at zero. T10 is earlier and
+still blocked by T51. **T77 is still taken instead of T63** when the run reaches T63.
+
+T45 needed **no schema change and no migrations**, against notes that had budgeted for both. The
+answer is a bound on the *depth* of the walk rather than on the schedule or on what a stop may
+conclude: after three incremental runs stopping short at the same page, the walk reads that page and
+does not ask for the one after it (`ScrapeStopReason.Held`, a `Failed` run), lifting for one run
+every eight held ones. The streak is derived from `ScrapeRuns` rather than counted into a column,
+which is why there is nothing to reset. **Two of T45's own notes turned out to be unavailable:**
+dropping the `revised_at` filter to reach the page by a different address is blocked on **T58** —
+AO3 discards that parameter, so the "different" address is the identical request — and it is worth
+revisiting *inside* T58 rather than as its own task.
+
+T45's review **ran to completion** — the first since T38, after three consecutive losses to the
+monthly spend limit (T14, T35, T40). All five findings were in T45's own diff: three are fixed in it,
+one was already fixed before the review returned, and one is **T81**, new and filed at the end of the
+file. **T81 should be taken together with T52**, not in its own file position — they are the same
+fact one column over, and shipping either alone leaves the walk and the run history disagreeing about
+a `Breaker` run. Both task notes now say so.
+
 Read `.devloop/spec.md` before starting any task. Every task additionally has to leave
 `cd backend && PATH="$HOME/.dotnet:$PATH" dotnet test`, `cd frontend && npm run build` and
 `npm run lint` green — that is the floor, not the verification.
@@ -1273,7 +1297,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   shape as T32.
 
 ## T45 — An incremental pass that cannot get past page 1 has no bound
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A ship whose incremental pass stops with `Error` on the same page every tick stops
@@ -1318,11 +1342,13 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
 - verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Backfill`
   — 13 today, and the filter that covers the stall counter.
 - notes: Found by `/code-review high` during T43, in T37's committed code.
-  `RecordBackfillProgress`'s `if (!askedStaleCursor && firstPage is null) return;` reads "the
-  archive told this run nothing", which is right for the budget, the breaker, a transport failure
-  and a refused status — and wrong for a 404, which is the archive answering definitively. With the
+  `RecordBackfillProgress`'s guard reads "the archive told this run nothing", which is right for the
+  budget, the breaker, a transport failure and a refused status — and wrong for a 404, which is the
+  archive answering definitively. **T40 rewrote that guard and the premise survived intact**: it is
+  now `if (!askedStaleCursor && pagesServed == 0) return;`, and `pagesServed` counts only 200s whose
+  body reached the parser, so a 404 leaves it at zero exactly as it left `firstPage` null. With the
   cursor at page 1 `CursorMayBeStale` is false (`page > 1` fails), so no retreat happens,
-  `firstPage` stays null, and the counter never moves. The ship stays `InProgress`, `ScrapeWorker`
+  `askedStaleCursor` is false, and the counter never moves. The ship stays `InProgress`, `ScrapeWorker`
   goes on choosing `Backfill` for it, and it never falls back to an incremental pass — so unlike
   every other stalled ship, this one collects nothing at all and never reaches `Failed` to say so.
   Reachable for an already-verified ship whose tag is later renamed or deleted: `ShipVerifier`
@@ -1510,6 +1536,12 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   both providers, so weigh it). Do **not** widen this into a review of every stop reason — `cap` and
   `timeCap` are genuinely successful outcomes for a backfill, and `watermark`/`lastPage` are the
   healthy ends. `Breaker` is the one that means the archive was failing.
+  **T81 is this task's other half and should be taken in the same diff.** T45 built a bound on a
+  stuck incremental pass that reads `StopReason` out of the run history, and it counts `Error` and
+  `Held` but not `Breaker` — so the transport-failure route to a stuck page, which is the *most*
+  expensive one, escapes the bound entirely. Fixing the status here without fixing the streak there
+  leaves the two disagreeing about the same run; fixing the streak without fixing the status would
+  have the walk treat a run as stuck while the history calls it a success. See T81.
 
 ## T53 — Which pass a ship gets is pinned by no test
 - status: todo
@@ -2129,3 +2161,40 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   `Reads_AO3s_own_zero_result_Listing_as_nothing_new_rather_than_an_error` are the two that pin the
   filtered path today and both must stay green — an incremental pass must keep concluding
   `LastPage`, never `Error`, on a quiet ship.
+
+## T81 — A page that fails at the transport level escapes T45's bound
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A ship whose page N times out or resets on every run stops spending
+  `MaxConsecutiveFailures` requests a tick on it, the same way T45's bound stops the ship whose
+  page N answers 404.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Ao3ShipIndexScraper`
+  — 91 today; name the new tests so this filter matches them.
+- notes: Found by `/code-review high` during T45, in T45's own committed code, and confirmed against
+  the source in that iteration. `HeldAfterPageAsync`'s streak counts a run whose `StopReason` is
+  `Error` or `Held`. There is a third way to stop on a page that will not answer: the
+  transport-failure branch (`Ao3ShipIndexScraper.cs:211`, audit row **B5**) does not advance `page`
+  — it is the one rule in the walk that deliberately re-asks a URL — so a page that times out is
+  re-requested until the breaker opens and the run stops with `ScrapeStopReason.Breaker`. That run
+  leaves `LastPageFetched` at the page before, exactly as an `Error` run does, but its stop reason is
+  in neither arm of the predicate, so the streak never accumulates and the hold never engages.
+  **It is the expensive variant.** An `Error` route costs two requests a tick; this one costs
+  1 + `MaxConsecutiveFailures` = 4, each of them a full `HttpClient` timeout on the shared 5-8s gate.
+  The bound was built for the cheaper case and misses the dearer one.
+  **Take it with T52, which is the same fact one column over.** T52 makes a `Breaker` run record as
+  `Failed`; this makes the walk count it. Shipped apart, the two disagree: a run the walk treats as
+  stuck while the history calls it a success, or the reverse. T52 is `blocked-by: none` and earlier
+  in file order, so the natural shape is one diff carrying both.
+  Two things to settle rather than assume:
+  - **`Breaker` with no page read is a different claim.** If page 1 itself is what times out,
+    `LastPageFetched` is null and `HeldAfterPageAsync` already declines — correctly, since that is
+    "the archive is down", not "this ship is stuck on a page". Check that the widened predicate
+    keeps that split rather than inheriting it by luck.
+  - **Whether `Cap` and `TimeCap` belong too.** They almost certainly do not: a backfill exhausting
+    its budget is a healthy outcome and an incremental pass rarely reaches one, so counting them
+    would hold a page over a run that simply ran out of allowance before asking. Say so in
+    `DECISIONS.md` either way — T45's own reasoning turned on `Held` being narrower than "the run
+    did not finish".
+  Add a row to `.devloop/scraper-audit.md` §B18 when it lands; B18 currently names two entrances and
+  this is the third.

@@ -64,6 +64,11 @@ public class ScrapeRun
     /// <summary>Stopped at the wall-clock budget.</summary>
     public bool HitTimeCap { get; set; }
 
-    /// <summary>"watermark" | "cap" | "breaker" | "lastPage" | "error".</summary>
+    /// <summary>
+    /// One of <c>ScrapeStopReason</c>: "watermark" | "cap" | "timeCap" | "breaker" | "lastPage" |
+    /// "held" | "error" | "interrupted". Read as a closed vocabulary by
+    /// <c>Ao3ShipIndexScraper.HeldAfterPageAsync</c>, so a new value belongs in that class rather
+    /// than at its write site.
+    /// </summary>
     public string? StopReason { get; set; }
 }

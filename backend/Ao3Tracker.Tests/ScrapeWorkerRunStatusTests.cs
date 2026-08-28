@@ -43,6 +43,27 @@ public class ScrapeWorkerRunStatusTests
         Assert.Null(run.ErrorMessage);
     }
 
+    [Fact]
+    public async Task A_run_that_held_a_page_rather_than_asking_for_it_is_recorded_as_failed()
+    {
+        // A held run read and ingested everything up to the page it stopped at, so it is not nothing
+        // — but it did not get through the listing, and the run history is the only place a headless
+        // worker reports itself. Filed as a success it would hide the one ship on the instance that
+        // needs looking at among the healthy ones, and the streak that timed the hold is read back
+        // out of these same rows.
+        using var host = new LibraryTestHost(
+            new StubScraper(
+                Ao3ScraperKeys.ShipIndex,
+                ScrapeStopReason.Held,
+                "Page 2 has not answered for the last 5 runs; it was not requested this run"));
+
+        var run = await RunOneAsync(host);
+
+        Assert.Equal(ScrapeRunStatus.Failed, run.Status);
+        Assert.Equal(ScrapeStopReason.Held, run.StopReason);
+        Assert.Equal("Page 2 has not answered for the last 5 runs; it was not requested this run", run.ErrorMessage);
+    }
+
     private static async Task<ScrapeRun> RunOneAsync(LibraryTestHost host)
     {
         var emma = host.SeedUser();

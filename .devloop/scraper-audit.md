@@ -63,11 +63,29 @@ run that made no request at all. Noted on **T46**, which owns the ships-pointed-
 | B15 | …the same page with no next link is **not** an error | `:446` | incremental | a small tag the parser is struggling with is not a runaway walk | `Does_not_call_a_last_page_an_error_when_an_incremental_pass_could_not_read_its_dates` |
 | B16 | A page with works and no next link → `LastPage` | `:467` | both | the listing's own word on where it ends — the strongest evidence in the system | `Marks_the_backfill_complete_when_it_runs_out_of_pages` |
 | B17 | An undated blurb is ingested but casts no vote and proposes no watermark | `:394`, `:421` | incremental | "no age at all" is not "very old" (T22) | `Keeps_an_incremental_pass_going_past_a_blurb_whose_date_it_could_not_read` |
+| B18 | After `MinStuckIncrementalRuns` runs stopping short at the same page, the walk stops asking for the page *after* it → `Held`; lifted for one run every `ProbeHeldPageEveryNthRun` held runs | `:125`, `:537`, `:714` | incremental | **nothing about the listing** — it is a bound on requests, not a conclusion. The watermark may not move on a `Held` stop, exactly as on an `Error` (T45) | `Stops_asking_for_a_page_that_has_not_answered_for_the_last_few_runs`, `Holding_a_page_leaves_the_watermark_exactly_where_the_failures_left_it`, `Asks_a_held_page_again_once_enough_runs_have_held_it`, `Bounds_a_stuck_incremental_pass_over_consecutive_runs_through_the_worker` |
 
 **B4 and the `Cap` stop reason.** The page ceiling and the request budget report the same string, and
 only `ScrapeRun.HitRequestCap` tells them apart — false on a ceiling stop. Reading the run history,
 "cap" with the flag clear is the only trace a pagination bug leaves. Low consequence, deliberately
 not queued; recorded here so the next reader of a `cap` run knows the two are distinct.
+
+**B18 is the only rule here that decides what to ask from the *run history* rather than from the
+page in hand.** It is deliberately not a conclusion: B6, B7 and B11 all leave a stuck incremental
+pass rebuilding the same two requests every tick, correctly refusing to conclude anything from a
+page that did not answer — and B18 spends fewer requests on that refusal without softening it. The
+streak is read out of `ScrapeRuns` rather than counted into a column on the ship, so one healthy run
+clears it with nothing to remember to reset. §G's question — *which pass is entitled to conclude
+this* — has the answer "none, and it does not"; what B18 changes is only the cost of not concluding.
+
+**B18 covers two of the three entrances, and the one it misses is the dearest.** Its streak counts a
+run whose stop reason is `Error` or `Held`, which is B7's 404 and B11's unreadable page. B5 —
+the transport failure, the one rule in the walk that re-asks a URL — reaches the same stuck state by
+a third road and stops with `Breaker`, which is in neither arm: `LastPageFetched` lands on the same
+page, the streak never accumulates, and the hold never engages. That variant costs
+1 + `MaxConsecutiveFailures` requests a tick against the `Error` route's two. **Gap: T81**, to be
+taken with **T52** (§F1), which is the same fact one column over — the `Breaker` run that records
+`Succeeded`.
 
 **B5 is the only rule in the walk that re-asks a URL**, and it is the one the breaker exists for. Its
 neighbour B6 does not, by T23's ruling; the difference is that a response is AO3's answer and a
@@ -179,7 +197,8 @@ it is the difference between an operator seeing a stuck ship and seeing a green 
 | F4 | A run whose results cannot be saved is re-recorded `Failed` through a fresh context | `:322` | a run that could not be written is not a run that succeeded (T27) | `A_job_whose_save_fails_is_recorded_as_failed_and_rescheduled` |
 | F5 | One scope per job | `:175` | one ship's rejected change set must not fail every ship behind it (T27) | `Each_job_in_a_poll_gets_its_own_scope`, `A_failed_job_does_not_skip_the_rest_of_the_poll` |
 | F6 | Runs `Running` past 30 minutes are `Interrupted` at startup | `:88` | a backfill legitimately runs for hours, so no read-time timeout could tell the two apart | unpinned, below |
-| F7 | `pagesFetched`, `firstPage` and `lastPage` are set **before** the unreadable break | `:309` | — | **gap: T40**, a run claims to have read a page it could not read |
+| F7 | `pagesFetched`, `firstPage` and `lastPage` are set **before** the unreadable break | `:309` | — | **gap: T40**, a run claims to have read a page it could not read — closed 2026-08-27, the four counters now sit below the break |
+| F8 | A `Held` run is recorded `Failed`, like an `Error` | `ScrapeWorker.cs:323` | it read and ingested what it reached, but it did not get through the listing, and the run history is the only place a headless worker reports itself (T45) | `A_run_that_held_a_page_rather_than_asking_for_it_is_recorded_as_failed` |
 
 **F1 is the gap worth a task.** `Breaker` is the one budget stop that means *the archive was
 failing*: three consecutive refused or timed-out requests, spaced by the 5–8s gate, and the run
@@ -231,6 +250,7 @@ listing, and the rules it inherits are now written down rather than inferred.
 | Filtered page 1 accepts the contradiction page 2 refuses | C7 | T50 (already queued) |
 | Unfiltered page 1 with no heading may complete a backfill | C7 | **T80** (new) — T39's capture removed the reason not to fix it, but the code is unchanged and still concludes |
 | A 404 at page 1 never counts as a stalled run; a denied tag reports `LastPage` | D6, A2 | T46's notes |
+| A page failing at the transport level stops with `Breaker`, so T45's bound never sees it | B18, F1 | **T81** (new), to be taken with T52 |
 | Two tasks describe the same CA2017 warning | — | T41 folded into T49; see `DECISIONS.md` |
 
 ---

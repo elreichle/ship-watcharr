@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using Ao3Tracker.Api.Data;
 using Ao3Tracker.Api.Models;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace Ao3Tracker.Api.Services.Scraping;
@@ -51,6 +52,41 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// </summary>
     internal const int MaxStalledBackfillRuns = 12;
 
+    /// <summary>
+    /// How many consecutive incremental runs may stop short at the same page before the walk stops
+    /// asking for the page after it.
+    ///
+    /// The backfill's counter above is a bound on a *conclusion* and is therefore wide; this one
+    /// bounds nothing but wasted requests, so it can be narrow. Three runs is enough to tell a page
+    /// that is refusing from one that failed once, and every one of those three is recorded failed
+    /// with a message naming the page — so the hold never lands on a ship whose trouble has not
+    /// already been reported three times over.
+    /// </summary>
+    internal const int MinStuckIncrementalRuns = 3;
+
+    /// <summary>
+    /// How many held runs pass before the walk spends one request re-asking the page it is holding
+    /// at.
+    ///
+    /// The hold has to be temporary: the page stopped answering for a reason nothing here knows,
+    /// and a listing that heals must not need an operator to notice. So the held runs are counted
+    /// too, and this many of them in a row lifts the hold for one run. The cost of the hold is
+    /// therefore one request every <see cref="ProbeHeldPageEveryNthRun"/> runs instead of one every
+    /// run, and the cost of being wrong about the page is a delay of that many scheduler intervals
+    /// rather than a permanent one.
+    /// </summary>
+    internal const int ProbeHeldPageEveryNthRun = 8;
+
+    /// <summary>
+    /// How many finished runs the streak is read out of. Both counts below are `TakeWhile`s over
+    /// this window, so a window shorter than either constant silently caps it — and capping
+    /// <see cref="MinStuckIncrementalRuns"/> is not a smaller hold but no hold at all, since
+    /// <c>stuck</c> could then never reach it. Derived from both rather than written as a literal
+    /// so that raising either one on its own cannot turn the bound off with nothing to show for it.
+    /// </summary>
+    private const int StreakWindow =
+        MinStuckIncrementalRuns > ProbeHeldPageEveryNthRun ? MinStuckIncrementalRuns : ProbeHeldPageEveryNthRun;
+
     private readonly AppDbContext _db;
     private readonly IRateLimitedHttpClient _http;
     private readonly IWorkIngestor _ingestor;
@@ -91,6 +127,14 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             return ScrapeOutcome.Empty(ScrapeStopReason.LastPage);
 
         var startPage = context.Mode == ScrapeRunMode.Backfill ? Math.Max(1, ship.BackfillNextPage ?? 1) : 1;
+
+        // Read once, before the walk, from the run history this pass has already written. Only the
+        // incremental pass needs it: a backfill that cannot get past a page has a cursor to carry
+        // the question into the next run and MaxStalledBackfillRuns to bound it, and an incremental
+        // pass has neither — it restarts at page 1 every time and re-asks the same refusing page.
+        var heldAfter = context.Mode == ScrapeRunMode.Incremental
+            ? await HeldAfterPageAsync(context.Job.Id, ct)
+            : null;
 
         // Captured before the walk, because the walk may move it. What is allowed to move it, and
         // what a given run has seen enough of the listing to conclude, is decided in FinishAsync.
@@ -495,6 +539,27 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 break;
             }
 
+            // The page after this one is the one the last several runs each spent a request on and
+            // got nothing back from. Do not spend another. Deliberately below the LastPage stop
+            // above, so a listing that has since shrunk to end here still ends the run healthily
+            // and still moves the watermark — the hold applies to asking for the next page, not to
+            // reading this one.
+            if (heldAfter is { } held && page >= held.Page)
+            {
+                _logger.LogWarning(
+                    "Page {Next} for ship {ShipId} ({Tag}) has not answered for at least the last {Runs} runs, "
+                    + "so it was not requested this one. Page {Page} was read as usual, and the page after it "
+                    + "is asked for again after {Probe} held runs.",
+                    page + 1, ship.Id, ship.CanonicalTagName, held.Runs, page, ProbeHeldPageEveryNthRun);
+
+                stopReason = ScrapeStopReason.Held;
+                errorMessage =
+                    $"Page {(page + 1).ToString(CultureInfo.InvariantCulture)} has not answered for at least "
+                    + $"the last {held.Runs.ToString(CultureInfo.InvariantCulture)} runs; it was not requested "
+                    + "this run";
+                break;
+            }
+
             // The retreat's answer, in the case where the listing sides with the cursor. This run
             // already asked for the page after this one and got nothing readable back; the page
             // before it insisting that page exists does not make a second identical request any
@@ -605,6 +670,92 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
         return $"{cursorBecause}, and {retreatBecause}, so the listing is shorter than the backfill "
             + $"cursor by more than one page; retrying from page {landing.ToString(CultureInfo.InvariantCulture)}";
+    }
+
+    // ---- a page an incremental pass cannot get past ---------------------------------------------
+
+    /// <summary>
+    /// The page an incremental walk may not ask past this run, and how long it has been stuck there.
+    ///
+    /// <paramref name="Runs"/> is a floor, not a total: the streak is read out of a window
+    /// <see cref="ProbeHeldPageEveryNthRun"/> runs deep, so a ship stuck for fifty runs reports the
+    /// window's depth. Everything reading it says "at least" for that reason — the number is there
+    /// to tell one bad afternoon from a refusal, and widening the query to make it exact would buy
+    /// nothing either decision needs.
+    /// </summary>
+    private sealed record HeldPage(int Page, int Runs);
+
+    /// <summary>
+    /// The deepest page recent incremental runs of this job have all managed to read before
+    /// stopping short — once enough of them have stopped at the same place for that to be a
+    /// refusal rather than an accident.
+    ///
+    /// The shape being bounded: a ship whose page 1 is entirely newer than the watermark and offers
+    /// a next link, followed by a page 2 that will not answer. Nothing in the walk concludes
+    /// anything from that — correctly, since concluding the end of the listing would move the
+    /// watermark past works page 2 holds and no later incremental pass looks behind a watermark
+    /// (T24). But the run stops with <see cref="ScrapeStopReason.Error"/>, an <c>Error</c> may not
+    /// move the watermark, and an incremental pass has no cursor — so the next run rebuilds the
+    /// identical two requests, and so does every run after it, for ever. Two ways in: a 404 on
+    /// page 2, and a filtered page 2 carrying no heading to say the result set ended (see
+    /// <see cref="FilteredHeadingSaysThisIsAll"/>, whose own doc names this as its price).
+    ///
+    /// What is wrong there is only the second request. The first is doing its job — page 1 is where
+    /// new works appear, and every one of these runs ingests them — so the bound is on the *depth*
+    /// of the walk and not on how often the ship is scraped or on what it may conclude. Holding at
+    /// page N gives up nothing the erroring runs were achieving: they were not getting past N
+    /// either. What it does not do, and must not, is decide anything about the listing; the
+    /// watermark stays exactly where <see cref="FinishAsync"/> left it.
+    ///
+    /// Derived from <c>ScrapeRuns</c> rather than counted into a column on the ship. The run
+    /// history already records what each run read and why it stopped, so a counter would be a
+    /// second copy of it to keep in step — and the reset half of exactly that pairing is what
+    /// <see cref="MaxStalledBackfillRuns"/> needed two tasks to get right. A streak read from
+    /// history cannot fall out of step: one healthy run and it is gone, with nothing to remember to
+    /// clear.
+    ///
+    /// Returns null — the walk goes as deep as it likes — in three cases. When the streak is short.
+    /// When the most recent run read no page at all: runs that read nothing name no page to hold at,
+    /// and "the page after none" is page 1, which the hold — sitting below the read rather than
+    /// above it — would turn into refusing page 2 on the strength of failures that never got as far
+    /// as asking for it. And once every <see cref="ProbeHeldPageEveryNthRun"/> held runs, which is
+    /// how a listing that heals is found again without an operator.
+    /// </summary>
+    private async Task<HeldPage?> HeldAfterPageAsync(int jobId, CancellationToken ct)
+    {
+        // Id descending is the order the runs started in, and a job's runs never overlap, so among
+        // the finished ones that is the order they ended in too. `CompletedAt != null` is what
+        // leaves out this run's own row — the worker opens it before the scraper is called, and it
+        // carries no stop reason and no page yet, so counting it would end every streak at nothing.
+        var recent = await _db.ScrapeRuns
+            .AsNoTracking()
+            .Where(r => r.ScrapeJobId == jobId
+                && r.Mode == ScrapeRunMode.Incremental
+                && r.CompletedAt != null)
+            .OrderByDescending(r => r.Id)
+            .Select(r => new { r.StopReason, r.LastPageFetched })
+            .Take(StreakWindow)
+            .ToListAsync(ct);
+
+        if (recent.Count == 0) return null;
+        if (recent[0].LastPageFetched is not { } page) return null;
+
+        // Held runs count towards the streak alongside the errors that started it: a run that did
+        // not ask is not evidence the page has recovered, and dropping them would end the streak on
+        // the first held run and restore the every-tick request this exists to stop.
+        var stuck = recent
+            .TakeWhile(r =>
+                r.LastPageFetched == page
+                && r.StopReason is ScrapeStopReason.Error or ScrapeStopReason.Held)
+            .Count();
+
+        if (stuck < MinStuckIncrementalRuns) return null;
+
+        var heldInARow = recent
+            .TakeWhile(r => r.LastPageFetched == page && r.StopReason == ScrapeStopReason.Held)
+            .Count();
+
+        return heldInARow >= ProbeHeldPageEveryNthRun ? null : new HeldPage(page, stuck);
     }
 
     // ---- what a page with no readable works may conclude ---------------------------------------

@@ -2188,3 +2188,108 @@ build. Not something a task should chase.
   (`dotnet run`) and its child, and T19's chrome-headless-shell tree (1994238, 1996041). This task
   started none of its own — test-only, no live check. The systemd dev instance (pid 2033) was not
   touched.
+
+## 2026-08-27 — T45 An incremental pass that cannot get past page 1 has no bound — done
+
+- did: After `MinStuckIncrementalRuns` (3) consecutive incremental runs stop short at the same page,
+  the walk reads that page and stops **without asking for the one after it** — a new
+  `ScrapeStopReason.Held`, recorded as a `Failed` run whose message names the page and says it was
+  not requested. The streak is derived from `ScrapeRuns` (`StopReason` + `LastPageFetched`) rather
+  than counted into a column, so there is no schema change, no migration, and nothing to reset. Held
+  runs count towards their own streak, and `ProbeHeldPageEveryNthRun` (8) of them in a row lifts the
+  hold for one run so a listing that heals is found without an operator.
+- files: `Api/Services/Scraping/{Ao3ShipIndexScraper,ScrapeBudget,ScrapeWorker}.cs`,
+  `Api/Models/ScrapeRun.cs`, `Tests/{Ao3ShipIndexScraperTests,ScrapeWorkerRunStatusTests}.cs`,
+  `.devloop/{tasks,DECISIONS,JOURNAL,scraper-audit}.md`
+- ran: `dotnet test --filter ~Ao3ShipIndexScraper` → 91 passed (**78 before**, not the 67 the task's
+  own verification line claimed); `dotnet test` → 795 (781 before); `npm run build` + `npm run lint`
+  → clean, the two known fast-refresh warnings only. No live check: backend-only, and the seam the
+  spec names for this is the controller/unit tests. Mutations below.
+- commit: (this task's commit)
+- next: **T46 is next in plain file order** (`blocked-by: none`), and with T45 closed **T46 and T52
+  are the last two blockers on T15**, which unblocks T16 → T17 → T20 and the rest of the plan. T46's
+  notes have been **corrected in place**: they quoted `if (!askedStaleCursor && firstPage is null)`,
+  which T40 rewrote to `pagesServed == 0` — the premise survived the rewrite (a 404 leaves
+  `pagesServed` at zero exactly as it left `firstPage` null), but the quote would have sent the next
+  iteration looking for code that is not there. **T81 is new** and should be taken **with T52**, not
+  in its own file position. T77 is still taken instead of T63.
+- **`delivers` picked the design, and it picked against the notes' own preference.** T45's notes
+  weighed widening the `revised_at` bound, dropping the filter for a run to reach the page by a
+  different address, and a give-up threshold (which they also ruled out). The `delivers` line reads
+  "stops spending a request **on it** every tick" — *on it* is the page, so the bound is on the
+  **depth of the walk**. That turned out to be the cheapest of the three by a wide margin: no schema,
+  no scheduler change, and nothing given up, because the held run still reads page 1 and ingests
+  every new work on it. The erroring runs were not getting past page N either; the hold keeps the
+  request that was doing the work and drops the one that was not.
+- **The notes' preferred option is blocked on a task nobody had connected it to.** "Drop the filter
+  for one run so the walk can reach page 2 by a different address" rests on the two addresses being
+  different requests — and **T58** is a filed, browser-verified finding that AO3 discards
+  `work_search[revised_at]` on this endpoint entirely. So today the retry would be the *identical*
+  request under a parameter Rails throws away: a second round trip on the shared 5-8s gate for a
+  guaranteed-identical answer. **Reading the sibling tasks a note points at, before building to it,
+  is what cost fifteen minutes and saved a wrong design** — the note was written before T58 existed
+  and nothing had gone back to reconcile them.
+- **Six mutations, each red in a different place, and one survivor that was the most useful of them.**
+  Hold disabled → 6 tests. Threshold 3→2 → the "only just started refusing" test. Held runs dropped
+  from the streak → the test named for that. Probe removed → the probe test. Incremental gate removed
+  → the backfill test. Hold moved above the `LastPage` stop → the healed-listing test.
+  **The survivor: removing the `LastPageFetched is not { } page` guard changed nothing**, because
+  `r.LastPageFetched == page` already excludes null rows when `page` is an `int`. The test I had
+  written for that guard was passing for a reason that had nothing to do with it — its stub 404'd
+  page 1, so the walk broke before ever reaching the hold. Rewritten to the situation the guard is
+  actually about, and re-mutated against the realistic wrong implementation (`int? page`, letting
+  nulls match each other), where it reds. **A mutation that survives is worth more than one that
+  reds: it is the only thing that tells you a test is agreeing with the code rather than checking
+  it** — G3 in the audit, arrived at from the other direction.
+- **The review ran to completion, the first since T38** (T14, T35 and T40 all lost theirs to the
+  monthly spend limit; checking the reset time before launching is what made the difference). Five
+  findings, **all five in this diff**. Three fixed here, one already fixed before it returned, one
+  filed as T81. The two worth carrying:
+  - **A window that silently coupled two constants documented as independent.** `stuck` and
+    `heldInARow` were both `TakeWhile`s over one `Take(ProbeHeldPageEveryNthRun)`, so `stuck` could
+    never exceed 8 — and raising `MinStuckIncrementalRuns` to 8 or above, the obvious response to a
+    false hold, would have **turned the whole bound off with no error and no failing test**. Now
+    `StreakWindow`, derived from both. The test that pins it seeds `MinStuckIncrementalRuns` rows
+    rather than a literal three, which is what makes it follow the constant instead of agreeing with
+    today's value.
+  - **A third entrance to the stuck state that the bound does not cover, and it is the expensive
+    one.** The streak counts `Error` and `Held`; a page that fails at the *transport* level is
+    re-asked by B5 until the breaker opens and stops the run with `Breaker`, on the same
+    `LastPageFetched`. 1 + `MaxConsecutiveFailures` = 4 requests a tick against the `Error` route's
+    two. **T81**, and it must ship with **T52** — T52 makes a `Breaker` run record as `Failed`, and
+    either one alone leaves the walk and the run history disagreeing about the same row.
+- **The build caught a CA2017 I had just written, of exactly the kind T49 exists for.** My hold's
+  `LogWarning` used `{Next}` twice over five arguments. Structured logging counts *occurrences*, not
+  distinct names. Reworded so every placeholder appears once; the one remaining CA2017, at
+  `Ao3ShipIndexScraper.cs:638`, is still T49's in `RetreatFromStaleCursor` and was not touched.
+  **Read the build's warnings on a diff that adds a log line**, not only its errors.
+- **`git checkout <path>` ate the task's work, exactly as T39's entry warned it would.** I used it to
+  revert a mutation between runs; the file was modified and uncommitted, so it restored from HEAD and
+  took all 129 lines with it. Recovered from a scratchpad copy taken before the first mutation. **I
+  had read that warning in this same iteration and walked into it anyway** — the durable fix is not
+  to remember harder but to keep the copy: `cp` the file to the scratchpad before the first mutation
+  and `cp` it back between them, which is what the rest of the run did.
+- **Only half of one review finding was worth a fix, and the split is the convention.** Finding 2
+  (`Breaker` still recorded `Succeeded`) is already **T52** and was left alone; finding 1 became T81
+  rather than being folded in, on T38's precedent that `delivers` is the contract — but the stronger
+  reason is that folding it in would have half-shipped it against T52.
+- **`.devloop/scraper-audit.md` gained B18 and F8**, per T45's note that whatever came out belongs in
+  T28's table, and the T81 gap is recorded against both. Also noticed while there: **F7 still read as
+  an open gap for T40**, which closed on 2026-08-27 — corrected in passing. A `done` task's findings
+  row is not self-updating, and nothing re-reads that table on the way past.
+- Filters checked to bite, per T22's lesson: `~Ao3ShipIndexScraper` matched **78 before and 91
+  after** — the task's own verification line said 67, which was three tasks stale, so the number in a
+  `verification` line is a hint and not a baseline. Every new test lives in `Ao3ShipIndexScraperTests`
+  so the class name carries them whatever they are called; the worker-side one is in
+  `ScrapeWorkerRunStatusTests` (2 → 3, `~ScrapeWorkerRunStatus`) and is outside this task's filter by
+  design. T81's `~Ao3ShipIndexScraper` is 91 today.
+- **A registration this test class needed and the host cannot provide.** `LibraryTestHost` registers
+  the real scraper as itself, which is all `ScrapeAsync` needs, but `ScraperRegistry` resolves
+  `IAo3Scraper` — so a worker run inside this class found no scraper and recorded no run at all, and
+  the end-to-end test returned an empty list. Registered per-class rather than in the host because
+  the registry's `ToDictionary` throws on the duplicate key the worker tests' stub would create.
+  Worth knowing for any future test that wants a real end-to-end scrape.
+- Leaked processes from earlier iterations, unchanged and none of them this task's: pid 1963836
+  (`dotnet run`) and its child, and T19's chrome-headless-shell tree (1994238, 1996041). This task
+  started none of its own — backend-only, no live check. The systemd dev instance (pid 2033) was not
+  touched.

@@ -2628,3 +2628,127 @@ assert the *increment*.
 **T40's review did not run** — the account's monthly spend limit, for the third time on this branch
 after T14 and T35. Reviewed by reading, with three mutations standing in for the coverage argument:
 see the journal entry.
+
+## 2026-08-27 — T45: the bound on a stuck incremental pass is a page it stops asking for
+
+**Three answers were on the table and `delivers` picked one.** T45's notes weighed widening the
+`revised_at` bound, dropping the filter for a run so the walk reaches page 2 by a different address,
+and a give-up threshold; they also ruled the third out ("give up on new works is not a terminal state
+this product can have"). The `delivers` line settles between the other two, and it reads *"stops
+spending a request **on it** every tick, without that ever being written as a moved watermark"* —
+"on it" is the page. The bound is on the depth of the walk.
+
+**Dropping the filter was the notes' own preference and is not available.** It rests on the two
+addresses being different requests, and **T58 is a filed, browser-verified finding that AO3 discards
+`work_search[revised_at]` on this endpoint entirely** — the tag listing's filter form offers
+`date_from`/`date_to` and has no `revised_at` field. So today the "unfiltered" retry would be the
+identical request under a parameter Rails throws away: a second round trip to the same shared 5–8s
+gate for a guaranteed-identical answer. That is exactly the load this project refuses to spend. The
+idea is not wrong, it is *blocked on T58*, and it is worth revisiting there rather than building it
+now against a parameter that does nothing.
+
+**Widening the bound has the same problem and one more**: it is still a conclusion about how much of
+the listing to ask for, drawn from a failure that says nothing about the listing.
+
+**So: after three consecutive incremental runs that stopped short at the same page, the walk reads
+that page and stops, without asking for the one after it.** Recorded as `ScrapeStopReason.Held` and
+as a `Failed` run carrying a message that names the page and says it was not requested.
+
+Three properties are what make this the cheap answer rather than a compromise:
+
+- **It gives up nothing the erroring runs were achieving.** They were not getting past page N either.
+  What the held run keeps is the request that was doing the work — page 1 is where new works appear
+  in a `revised_at desc` listing, and every held run still reads and ingests it. A bound on how
+  *often* the ship is scraped (backing `NextRunAt` off) would have cost exactly that, and would have
+  been paid by the reader waiting longer for new works to appear.
+- **It concludes nothing.** `Held` is not in `FinishAsync`'s `mayPropose` set, so the watermark does
+  not move, which is the whole reason B6/B7/B11 leave the pass stuck in the first place. The hold
+  sits *below* the `LastPage` stop in the walk, so a listing that has since shrunk to end at page N
+  still ends the run healthily and still moves the watermark on the listing's own word.
+- **It is reversible without an operator.** Held runs are counted too, and
+  `ProbeHeldPageEveryNthRun` of them in a row lifts the hold for one run. Steady state is one
+  request a run plus one extra every eight, against two every run — and a listing that heals is
+  found by the next probe rather than by someone noticing.
+
+**The streak is derived from `ScrapeRuns`, not counted into a column on the ship.** The run history
+already records what each run read (`LastPageFetched`) and why it stopped (`StopReason`), so a
+counter would be a second copy of a fact the database already holds, with an increment site and a
+reset site to keep in step — and the reset half of that exact pairing is what `BackfillStalledRuns`
+took T38 and T40 to get right. A streak read from history cannot drift: one healthy run and it is
+gone, with nothing to remember to clear. It also means **no schema change and no migrations**, which
+the notes had budgeted for.
+
+**Two things only the end-to-end test could catch, and one of them was real.** The walk reads a
+streak the *worker* writes, and it reads it while its own `ScrapeRun` row is already open and still
+says nothing about where it got to — so without `CompletedAt != null` the most recent row is always
+the run in flight, always reads back as "no page", and **the hold would never fire on a real
+instance while every direct-call test passed**. `Bounds_a_stuck_incremental_pass_over_consecutive_
+runs_through_the_worker` drives four real runs through `RunDueJobsAsync` and is the only test that
+reds when that filter is removed. It needed `IAo3Scraper` registered for this test class: the host
+registers the real scraper as itself, which is all `ScrapeAsync` needs, but `ScraperRegistry`
+resolves the interface — registered per-class rather than in the host because the registry's
+`ToDictionary` throws on the duplicate key the worker tests' stub would create.
+
+**`Held` is a `Failed` run.** It read and ingested what it reached, but it did not get through the
+listing, and the run history is the only place a headless worker reports itself — F1's finding, one
+row over. It is a distinct stop reason rather than a reused `Error` because the walk has to tell its
+own held runs from the failures that caused them; that is what times the probe. The Schedules page
+renders both `stopReason` and `errorMessage` verbatim, so it needs no change to show this.
+
+**Recorded as B18 and F8 in `.devloop/scraper-audit.md`**, per T45's note that whatever came out
+belongs in T28's table. B18 is the only rule in §B that decides what to ask from the run history
+rather than from the page in hand, and §G's question — *which pass is entitled to conclude this* —
+has the answer "none, and it does not".
+
+## 2026-08-27 — T45's review: three fixes in the diff, and the bound has a third entrance it misses
+
+`/code-review high` ran to completion — the first review to do so on this branch since T38, and the
+fourth attempt after T14, T35 and T40 all died on the monthly spend limit. It returned five findings,
+all in T45's own diff. Three are fixed here; one is the reason **T81** exists; one was already
+addressed by an edit made before the review returned.
+
+**Fixed — the streak window silently coupled two constants that are documented as independent.**
+`stuck` and `heldInARow` are both `TakeWhile`s over one `Take(ProbeHeldPageEveryNthRun)`, so `stuck`
+could never exceed 8. Raising `MinStuckIncrementalRuns` to 8 or above — a plausible response to a
+false hold — would make `stuck < MinStuckIncrementalRuns` permanently true and **turn the bound off
+entirely, with no error and no failing test**. The window is now `StreakWindow`, derived as the max
+of the two. Demonstrated rather than argued: with the threshold raised to 9,
+`Stops_asking_for_a_page_that_has_not_answered_for_the_last_few_runs` reds under the coupled window
+and passes under the derived one. That test now seeds `MinStuckIncrementalRuns` rows rather than a
+literal three, which is what makes it follow the constant instead of agreeing with today's value.
+
+**Fixed — the doc line claiming an exhaustive stop-reason vocabulary was not exhaustive.**
+`ScrapeRun.StopReason`'s summary was edited in this task to list the values, and
+`ReconcileInterruptedRunsAsync` writes a bare `"interrupted"` literal that is in neither the list nor
+`ScrapeStopReason`. That mattered more after this task than before it, because `HeldAfterPageAsync`
+is the first reader to treat the column as a closed vocabulary. Promoted to
+`ScrapeStopReason.Interrupted` and used at its one write site — same string, no behaviour change, and
+the vocabulary is now genuinely closed.
+
+**Already fixed before the review returned — `held.Runs` saturates at the window.** Finding 3 read a
+version in which the log and the run-history message said "for the last {Runs} runs" over a number
+capped at 8. Both now say "for **at least** the last N runs", and `HeldPage`'s own doc states that
+`Runs` is a floor and why widening the query to make it exact buys nothing either decision needs.
+
+**Not fixed, and filed as T81 — a transport failure reaches the same stuck state and escapes the
+bound.** The streak counts `Error` and `Held`. B5 — the transport-failure branch, the one rule in
+the walk that deliberately re-asks a URL — re-requests a timing-out page until the breaker opens,
+and the run stops with `Breaker` on the same `LastPageFetched`. Neither arm matches, the streak never
+accumulates, and **the variant that escapes is the expensive one**: 1 + `MaxConsecutiveFailures`
+requests a tick against the `Error` route's two.
+
+It is filed rather than folded in for the reason T38 set the precedent for: `delivers` is the
+contract, and T45's says *"stops with `Error` on the same page every tick"*. But the stronger reason
+is that **folding it in would half-ship it.** The review's second finding is that a `Breaker` run is
+still recorded `Succeeded` — which is already queued as **T52**, one of the two remaining blockers on
+T15. Widening the streak to count `Breaker` while the history still calls those runs successes would
+leave the walk and the run history disagreeing about the same row, which is the split this codebase
+has spent T38, T40 and T44 closing elsewhere. T81 and T52 are the same fact one column over and the
+task notes on both now say to take them in one diff. Recorded in the audit as a gap against B18 and
+F1.
+
+**What the review checked and found sound, recorded so it is not re-derived a seventh time:**
+`FinishAsync`'s `mayPropose` is an allowlist, so `Held` cannot move the watermark by construction;
+`CompletedAt != null` does exclude the run's own open row; the hold and the stale-cursor retreat
+cannot interact, being incremental- and backfill-gated respectively; and the probe cadence works out
+to one request per nine runs as designed.

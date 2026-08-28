@@ -107,7 +107,7 @@ public class ScrapeWorker : BackgroundService
             {
                 run.Status = ScrapeRunStatus.Interrupted;
                 run.CompletedAt = DateTime.UtcNow;
-                run.StopReason = "interrupted";
+                run.StopReason = ScrapeStopReason.Interrupted;
                 run.ErrorMessage ??= "Run did not complete — the application stopped while it was in progress.";
             }
 
@@ -320,7 +320,13 @@ public class ScrapeWorker : BackgroundService
             // non-OK status mid-walk, a page nothing on which could be dated all stop the run with
             // Error rather than throwing. Recording those as Succeeded leaves the run history, the
             // only place this worker reports itself, agreeing that everything went fine.
-            run.Status = outcome.StopReason == ScrapeStopReason.Error
+            //
+            // `Held` is recorded the same way for the same reason: the run stopped short of a page
+            // the last several runs could not get an answer from, and declined to spend a request
+            // on it. It read and ingested everything up to that page, but it did not get through
+            // the listing — filing that as a success would take the one ship on the instance that
+            // needs looking at and hide it among the healthy ones.
+            run.Status = outcome.StopReason is ScrapeStopReason.Error or ScrapeStopReason.Held
                 ? ScrapeRunStatus.Failed
                 : ScrapeRunStatus.Succeeded;
         }

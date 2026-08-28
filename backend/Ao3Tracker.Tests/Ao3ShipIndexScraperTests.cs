@@ -32,7 +32,17 @@ public class Ao3ShipIndexScraperTests : IDisposable
     private readonly LibraryTestHost _host;
 
     public Ao3ShipIndexScraperTests() =>
-        _host = new LibraryTestHost(services => services.AddSingleton<ILoggerProvider>(_logs));
+        _host = new LibraryTestHost(services =>
+        {
+            services.AddSingleton<ILoggerProvider>(_logs);
+
+            // The host registers the real scraper as itself, which is all ScrapeAsync needs, but
+            // ScraperRegistry resolves IAo3Scraper — so a worker running in this class would find
+            // no scraper for the ship-index key and record no run at all. Registered here rather
+            // than in the host because the registry throws on duplicate keys, and the worker tests
+            // register a stub under this one.
+            services.AddScoped<IAo3Scraper>(sp => sp.GetRequiredService<Ao3ShipIndexScraper>());
+        });
 
     public void Dispose()
     {
@@ -1716,6 +1726,271 @@ public class Ao3ShipIndexScraperTests : IDisposable
         Assert.Null((await ReloadAsync(shipId)).IncrementalWatermarkUtc);
     }
 
+    // ---- a page an incremental pass cannot get past ---------------------------------------------
+
+    // The shape all of these are about: a watermark, a page 1 entirely newer than it that offers a
+    // next link, and a page 2 that will not answer. Nothing may conclude the listing ended there —
+    // page 2's works are older than page 1's and a watermark moved past them is one no later pass
+    // looks behind — so the run stops with Error, the watermark stays put, and the next run rebuilds
+    // the identical two requests. For ever, until something bounds it.
+
+    [Fact]
+    public async Task Stops_asking_for_a_page_that_has_not_answered_for_the_last_few_runs()
+    {
+        _host.Http.Responds = Pages(Page(1, [Blurb(1, updatedAt: Jan(20))], nextPage: true));
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(1));
+
+        // Exactly the threshold, spelled as the constant rather than as three rows: the streak is
+        // counted over a window, and a window that did not grow with the threshold would cap the
+        // count below it and turn the hold off entirely — silently, and for every ship. Written
+        // this way the test follows the constant wherever it is tuned to.
+        await RecordIncrementalRunsAsync(
+            shipId,
+            [.. Enumerable.Repeat(Failed(1), Ao3ShipIndexScraper.MinStuckIncrementalRuns)]);
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.Held, outcome.StopReason);
+        Assert.DoesNotContain(_host.Http.Requested, url => url.Contains("page=2"));
+        Assert.Equal(1, outcome.RequestsMade);
+    }
+
+    [Fact]
+    public async Task Holds_a_page_AO3_answers_with_an_unreadable_listing_as_readily_as_one_it_404s()
+    {
+        // The second way into the stuck state, and the one T47 widened the entrance for: page 2 is
+        // not a 404 but a 200 carrying the listing container, no blurbs, no Next link and no heading
+        // to say the date filter's results ended. It stops with Error rather than concluding, for
+        // the reasons FilteredHeadingSaysThisIsAll spells out — and it leaves the same signature
+        // behind, a run that read up to page 1 and stopped. The bound reads where a run got to and
+        // not why it stopped, which is what makes one rule cover both entrances.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1, updatedAt: Jan(20))], nextPage: true),
+            Page(2, []));
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(1));
+        await RecordIncrementalRunsAsync(shipId, Failed(1), Failed(1), Failed(1));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.Held, outcome.StopReason);
+        Assert.DoesNotContain(_host.Http.Requested, url => url.Contains("page=2"));
+    }
+
+    [Fact]
+    public async Task Keeps_asking_for_a_page_that_has_only_just_started_refusing()
+    {
+        // Two runs is a page that failed, not a page that is refusing. The hold costs a ship the
+        // rest of its listing until the next probe, so it is not worth paying for one bad afternoon.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1, updatedAt: Jan(20))], nextPage: true));
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(1));
+        await RecordIncrementalRunsAsync(shipId, Failed(1), Failed(1));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        Assert.Contains(_host.Http.Requested, url => url.Contains("page=2"));
+    }
+
+    [Fact]
+    public async Task Holding_a_page_leaves_the_watermark_exactly_where_the_failures_left_it()
+    {
+        // The whole reason the erroring runs could not be left to conclude anything. Page 2 holds
+        // works older than page 1's Jan 20 and newer than the Jan 1 watermark; moving the watermark
+        // to Jan 20 would put every one of them out of reach of any later incremental pass.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1, updatedAt: Jan(20))], nextPage: true));
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(1));
+        await RecordIncrementalRunsAsync(shipId, Failed(1), Failed(1), Failed(1));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.Held, outcome.StopReason);
+        Assert.Equal(Jan(1), (await ReloadAsync(shipId)).IncrementalWatermarkUtc);
+    }
+
+    [Fact]
+    public async Task Ingests_the_new_works_on_the_page_before_the_one_it_is_holding()
+    {
+        // The request that is being kept is the one doing the work: page 1 is where new works
+        // appear, and a held run reads it exactly as a healthy one would. A bound that stopped the
+        // pass outright would be the give-up this product cannot have.
+        _host.Http.Responds = Pages(Page(1, [Blurb(7, updatedAt: Jan(20))], nextPage: true));
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(1));
+        await RecordIncrementalRunsAsync(shipId, Failed(1), Failed(1), Failed(1));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.Held, outcome.StopReason);
+        Assert.Equal(1, outcome.WorksAdded);
+
+        await using var db = _host.NewContext();
+        Assert.Equal([7], await db.Works.Select(w => w.Id).ToListAsync());
+    }
+
+    [Fact]
+    public async Task Asks_a_held_page_again_once_enough_runs_have_held_it()
+    {
+        // The hold has to be temporary. Nothing here knows why the page stopped answering, so a
+        // listing that heals must be found without an operator noticing — one request every
+        // ProbeHeldPageEveryNthRun runs is what that costs.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1, updatedAt: Jan(20))], nextPage: true));
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(1));
+        await RecordIncrementalRunsAsync(
+            shipId,
+            [Failed(1), Failed(1), Failed(1),
+             .. Enumerable.Repeat(Held(1), Ao3ShipIndexScraper.ProbeHeldPageEveryNthRun)]);
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Contains(_host.Http.Requested, url => url.Contains("page=2"));
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+    }
+
+    [Fact]
+    public async Task Counts_its_own_held_runs_towards_the_streak_that_holds_the_page()
+    {
+        // A run that did not ask is no evidence the page recovered. Dropping the held runs from the
+        // streak would end it on the first one and put the every-tick request straight back.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1, updatedAt: Jan(20))], nextPage: true));
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(1));
+        await RecordIncrementalRunsAsync(shipId, Failed(1), Failed(1), Failed(1), Held(1));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.Held, outcome.StopReason);
+        Assert.DoesNotContain(_host.Http.Requested, url => url.Contains("page=2"));
+    }
+
+    [Fact]
+    public async Task Holds_no_page_for_a_run_history_that_never_read_one()
+    {
+        // Runs that read no page name no page to hold at, and "the page after none" is page 1 —
+        // which the hold, sitting below the read, turns into refusing page 2. That would spend three
+        // failures that never got as far as asking for page 2 on a ship whose page 1 is now
+        // answering perfectly well.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1, updatedAt: Jan(20))], nextPage: true),
+            Page(2, [Blurb(2, updatedAt: Jan(15))]));
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(1));
+        await RecordIncrementalRunsAsync(shipId, Failed(null), Failed(null), Failed(null));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
+        Assert.Equal(2, outcome.PagesFetched);
+    }
+
+    [Fact]
+    public async Task Reads_a_listing_that_has_since_ended_rather_than_holding_at_it()
+    {
+        // The hold sits below the last-page stop on purpose: it is a rule about asking for the next
+        // page, not about reading this one. A page 1 that no longer offers a next link is the end of
+        // the listing on the listing's own word, and that run is healthy and moves the watermark.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1, updatedAt: Jan(20))]));
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(1));
+        await RecordIncrementalRunsAsync(shipId, Failed(1), Failed(1), Failed(1));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
+        Assert.Equal(Jan(20), (await ReloadAsync(shipId)).IncrementalWatermarkUtc);
+    }
+
+    [Fact]
+    public async Task Holds_at_the_page_the_failing_runs_reached_rather_than_at_page_one()
+    {
+        // The streak names its own page. A ship that gets two pages in before the refusal keeps both
+        // of them; holding at page 1 would throw away a page that answers perfectly well.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1, updatedAt: Jan(20))], nextPage: true),
+            Page(2, [Blurb(2, updatedAt: Jan(15))], nextPage: true));
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(1));
+        await RecordIncrementalRunsAsync(shipId, Failed(2), Failed(2), Failed(2));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.Held, outcome.StopReason);
+        Assert.Equal(2, outcome.PagesFetched);
+        Assert.DoesNotContain(_host.Http.Requested, url => url.Contains("page=3"));
+    }
+
+    [Fact]
+    public async Task Holds_nothing_when_the_last_run_stopped_somewhere_else()
+    {
+        // A streak is consecutive by definition. One healthy run between the failures and the ship
+        // is not stuck — and because the streak is read from the run history rather than counted
+        // into a column, there is nothing to remember to reset for that to be true.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1, updatedAt: Jan(20))], nextPage: true));
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(1));
+        await RecordIncrementalRunsAsync(
+            shipId, Failed(1), Failed(1), Failed(1), (ScrapeStopReason.Watermark, 1));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        Assert.Contains(_host.Http.Requested, url => url.Contains("page=2"));
+    }
+
+    [Fact]
+    public async Task Holds_nothing_for_a_backfill()
+    {
+        // A backfill has a cursor to carry the question into the next run and MaxStalledBackfillRuns
+        // to bound it; the hold is for the pass that has neither. Applying it to a backfill would
+        // stop the walk at the page the *incremental* runs got stuck on, which has nothing to do
+        // with where the back catalogue is being read.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1, updatedAt: Jan(20))], nextPage: true),
+            Page(2, [Blurb(2, updatedAt: Jan(15))]));
+        var shipId = await FollowAsync();
+        await RecordIncrementalRunsAsync(shipId, Failed(1), Failed(1), Failed(1));
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
+        Assert.Equal(2, outcome.PagesFetched);
+    }
+
+    [Fact]
+    public async Task Bounds_a_stuck_incremental_pass_over_consecutive_runs_through_the_worker()
+    {
+        // The whole loop, end to end, because it is split across two classes: the walk reads a
+        // streak the *worker* writes, and it reads it while its own row is open and still says
+        // nothing about where it got to. Every other test in this section calls the scraper
+        // directly, so none of them would notice the run in flight being taken for the most recent
+        // finished one — which reads back as "no page read", holds nothing, and would leave the
+        // bound never firing on a real instance while every test here passed.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1, updatedAt: Jan(20))], nextPage: true));
+        var shipId = await FollowAsync();
+        await _host.SaveAo3LoginAsync();
+        await SetWatermarkAsync(shipId, Jan(1));
+        await SettleBackfillAsync(shipId);
+
+        for (var i = 0; i < Ao3ShipIndexScraper.MinStuckIncrementalRuns + 1; i++)
+        {
+            await MakeDueAsync(shipId);
+            await _host.NewScrapeWorker().RunDueJobsAsync(CancellationToken.None);
+        }
+
+        await using var db = _host.NewContext();
+
+        Assert.Equal(
+            [ScrapeStopReason.Error, ScrapeStopReason.Error, ScrapeStopReason.Error, ScrapeStopReason.Held],
+            await db.ScrapeRuns.OrderBy(r => r.Id).Select(r => r.StopReason).ToListAsync());
+
+        // Two requests each for the three that asked, one for the run that held.
+        Assert.Equal(7, _host.Http.Requested.Count);
+    }
+
     // ---- helpers -------------------------------------------------------------------------------------------
 
     private static ScrapeBudget OneRequest() => new(maxRequests: 1, maxConsecutiveFailures: 3, maxDuration: TimeSpan.FromHours(1));
@@ -1779,6 +2054,65 @@ public class Ao3ShipIndexScraperTests : IDisposable
     {
         await using var db = _host.NewContext();
         (await db.Ships.SingleAsync(s => s.Id == shipId)).BackfillStalledRuns = runs;
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>A finished incremental run that stopped with an error having read up to <paramref name="lastPage"/>.</summary>
+    private static (string StopReason, int? LastPage) Failed(int? lastPage) => (ScrapeStopReason.Error, lastPage);
+
+    /// <summary>A finished incremental run that held rather than asking for the page after <paramref name="lastPage"/>.</summary>
+    private static (string StopReason, int? LastPage) Held(int? lastPage) => (ScrapeStopReason.Held, lastPage);
+
+    /// <summary>
+    /// Writes the run history earlier incremental passes would have left, oldest first — which is
+    /// also insertion order, and so Id order, which is the order the walk reads them back in.
+    ///
+    /// Rows rather than repeated scrapes because the scraper is being called directly here: the
+    /// worker is what turns an outcome into a ScrapeRun, and going through it to arrange a streak
+    /// would make every one of these tests a test of the worker as well.
+    /// </summary>
+    private async Task RecordIncrementalRunsAsync(int shipId, params (string StopReason, int? LastPage)[] runs)
+    {
+        await using var db = _host.NewContext();
+        var job = await db.ScrapeJobs.FirstAsync(j => j.ShipId == shipId);
+
+        foreach (var (stopReason, lastPage) in runs)
+        {
+            db.ScrapeRuns.Add(new ScrapeRun
+            {
+                ScrapeJobId = job.Id,
+                Mode = ScrapeRunMode.Incremental,
+                Status = stopReason is ScrapeStopReason.Error or ScrapeStopReason.Held
+                    ? ScrapeRunStatus.Failed
+                    : ScrapeRunStatus.Succeeded,
+                StopReason = stopReason,
+                LastPageFetched = lastPage,
+                StartedAt = Jan(1),
+                CompletedAt = Jan(1),
+            });
+
+            await db.SaveChangesAsync();
+        }
+    }
+
+    /// <summary>
+    /// Puts the ship past its back catalogue, which is what makes the worker choose the incremental
+    /// pass — it backfills anything NotStarted or InProgress.
+    /// </summary>
+    private async Task SettleBackfillAsync(int shipId)
+    {
+        await using var db = _host.NewContext();
+        var ship = await db.Ships.SingleAsync(s => s.Id == shipId);
+        ship.BackfillState = ShipBackfillState.Complete;
+        ship.BackfillCompletedAt = Jan(1);
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>Makes the ship's job due again, as waiting out its interval would.</summary>
+    private async Task MakeDueAsync(int shipId)
+    {
+        await using var db = _host.NewContext();
+        (await db.ScrapeJobs.FirstAsync(j => j.ShipId == shipId)).NextRunAt = null;
         await db.SaveChangesAsync();
     }
 
