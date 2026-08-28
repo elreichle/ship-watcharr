@@ -673,7 +673,7 @@ Append-only. One entry per iteration, newest last.
   `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only. `dotnet ef
   database update` on a scratch SQLite file applied the whole chain including the new migration.
   Seventeen mutations, all red in their own place.
-- commit: (below)
+- commit: 69cc703
 - next: **T16 (notifications) is next** — T15 was its only blocker, and it is next in plain file
   order too. It unblocks T17 → T20. Three new tasks: **T84** (the sweep's mark has one reader and it
   is not the feed — read its notes before touching `WorkQueries.Library`; the one-clause fix 404s
