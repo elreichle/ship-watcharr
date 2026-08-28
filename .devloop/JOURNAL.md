@@ -2138,7 +2138,7 @@ build. Not something a task should chase.
   781 (776 before); `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings
   only. No live check: backend-only, and the seam the spec names for this is the controller/unit
   tests.
-- commit: (recorded next iteration)
+- commit: db789ec
 - next: **T45 is next in plain file order** and is the incremental twin of what T40 just decided for
   the backfill — a pass that cannot get past page 1 with no bound on how long it keeps asking. The
   shape of the answer here (find the fact the guard actually wants, give it its own name, do not
