@@ -2205,7 +2205,7 @@ build. Not something a task should chase.
   own verification line claimed); `dotnet test` → 795 (781 before); `npm run build` + `npm run lint`
   → clean, the two known fast-refresh warnings only. No live check: backend-only, and the seam the
   spec names for this is the controller/unit tests. Mutations below.
-- commit: (this task's commit)
+- commit: e407592
 - next: **T46 is next in plain file order** (`blocked-by: none`), and with T45 closed **T46 and T52
   are the last two blockers on T15**, which unblocks T16 → T17 → T20 and the rest of the plan. T46's
   notes have been **corrected in place**: they quoted `if (!askedStaleCursor && firstPage is null)`,
