@@ -1136,6 +1136,50 @@ public class Ao3ShipIndexScraperTests : IDisposable
     }
 
     [Fact]
+    public async Task Counts_a_stalled_run_when_a_404_answered_a_backfill_cursor_at_page_1()
+    {
+        // The third way a run can get nowhere, and the one the guard could not see: AO3 answers,
+        // definitively, that the page is not there. A ship whose tag was renamed or deleted after
+        // it was verified is the route in — ShipVerifier returns early for anything not Pending, so
+        // nothing re-verifies it — and its cursor sits at page 1, where no retreat can run. The
+        // archive refusing to serve a page it has is what the guard must not count; the archive
+        // saying the page does not exist is the archive answering, and this run is stalled on it.
+        _host.Http.Responds = Pages();
+
+        var shipId = await FollowAsync();
+        await ResumeBackfillAtAsync(shipId, page: 1);
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        Assert.Equal(0, outcome.PagesFetched);
+        Assert.Equal(1, (await ReloadAsync(shipId)).BackfillStalledRuns);
+
+        await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+        Assert.Equal(2, (await ReloadAsync(shipId)).BackfillStalledRuns);
+    }
+
+    [Fact]
+    public async Task Gives_up_on_a_backfill_of_a_tag_AO3_has_stopped_serving_at_all()
+    {
+        // What the counter is for, at the one cursor position that could never reach it: without
+        // the run above counting, this ship asks for a page that is not there once a run, for ever,
+        // and its backfill stays InProgress with nothing to show an operator why. T38's restart
+        // endpoint is what makes the write-off recoverable if the tag comes back.
+        _host.Http.Responds = Pages();
+
+        var shipId = await FollowAsync();
+        await ResumeBackfillAtAsync(shipId, page: 1);
+        await SetStalledRunsAsync(shipId, Ao3ShipIndexScraper.MaxStalledBackfillRuns - 1);
+
+        await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(ShipBackfillState.Failed, ship.BackfillState);
+        Assert.Equal(Ao3ShipIndexScraper.MaxStalledBackfillRuns, ship.BackfillStalledRuns);
+    }
+
+    [Fact]
     public async Task Refuses_to_conclude_from_an_empty_page_a_resumed_backfill_started_on()
     {
         // The same anomaly through the route the old `pagesFetched == 1` guard could not see: this
@@ -1598,6 +1642,23 @@ public class Ao3ShipIndexScraperTests : IDisposable
 
         Assert.Empty(_host.Http.Requested);
         Assert.Equal(0, outcome.WorksSeen);
+    }
+
+    [Fact]
+    public async Task Does_not_record_a_denied_tag_as_a_listing_it_walked_off_the_end_of()
+    {
+        // The run history is the only place the worker reports itself, and this run made no request
+        // at all — so `lastPage`, which means "read to the end of the listing", was the one thing it
+        // could not say. It was harmless only because the early return skips FinishAsync: move it
+        // below and a denied ship's backfill is marked Complete with its tag never once requested.
+        var shipId = await FollowAsync();
+        await SetVerificationAsync(shipId, ShipVerificationState.NotFoundOnAo3);
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.Denied, outcome.StopReason);
+        Assert.Contains("denied", outcome.ErrorMessage);
+        Assert.Equal(ShipBackfillState.NotStarted, (await ReloadAsync(shipId)).BackfillState);
     }
 
     [Fact]

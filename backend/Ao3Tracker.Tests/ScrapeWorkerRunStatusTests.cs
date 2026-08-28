@@ -64,6 +64,24 @@ public class ScrapeWorkerRunStatusTests
         Assert.Equal("Page 2 has not answered for the last 5 runs; it was not requested this run", run.ErrorMessage);
     }
 
+    [Fact]
+    public async Task A_run_for_a_tag_AO3_has_denied_is_recorded_as_failed()
+    {
+        // It made no request and cannot make one until the tag is verified again, so there is
+        // nothing about it a success would be describing — and the ship it is for is one an
+        // operator has to act on, which is the whole reason this column is not always Succeeded.
+        using var host = new LibraryTestHost(
+            new StubScraper(
+                Ao3ScraperKeys.ShipIndex,
+                ScrapeStopReason.Denied,
+                "AO3 has denied the tag Clarke Griffin/Lexa; no page of it was requested."));
+
+        var run = await RunOneAsync(host);
+
+        Assert.Equal(ScrapeRunStatus.Failed, run.Status);
+        Assert.Equal(ScrapeStopReason.Denied, run.StopReason);
+    }
+
     private static async Task<ScrapeRun> RunOneAsync(LibraryTestHost host)
     {
         var emma = host.SeedUser();

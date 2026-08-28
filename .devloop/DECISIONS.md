@@ -546,3 +546,51 @@ F1.
 `CompletedAt != null` does exclude the run's own open row; the hold and the stale-cursor retreat
 cannot interact, being incremental- and backfill-gated respectively; and the probe cadence works out
 to one request per nine runs as designed.
+
+## 2026-08-27 — T46: a 404 is the archive answering, and the stalled counter now hears it
+
+**The guard needed a third fact, not a wider reading of an existing one.** `RecordBackfillProgress`
+split runs into "the archive told this run nothing" (budget, breaker, transport failure, refused
+status — must not count) and "the archive answered with something unusable" (`pagesServed > 0` —
+counts). A 404 is neither: no body was served, and yet the archive answered definitively. Rather
+than loosen `pagesServed`, which T40 had just given a precise meaning, the walk now carries
+`pagesNotFound` and the guard reads all three. It changes the outcome at exactly one cursor
+position — page 1, where `CursorMayBeStale` cannot fire — because every deeper cursor already
+retreats and is counted through `askedStaleCursor`.
+
+**Rejected: disabling the ship's scrape job when the tag 404s.** T46's notes offered it as the
+cheaper alternative. It is a state only an operator can undo, and T38's rule is that a write-off has
+to be reversible; `BackfillState.Failed` already has `POST /api/admin/ships/{id}/backfill/restart`
+behind it. Filed on **T82** as the option to price first if the streak logic proves expensive.
+
+**The A2 sibling shipped in the same diff: a denied tag reports `denied`, not `lastPage`.** A run
+that returns before making a single request was recording the stop reason that means "walked off the
+end of the listing", and the only thing keeping that from marking a backfill `Complete` was that the
+early return sits above `FinishAsync`. `ScrapeStopReason.Denied` is a new value in a vocabulary
+`HeldAfterPageAsync` reads as closed, so it went in that class beside the others, and
+`ScrapeWorker` records it `Failed` — the run could not do its job and the ship needs an operator.
+
+## 2026-08-27 — T46's review: two findings, both about what the diff claimed rather than what it did
+
+`/code-review high` ran to completion on an explicitly named target and reported reading exactly the
+working-tree diff — the second review in a row to survive, after three consecutive losses to the
+monthly spend limit. Neither finding was a defect in the code; both were sentences that overstated it.
+
+**The `delivers` line was wrong, and the comment repeated it.** "Stops backfilling instead of asking
+forever" is two claims, and only the first is true. `ScrapeWorker` hands a `Failed` backfill an
+incremental pass, which starts at page 1 with no watermark, emits the identical URL, and takes the
+same 404 every tick. T45's held-page bound cannot catch it: the streak is keyed on
+`LastPageFetched`, which is null for a run that read nothing. The comment now says what the bound
+does end (the backfill, and the ship reading as InProgress for ever) and points at **T82** for what
+it does not.
+
+**An operator message named a remedy that does not exist.** T46's own notes say `ShipVerifier`
+returns early for anything not `Pending`; writing "re-verification is what can clear this" into
+every denied run's `ErrorMessage` turned that into advice. Confirmed by reading: nothing anywhere
+moves a settled verification back to `Pending`, and re-following reuses the row. The message now
+states the fact and stops, and the missing route is **T83**.
+
+**Both findings are the same failure.** The code was checked against the tests; the prose was
+checked against nothing. Where a diff writes a sentence an operator or a later iteration will act on
+— a `delivers` line, a comment, an `ErrorMessage` — the sentence is part of the diff and wants the
+same verification the code got.

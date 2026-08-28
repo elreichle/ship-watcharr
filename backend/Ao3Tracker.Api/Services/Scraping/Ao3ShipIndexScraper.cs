@@ -123,8 +123,18 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         // A tag AO3 has denied is not scrapable, and asking anyway is a guaranteed 404 on a shared
         // rate gate. The schedule is normally disabled for these already; this is the belt to that
         // braces, since a job can be re-enabled by a follow before verification catches up.
+        //
+        // It reports `Denied` rather than `LastPage`: this run made no request, so "walked off the
+        // end of the listing" is the one thing it cannot claim — and that claim is one refactor
+        // away from being acted on, since the only thing keeping it from marking the backfill
+        // Complete is that this return sits above FinishAsync.
         if (ship.VerificationState == ShipVerificationState.NotFoundOnAo3)
-            return ScrapeOutcome.Empty(ScrapeStopReason.LastPage);
+            return ScrapeOutcome.Empty(ScrapeStopReason.Denied) with
+            {
+                ErrorMessage =
+                    $"AO3 has denied the tag {ship.CanonicalTagName}; no page of it was requested, "
+                    + "and nothing re-verifies a tag once its verification has settled.",
+            };
 
         var startPage = context.Mode == ScrapeRunMode.Backfill ? Math.Max(1, ship.BackfillNextPage ?? 1) : 1;
 
@@ -177,6 +187,16 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         // an unreadable page still set it; now that one does not, the distinction needs its own
         // name rather than a side effect of a counter about something else.
         var pagesServed = 0;
+
+        // Pages AO3 answered 404 for. The third state `pagesServed` cannot express: a 404 is not a
+        // body this run could not use, and it is not the archive telling this run nothing either —
+        // it is the archive answering definitively that the page it was asked for is not there.
+        //
+        // RecordBackfillProgress is the only reader, for the one cursor position where nothing else
+        // reaches it. At page 1 no retreat can run (CursorMayBeStale requires page > 1), so a ship
+        // pointed at a tag AO3 no longer serves 404s its only request, serves no page, retreats
+        // from nothing, and would otherwise ask again every run for ever with Failed unreachable.
+        var pagesNotFound = 0;
 
         // The page a stale-cursor retreat stepped back from, once per run. Both a bound on the
         // retreating and the thing that stops the walk turning round and re-asking for it, and —
@@ -247,6 +267,8 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
+                pagesNotFound++;
+
                 // A 404 concludes nothing about how long a listing is. The only page entitled to
                 // say a listing ended is a page that was *read* and offered no next link, and the
                 // walk has two ways of getting one: the forward walk's own `!listing.HasNextPage`
@@ -584,7 +606,8 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
         await FinishAsync(
             context, ship, stopReason, startPage, firstPage, newestSeen,
-            askedStaleCursor: retreatedFrom is not null, pagesServed: pagesServed, ct);
+            askedStaleCursor: retreatedFrom is not null, pagesServed: pagesServed,
+            pagesNotFound: pagesNotFound, ct);
 
         return new ScrapeOutcome(
             pagesFetched, budget.RequestsMade, worksSeen, worksAdded, worksUpdated,
@@ -1030,7 +1053,8 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// nothing is answering. Closing the gap left behind is a full sweep's job.
     /// </summary>
     private void RecordBackfillProgress(
-        Ship ship, string stopReason, int startPage, bool askedStaleCursor, int pagesServed, DateTime now)
+        Ship ship, string stopReason, int startPage, bool askedStaleCursor, int pagesServed,
+        int pagesNotFound, DateTime now)
     {
         if (stopReason == ScrapeStopReason.LastPage)
         {
@@ -1071,7 +1095,20 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         // defensible because T38 made the write-off recoverable — `POST /api/admin/ships/{id}/
         // backfill/restart` puts a Failed backfill back to InProgress — so the bound now ends a
         // pointless request-a-run loop rather than retiring a back catalogue permanently.
-        if (!askedStaleCursor && pagesServed == 0) return;
+        //
+        // `pagesNotFound` is the third of them, and the one this guard used to get wrong. A 404 is
+        // the archive answering: the page asked for is not there. That is a fact about the request,
+        // not about the archive's health, and twelve runs of it is not an afternoon's outage — it is
+        // a ship pointed at a tag AO3 has stopped serving, which is precisely what the counter is
+        // for. It matters only at page 1, since every deeper cursor gets a retreat and so is counted
+        // by `askedStaleCursor` already.
+        //
+        // What that ends is the backfill — the ship stops being InProgress for ever and the run
+        // history finally says why. It does not end the requests: ScrapeWorker gives a Failed
+        // backfill an incremental pass, which asks page 1, takes the same 404, and does it again
+        // every tick. T45's held-page bound cannot catch that one, because the streak it reads is
+        // keyed on a page some run got through — see T82.
+        if (!askedStaleCursor && pagesServed == 0 && pagesNotFound == 0) return;
 
         ship.BackfillStalledRuns++;
 
@@ -1096,6 +1133,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         DateTime? newestSeen,
         bool askedStaleCursor,
         int pagesServed,
+        int pagesNotFound,
         CancellationToken ct)
     {
         var now = _time.GetUtcNow().UtcDateTime;
@@ -1103,7 +1141,8 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         if (context.Mode == ScrapeRunMode.Incremental) ship.LastIncrementalRunAt = now;
 
         if (context.Mode == ScrapeRunMode.Backfill)
-            RecordBackfillProgress(ship, stopReason, startPage, askedStaleCursor, pagesServed, now);
+            RecordBackfillProgress(
+                ship, stopReason, startPage, askedStaleCursor, pagesServed, pagesNotFound, now);
 
         // Two conditions, and both are about what the run was in a position to *know*.
         //

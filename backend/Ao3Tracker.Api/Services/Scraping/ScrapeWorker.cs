@@ -326,7 +326,11 @@ public class ScrapeWorker : BackgroundService
             // on it. It read and ingested everything up to that page, but it did not get through
             // the listing — filing that as a success would take the one ship on the instance that
             // needs looking at and hide it among the healthy ones.
-            run.Status = outcome.StopReason is ScrapeStopReason.Error or ScrapeStopReason.Held
+            //
+            // `Denied` likewise: the job ran, asked for nothing, and cannot ask for anything until
+            // the tag is verified again. A success is what an operator scrolls past.
+            run.Status = outcome.StopReason
+                is ScrapeStopReason.Error or ScrapeStopReason.Held or ScrapeStopReason.Denied
                 ? ScrapeRunStatus.Failed
                 : ScrapeRunStatus.Succeeded;
         }

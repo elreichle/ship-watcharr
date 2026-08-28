@@ -192,6 +192,21 @@ file. **T81 should be taken together with T52**, not in its own file position �
 fact one column over, and shipping either alone leaves the walk and the run history disagreeing about
 a `Breaker` run. Both task notes now say so.
 
+**2026-08-27: T46 is done.** With it, **T52 is the last blocker on T15** — and T52 should be taken
+**together with T81**, which both tasks' notes already say. So the next task is **T52 + T81 as one
+diff**, not the next `todo` in plain file order (T48, T49, T50 and T51 all sit between). T10 is
+earlier still and blocked by T51. **T77 is still taken instead of T63** when the run reaches T63.
+T46's own verification line claimed `~Backfill` matched 13 tests; it matches 35. The claim in a task's
+`verification` line is a guess written before the task ran — check the count before reading anything
+into it.
+
+T46's review ran to completion (the second in a row), read exactly the working-tree diff it was
+given, and returned **two findings, both in this diff and both about claims rather than code**: the
+guard's comment and the task's `delivers` both said the fix "stops asking forever" when it only stops
+the *backfill* asking, and the operator message T46 wrote named a remedy the product does not
+implement. Both texts are corrected in the diff, and the two gaps under them are filed as **T82** and
+**T83**.
+
 Read `.devloop/spec.md` before starting any task. Every task additionally has to leave
 `cd backend && PATH="$HOME/.dotnet:$PATH" dotnet test`, `cd frontend && npm run build` and
 `npm run lint` green — that is the floor, not the verification.
@@ -1333,7 +1348,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   container on it. Whatever bound this task settles on has to cover both.
 
 ## T46 — A backfill whose cursor sits at page 1 can never reach `Failed`
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A run the archive answered with a 404 counts against `BackfillStalledRuns` wherever the
@@ -1365,6 +1380,11 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   — move the return below it in some later refactor and a denied ship's backfill is marked
   `Complete` with the tag never once requested. A stop reason that says why (or disabling the job)
   costs nothing here.
+  **Both halves shipped, and the `delivers` line above overstates what landed.** The 404 counts, so
+  the backfill reaches `Failed` and stops asking — but `ScrapeWorker` then gives the ship an
+  incremental pass that asks page 1 and takes the same 404 on every tick. Bounding that is **T82**.
+  The sibling shipped as `ScrapeStopReason.Denied`; the missing route out of `NotFoundOnAo3` is
+  **T83**.
 
 ## T47 — A filtered page carrying no evidence at all must not end the pass
 - status: done
@@ -2198,3 +2218,57 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
     did not finish".
   Add a row to `.devloop/scraper-audit.md` §B18 when it lands; B18 currently names two entrances and
   this is the third.
+
+## T82 — A page nothing ever read cannot be held, so a dead tag is asked for every tick
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A pass whose only request 404s at page 1, run after run, stops asking for a while —
+  the same bound T45 gave a page the walk could reach, extended to the page it never got past.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Held` — 8 today,
+  and the filter that covers the hold. Check it bites before trusting it.
+- notes: Found by `/code-review high` during T46, in T46's own diff — the finding is that the fix
+  does less than its `delivers` line claims. T46 makes a page-1 404 count against
+  `BackfillStalledRuns`, so the backfill reaches `Failed` and the ship stops reading as InProgress
+  for ever. It does not stop the requests: `ScrapeWorker.cs:279` gives anything not
+  `NotStarted or InProgress` an incremental pass, that pass starts at page 1 with a null
+  `RevisedAtBound` (the watermark was never set, since `FinishAsync` needs `firstPage == 1` and no
+  page was read), and it emits the byte-identical URL and takes the same 404 on every tick, for ever.
+  T45's hold is the mechanism that should catch it and cannot: `HeldAfterPageAsync` returns null at
+  `recent[0].LastPageFetched is not { } page`, and every one of these runs records
+  `LastPageFetched = null`. The `Held` stop is also placed after a page has been read, so page 1 is
+  not a page the current walk can hold at all.
+  The question to settle first, because it is the whole design: **a run that read nothing is
+  ambiguous.** `LastPageFetched = null` is what "AO3 is down" looks like too, and holding on that
+  reading would stop scraping the whole instance during an outage — which is why
+  `HeldAfterPageAsync` declines it today and why T81's notes flag the same split. What tells the two
+  apart is the *stop reason*: a 404 is the archive answering (T46's whole argument), a transport
+  failure or a `Breaker` is not. So the widening is probably "a run that stopped with a 404 having
+  read nothing", not "a run that read nothing" — and the streak then needs a key other than
+  `LastPageFetched`, which is null for all of them.
+  Cheaper alternative worth pricing first: disable the ship's scrape job when its backfill reaches
+  `Failed` on a 404 at page 1, which is the one shape that means "this tag is gone". That costs no
+  new streak logic, but it is a state only an operator can undo — weigh it against T38's rule that a
+  write-off must be reversible.
+
+## T83 — A tag AO3 denied stays denied for ever, with no route back
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: A ship whose `VerificationState` is `NotFoundOnAo3` can be sent back through
+  verification, so a tag that was renamed, briefly gone, or wrongly denied is recoverable without a
+  database edit.
+- verification: `PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~Verif` —
+  29 today. A new controller test for the route belongs beside `ShipVerifierTests`.
+- notes: Found by `/code-review high` during T46, chasing an operator message T46 had written.
+  Nothing in the codebase moves a settled verification back to `Pending`: `ShipVerifier.cs:90`
+  returns "Already settled." for anything not `Pending`, `ShipVerificationWorker` only enqueues
+  `Pending` ships, and re-following the tag reuses the existing `Ship` row while
+  `ShipsController.cs:246` merely disables the job again. So the belt-and-braces check at the top of
+  `Ao3ShipIndexScraper.ExecuteAsync` is permanent for that ship, and after T46 it writes a `Failed`
+  run saying so on every tick — an operator is steered to a ship they have no way to fix.
+  The shape to reach for is T38's: it gave a `Failed` backfill `POST
+  /api/admin/ships/{id}/backfill/restart`, and this is the same problem one state over. Re-verifying
+  costs one request against a tag AO3 has already denied, so it must be operator-triggered rather
+  than periodic — a tag that is gone would otherwise be re-asked for ever, which is the defect T82
+  is about.

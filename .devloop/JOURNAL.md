@@ -2,162 +2,7 @@
 
 Append-only. One entry per iteration, newest last.
 
-> The 27 entries before this point live in [`JOURNAL-archive.md`](JOURNAL-archive.md) (2026-08-22 — init → 2026-08-25 — T44 The authenticated-total flag must come from the request that read the total — done). Do not read it end to end; `grep` it for a task id when a live entry points into it.
-
-## 2026-08-25 — T12 The download worker — done
-
-- did: Downloads are fetched. Four seams: `Ao3DownloadLinks` (pure — reads the download menu off a
-  work's page, because AO3's addresses cannot be constructed), `IRateLimitedHttpClient.DownloadAsync`
-  (streams a file through the same rate gate, size-capped and deadline-bounded), `DownloadFetcher`
-  (page → link → temp file → SHA-256 → atomic move → shared row), and `DownloadWorker` (a
-  `BackgroundService` beside `ScrapeWorker`: the same two gates, one `ScrapeBudget` per drain, woken
-  by `DownloadWakeSignal`, and re-queues fetches a restart interrupted). The transport's send path
-  became generic over *how* a response is read, so a download and a page share one gate, one retry
-  policy and one User-Agent by construction rather than by being written twice. `ScrapeWakeSignal`
-  and the new `DownloadWakeSignal` now share a `WakeSignal` base. No migration — `Download` and
-  `WorkDownloadFile` were in `InitialCreate` on both providers already.
-- files: `Api/Services/Downloads/{DownloadWorker,DownloadFetcher,DownloadPaths,DownloadWakeSignal}.cs`
-  (new), `Api/Services/Scraping/Ao3DownloadLinks.cs` (new), `Api/Services/WakeSignal.cs` (new),
-  `Api/Services/Scraping/{IRateLimitedHttpClient,RateLimitedAo3HttpClient,Ao3HttpClientOptions,ScrapeWakeSignal}.cs`,
-  `Api/Controllers/DownloadsController.cs`, `Api/Program.cs`,
-  `Tests/{DownloadWorkerTests,Ao3DownloadLinksTests,Ao3DownloadTransportTests}.cs` (new),
-  `Tests/LibraryTestHost.cs`, `.devloop/{tasks,DECISIONS,JOURNAL}.md`
-- ran: `dotnet test --filter FullyQualifiedName~DownloadWorker` → 28 passed (0 before — new class,
-  and the filter matches exactly those 28); `--filter ~Download` → 72 (26 before, T11's);
-  `dotnet test` → 633 passed (587 before); `npm run build` + `npm run lint` → clean, the two known
-  fast-refresh warnings only. Twenty-three mutations applied one at a time, every one red by the end. Also booted a throwaway
-  instance on :5193 with a scratch data directory: it starts, both workers come up, and the download
-  worker's startup reconciliation runs.
-- commit: 7766481, with the review's fixes in f397956
-- next: **T13 has no blocker any more and is next in file order.** It was written expecting to undo
-  T12's URL construction; there is none to undo, because T12 was built to the capture. What is left
-  is a test per format and the two questions no capture can answer — a stale `updated_at`, and
-  whether the links work anonymously. **Its verification filter was `~DownloadUrl`, which matched
-  nothing**; it is now `~Ao3DownloadLinks`. T13 also claimed AZW3 is not in `Ao3DownloadFormat` —
-  the enum has carried `Azw3 = 5` since `InitialCreate`, and that note is corrected rather than left
-  as a choice nobody made.
-- **One mutation survived, and it was the same shape as the four entries before this one.** Removing
-  the fetcher's own `Status != Pending` guard left the suite green, because the worker's query
-  already selects only `Pending` rows — so no test could ever hand the fetcher anything else. The
-  guard is not redundant: the worker reads ids in one scope and fetches in another, and a concurrent
-  request can settle a row in between (another reader's fetch lands, and their next request completes
-  this one off the bytes now on disk). Claiming it anyway would re-fetch a file the instance already
-  has. Pinned by `Refuses_a_request_that_stopped_being_queued_while_it_waited`, which reaches the
-  fetcher directly through a new `LibraryTestHost.FetchDownloadAsync` — going through the worker
-  would have been asserting the query rather than the rule.
-- **The serious defect I found was in reading my own diff, not in a test: a stalled download holds
-  the global rate gate.** The transfer happens *inside* the gate semaphore, and `HttpClient.Timeout`
-  stops applying once `ResponseHeadersRead` has the headers — so a socket that goes quiet mid-file
-  would block every outbound request this instance makes, for as long as it stayed open. One hung
-  download would stop the scraper entirely rather than merely failing. `DownloadTimeout` (5 minutes)
-  is now a linked deadline over the whole send, and the fetcher turns it into a `Failed` request
-  saying AO3 stopped sending, rather than the bare "the operation was canceled" the worker's
-  catch-all would otherwise have written. **Anything this codebase does inside that gate has to be
-  bounded in time** — the gate is process-wide and static.
-- **The size cap is the other thing worth remembering.** This is the first code in the project that
-  writes a remote body to disk, and a chunked response has no length until it has finished arriving,
-  so "how much disk does one click cost" was a question only AO3 could answer. `MaxDownloadBytes`
-  (64 MB, far above any real AO3 download) bounds it; a response past it is abandoned and reported,
-  never stored. Both halves of that matter: a truncated file that got a row would be served to
-  readers as a copy of the work.
-- **Every failure names which half failed, and none of them retries.** A download is two requests
-  now, so "it failed" is ambiguous in a way it never was for a scrape: the page can 404 while the
-  file would have been fine, and the page can parse to a menu offering no such format. Each is one
-  `Failed` row with a message, and a work AO3 has taken down is asked for once rather than on every
-  poll for ever. The one thing that is *not* a failure is the drain's budget running out — that
-  releases the request back to `Pending`, and the page it needs is still in the response cache when
-  the next poll picks it up.
-- **What T14 inherits, now in its notes.** `RelativePath` is relative to the data directory and must
-  be resolved with `DownloadPaths.Absolute`, never treated as a path; `DownloadPaths.Extension` gives
-  the filename's extension; `ErrorMessage` on a failed row already names the half that failed, so the
-  UI should show it rather than a generic failure; and re-requesting a queued format answers with the
-  existing row, so the button needs no guard against a second click.
-- **`/code-review high` reported after `7766481` was committed; its fixes are in a second commit.**
-  Eight findings. Its two highest were the gate stall I had already fixed before committing (the
-  reviewer read the pre-fix tree, and **confirmed the mechanism empirically** — with
-  `ResponseHeadersRead` and a 2s `HttpClient.Timeout`, a body taking 10s completes without throwing,
-  which is the fact the deadline exists for) and T49, which is not this diff's. Five were real and
-  are fixed; one is queued as T59.
-- **The serious one: a 200 is not evidence that what arrived is the file.** The transport follows
-  redirects, so AO3 declining a download — a restricted work whose session dies in the seconds
-  between reading the work's page and fetching the link, which `DownloadAsync` cannot notice because
-  it deliberately never reads session state off a file body — answers by redirecting to the login
-  form, which is a 200 carrying HTML. It was being stored, hashed, moved into place, given a row and
-  reported `Complete`: a login page on disk under a name saying it is an EPUB, with a checksum
-  agreeing. `LandedOnTheFile` now checks where the request ended up, on the extension rather than the
-  whole address so a redirect that still serves the file is not refused for moving it. A
-  Content-Type check would not have worked — the HTML download format really is `text/html`.
-- **The security one: the instance's session cookie was on offer to whatever host the markup named.**
-  `Resolve` took any absolute http(s) URL and `DownloadAsync` attaches the session to whatever it is
-  handed. Unreachable in practice today thanks to the `li.download` scoping, but a work page renders
-  author-supplied HTML. A link must now name the page's own host, and `pageUrl` stopped being
-  optional. **Anywhere in this codebase a URL read out of markup is then fetched with credentials,
-  the host is the check that matters** — the scheme check that was already there is the other half.
-- **T59 is a re-decision the review found, not a bug.** `Arm` nulls `WorkDownloadFileId` on a stale
-  re-request, which T11 chose deliberately; the half that choice did not weigh is that the file is
-  not deleted, so a reader whose refetch fails is left with neither a working row nor a reachable
-  copy of bytes still on disk. Queued rather than changed, because reverting T11's rule reintroduces
-  the worse failure it was written against and because T14 renders whatever state the answer invents.
-- **Two of the eight were documentation, both mine.** Inserting `WakeTheWorker` above `Arm` left two
-  `<summary>` blocks on one member and stranded `Arm`'s documentation; and a comment in `FailAsync`
-  described a guarantee about `WorkDownloadFileId` the controller does not provide. Worth counting
-  as findings rather than tidying: the second was a comment asserting the exact behaviour T59 exists
-  because the code does not have.
-  Filters checked to bite, per T22's lesson: `~DownloadWorker` matches 28 after the review's fixes
-  (25 at the first commit) and covers every new test in the worker's own file; `~Ao3DownloadLinks`
-  matches 13 and `~Ao3DownloadTransport` 5, which are the two seams that file does not reach. Still zero and still suspect: T31 `~TotalWorks`,
-  T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.
-
-## 2026-08-25 — T13 Confirm AO3's real download URLs — done
-
-- did: Test-only. Five formats pinned to the addresses `ao3-work-page.html` actually carries, one
-  `[InlineData]` each with the URL copied rather than generated, plus a completeness guard comparing
-  the parsed keys against `Enum.GetValues<Ao3DownloadFormat>()`. The two questions no capture can
-  answer are settled by making the app's behaviour safe under every answer rather than by guessing:
-  a stale `updated_at` AO3 refuses is the already-pinned file-half failure with no retry; one AO3
-  redirects to the current file is accepted, and the row's version key is now pinned to come from
-  `Work.UpdatedAt` and not from the address the request ended at; and the anonymous question is
-  settled by this deployment never asking anonymously — both halves authenticated, `GetLoggedOutAsync`
-  untouched, and the transport still identifying the instance when there is no session to attach.
-- files: `Tests/{Ao3DownloadLinksTests,DownloadWorkerTests,Ao3DownloadTransportTests}.cs`,
-  `.devloop/{tasks,DECISIONS,JOURNAL}.md`
-- ran: `dotnet test --filter FullyQualifiedName~Ao3DownloadLinks` → 18 passed (11 before);
-  `--filter ~Download` → 80 (72 before); `dotnet test` → 641 passed (633 before);
-  `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only.
-  Five mutations, each red where it should be and nowhere surprising: dropping `azw3` from
-  `FormatOf` reds the Azw3 case and the completeness guard; swapping `mobi` and `pdf` reds exactly
-  those two cases; refusing every redirect reds the new redirect test with six older ones; keying
-  the file by fetch time instead of `Work.UpdatedAt` reds the new test with three older ones; and
-  dropping the User-Agent when there is no cookie reds the new transport test **and nothing else**,
-  which is what makes that one worth having.
-- commit: 8207d46
-- next: **T14 is next in plain file order** — its blocker (T12) is done, and T12's journal entry
-  already lists what it inherits. T10 is earlier and still blocked by T51.
-- **The review found nothing in this diff and eight things in the branch, and none were folded in.**
-  A test-only task that quietly grows a security fix and a `BackgroundService` fix is a diff nobody
-  can review, so all eight are **T61–T68**. Two I verified by reading the code rather than trusting
-  the report: T61, the login POST sending the instance's username and plaintext password to whatever
-  host the form action names — the exact twin of the host check T12's review added to
-  `Ao3DownloadLinks.Resolve` one iteration earlier; and T62, `DiscardPartialFiles` throwing out of
-  `ExecuteAsync` on an unreadable partials directory and stopping the host at boot, on a path that
-  runs on every boot, in a class whose own comment says nothing may end this loop. **T62 was added
-  by T12's review** — a fix for a disk leak that introduced a startup crash. The other six are
-  marked reported-not-verified in their own notes; whoever takes one should check the mechanism
-  first.
-- **The lesson worth carrying: a rule written down in DECISIONS is not a rule that got applied.**
-  T12's review wrote "anywhere in this codebase a URL read out of markup is then fetched with
-  credentials, the host is the check that matters", fixed the one place it had found, and nobody
-  swept for the others. T61 is the place it did not reach, and it is the place with the most to
-  lose. When a fix comes with a general rule, grep for the rule.
-- **T13 asked two questions and the useful answer was a third.** Neither "rejected" nor "redirected"
-  is harmful, which is why neither needed answering — but working out *how a stale address arises*
-  found the fifteen-minute page cache, and the possibility neither question covers: AO3 simply
-  serving the old version's file at the old address. That is T60, and it is the version-keyed path's
-  own failure mode arriving through the cache instead of through the filename.
-- **Filter check, per T22's lesson.** `~Ao3DownloadLinks` (T13's own) matches 18, up from 11, and
-  reaches only the parser — the two settlement tests live at the seams they are about, so
-  `~Download` (80, up from 72) is the filter that covers the whole task. Still zero and still
-  suspect: T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.
+> The 29 entries before this point live in [`JOURNAL-archive.md`](JOURNAL-archive.md) (2026-08-22 — init → 2026-08-25 — T13 Confirm AO3's real download URLs — done). Do not read it end to end; `grep` it for a task id when a live entry points into it.
 
 ## 2026-08-25 — T61 The login POST must not send the password to whatever host the form names — done
 
@@ -1044,3 +889,45 @@ Append-only. One entry per iteration, newest last.
   (`dotnet run`) and its child, and T19's chrome-headless-shell tree (1994238, 1996041). This task
   started none of its own — backend-only, no live check. The systemd dev instance (pid 2033) was not
   touched.
+
+## 2026-08-27 — T46 A backfill whose cursor sits at page 1 can never reach `Failed` — done
+
+- did: The walk counts `pagesNotFound` (404s AO3 answered with) alongside `pagesServed`, and
+  `RecordBackfillProgress`'s stalled guard reads all three facts instead of two — so a backfill
+  whose only request 404s at page 1 counts as stalled, reaches `MaxStalledBackfillRuns` and is
+  written off as `Failed` instead of asking for ever with `Failed` unreachable. Shipped T28 §A2's
+  sibling in the same diff: a ship whose tag AO3 has denied returns the new
+  `ScrapeStopReason.Denied` with a message, not `LastPage`, which meant "walked off the end of the
+  listing" for a run that made no request; `ScrapeWorker` records it `Failed`.
+- files: `Api/Services/Scraping/{Ao3ShipIndexScraper,ScrapeBudget,ScrapeWorker}.cs`,
+  `Api/Models/ScrapeRun.cs`, `Tests/{Ao3ShipIndexScraperTests,ScrapeWorkerRunStatusTests}.cs`,
+  `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter ~Backfill` → 35 passed (33 before, **not the 13 the task's verification
+  line claimed**); `dotnet test` → 799 (795 before); `npm run build` + `npm run lint` → clean, the
+  two known fast-refresh warnings only. No live check: backend-only, and the seam the spec names for
+  this is the controller/unit tests. Three mutations below.
+- commit: (this iteration's)
+- next: **T52 is the last blocker on T15**, and it is taken **with T81** — the two tasks' notes both
+  say so, and they are the same fact one column over. That is the next task, ahead of T48–T51 in
+  file order. T15 then unblocks T16 → T17 → T20. **T82 and T83 are new**, both filed from T46's
+  review, and T82 is the honest half of what T46 did not finish.
+- **Three mutations, each red in exactly its own place.** Guard back to `pagesServed == 0` → the two
+  new stall tests red and nothing else, so the clause is pinned and nothing pre-existing was covering
+  it. `Denied` back to `LastPage` → only the denied test. `Denied` dropped from `ScrapeWorker`'s
+  failed-status list → only the worker test. The last one is why that test exists: the mapping is one
+  token in an expression T52 and T81 are both going to edit, and without it their diff could silently
+  drop it.
+- **The review's findings were both prose, and both were mine.** `delivers` said the fix "stops
+  backfilling instead of asking forever"; it stops the backfilling only — `ScrapeWorker` hands a
+  `Failed` backfill an incremental pass that re-asks the same 404 every tick, and T45's hold cannot
+  catch it because its streak is keyed on `LastPageFetched`, null for a run that read nothing (T82).
+  And the `ErrorMessage` I wrote told an operator that re-verification clears a denied tag: nothing
+  in the codebase moves a settled verification back to `Pending` (T83). **A sentence a diff writes
+  for an operator is part of the diff** — check it against the code the way the code gets checked
+  against the tests.
+- **Naming a review's target explicitly is what made it cheap.** It reported reading exactly the
+  working-tree diff, two findings, both in scope, no re-derivation of old tasks — the second review
+  in a row to survive, against three earlier losses to the monthly spend limit.
+- Leaked processes from earlier iterations, unchanged and none of them this task's: pid 1963836
+  (`dotnet run`) and its child, and T19's chrome-headless-shell tree (1994238, 1996041). This task
+  started none of its own. The systemd dev instance (pid 2033) was not touched.
