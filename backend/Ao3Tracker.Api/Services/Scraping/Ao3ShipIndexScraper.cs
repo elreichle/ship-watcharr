@@ -285,7 +285,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 _logger.LogWarning(ex, "Fetching {Url} for ship {ShipId} failed", url, ship.Id);
 
                 // Unlike a non-OK status below, this one *does* re-ask for the same URL. Nothing
-                // retried it: SendWithRetryAsync only retries responses, so a transport failure or
+                // retried it: SendOnceAsync only reports a response as worth retrying, so a transport failure or
                 // a timeout has had exactly one attempt, and those are the failures most likely to
                 // succeed on the next. The re-asking is bounded by the breaker, which counts
                 // consecutive failures and is documented for precisely this — MaxConsecutiveFailures

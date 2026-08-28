@@ -144,17 +144,88 @@ public class Ao3DownloadTransportTests : IDisposable
         Assert.Equal(2, _archive.Received.Count);
     }
 
+    [Fact]
+    public async Task Does_not_spend_a_download_s_deadline_queueing_for_the_rate_gate()
+    {
+        // The deadline is what stops a socket that goes quiet holding the global gate. Armed where
+        // the request is made rather than where the transfer begins, it also runs through the gate
+        // wait and the 5-8s spacing — so a request that never received a byte fails as one whose
+        // file stopped arriving, and the reader is told AO3 went quiet on a fetch AO3 never saw.
+        _archive.Answers = _ => File(HttpStatusCode.OK, Body);
+
+        var client = Client(
+            minDelay: TimeSpan.FromMilliseconds(400),
+            downloadTimeout: TimeSpan.FromMilliseconds(100));
+
+        using var first = new MemoryStream();
+        await client.DownloadAsync(Url, first);
+
+        // The second request owes the spacing, which is four times the deadline it is allowed for
+        // the transfer itself.
+        using var second = new MemoryStream();
+        var result = await client.DownloadAsync(Url, second);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(Body, second.ToArray());
+    }
+
+    [Fact]
+    public async Task Still_gives_up_on_a_transfer_that_does_not_finish()
+    {
+        // The other half: moving where the deadline starts must not stop it applying to what it is
+        // for. HttpClient's own timeout cannot cover a transfer — with ResponseHeadersRead it stops
+        // applying once the headers are in — so without this a copy that never ends holds the
+        // global gate, and with it every other outbound request, for as long as it lasts.
+        _archive.Answers = _ => File(HttpStatusCode.OK, Body);
+
+        var client = Client(downloadTimeout: TimeSpan.FromMilliseconds(100));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => client.DownloadAsync(Url, new StallingStream()));
+    }
+
     private static HttpResponseMessage File(HttpStatusCode status, byte[] body) =>
         new(status) { Content = new ByteArrayContent(body) };
 
-    private RateLimitedAo3HttpClient Client(long maxDownloadBytes = 64L * 1024 * 1024)
+    /// <summary>
+    /// A transfer that never finishes, stood up at the write rather than the read: a body that
+    /// stalls is what this is about, and a response constructed in-process has no socket to stall.
+    /// </summary>
+    private sealed class StallingStream : Stream
+    {
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken ct = default) =>
+            new(Task.Delay(Timeout.Infinite, ct));
+
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    private RateLimitedAo3HttpClient Client(
+        long maxDownloadBytes = 64L * 1024 * 1024,
+        TimeSpan? minDelay = null,
+        TimeSpan? downloadTimeout = null)
     {
         var options = Options.Create(new Ao3HttpClientOptions
         {
             BaseUrl = "https://ao3.test",
-            MinDelayBetweenRequests = TimeSpan.Zero,
-            MaxDelayBetweenRequests = TimeSpan.Zero,
+            MinDelayBetweenRequests = minDelay ?? TimeSpan.Zero,
+            MaxDelayBetweenRequests = minDelay ?? TimeSpan.Zero,
             MaxDownloadBytes = maxDownloadBytes,
+            DownloadTimeout = downloadTimeout ?? TimeSpan.FromMinutes(5),
         });
 
         var storagePaths = new StoragePaths(

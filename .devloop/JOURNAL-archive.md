@@ -1,6 +1,6 @@
 # Journal — archive
 
-Entries rotated out of `JOURNAL.md`, oldest first, so that each iteration's mandatory read stops growing with the length of the run. Nothing here is edited or deleted — it is `grep`-able history, and the live file points at it. Rotated on 2026-08-27 (**2026-08-22 — init** through **2026-08-25 — T13 Confirm AO3's real download URLs — done**) and again on 2026-08-28 (through **2026-08-26 — T31 A singular listing heading must not be read as the tag's name — done**).
+Entries rotated out of `JOURNAL.md`, oldest first, so that each iteration's mandatory read stops growing with the length of the run. Nothing here is edited or deleted — it is `grep`-able history, and the live file points at it. Rotated on 2026-08-27 (**2026-08-22 — init** through **2026-08-25 — T13 Confirm AO3's real download URLs — done**) and again on 2026-08-28 (through **2026-08-26 — T31 A singular listing heading must not be read as the tag's name — done**), and a third time later that day (through **2026-08-26 — T35 The pseud dedup migration collides on a third capitalisation — done**).
 
 ## 2026-08-22 — init
 
@@ -1739,3 +1739,184 @@ build. Not something a task should chase.
   Filters checked to bite, per T22's lesson: `~Ao3BlurbParser` matches 46 and covers all ten new
   cases. `~TotalWorks` matched zero and is retired — see above. Still zero and still suspect: T32
   `~Monotonic`, which is the next task. T40's `~PagesFetched` is zero by design.
+
+## 2026-08-26 — T32 The non-monotonic-boundary warning names the wrong page — done
+
+- did: `TrackBackfillFloor` takes the page it is looking at as a parameter and logs that, instead of
+  `ship.BackfillNextPage` — which the line above it has already advanced to `page + 1`, so the
+  message named the walk's next stop rather than the page the listing shifted under. Added
+  `CapturingLoggerProvider`, the seam the test needed to see a log line at all.
+- files: `Api/Services/Scraping/Ao3ShipIndexScraper.cs`, `Tests/CapturingLoggerProvider.cs` (new),
+  `Tests/Ao3ShipIndexScraperTests.cs`, `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter FullyQualifiedName~Monotonic` → 1 passed (red first at "Expected: 2,
+  Actual: 3", which is the defect itself); `dotnet test` → 744 passed (743 before); `dotnet build
+  --no-incremental` → no new warnings; `npm run build` + `npm run lint` → clean, the two known
+  fast-refresh warnings only. Mutation: logging `page + 1` reds the new test.
+- commit: 2ab7766
+- next: **T33 is next in plain file order** and has no blockers — `.AsSplitQuery()` on
+  `WorkIngestor.LoadExistingWorksAsync`, the cheapest task on the list, verified by the existing
+  ingest tests staying green. **Check `~Ingest` bites before trusting it.** The build's one code
+  warning, CA2017 on `Ao3ShipIndexScraper.cs:536`, is **T49's** and was left alone on purpose.
+- **The predicted dud filter was a dud, and that is now three in a row.** T31's entry said
+  `~Monotonic` was "still zero and still suspect" and would need fixing the same way `~TotalWorks`
+  did. It matched nothing, because no test existed — the task was filed as cosmetic, and a cosmetic
+  task gets a verification command nobody expects to have to write code for. It bites now. Filters
+  checked this iteration: `~Monotonic` 1, `~Backfill` 13, `~Download` untouched. The ritual is
+  earning its keep; keep doing it first, not last.
+- **The seam this task needed is the interesting part, not the one-argument fix.** `TrackBackfillFloor`
+  writes nothing and returns nothing — the log line *is* the behaviour — so there was no way to pin
+  it without capturing a record, and `LibraryTestHost` has never had a logging provider. The obvious
+  move (a provider that formats, like the console one) would have thrown on
+  `RetreatFromStaleCursor`'s six-placeholders-over-five-arguments template and made T49 a
+  prerequisite of T32. `CapturingLoggerProvider` therefore **never calls the formatter**: it keeps
+  the structured values and lets a test ask what `{Page}` was bound to. **T49 needs the opposite
+  seam** — its defect only exists at format time — and must add a second, opt-in one rather than
+  make this one render.
+- **A stopping rule whose only output is a log line has no other test seam.** Worth remembering for
+  the rest of the T33–T71 tail: several of those tasks are about what an operator gets told, and
+  they can all use this provider now. Assert on the named value, not on the sentence.
+- **The line is `LogInformation`, though every reference to it calls it a warning** — the task title,
+  its notes, and the surrounding comments. Not changed: T32's delivers is the page number, and the
+  level is a separate judgement about how loudly a shifted listing should announce itself. Someone
+  deciding that should decide it for the whole file at once; the test's local variable was renamed
+  from `warning` to `boundary` so the tests at least stop asserting something untrue in their names.
+- **The review found nothing in this diff and four elsewhere; three were already filed.** T70, T64
+  and T74 were all re-derived independently — T70 with a sharper consequence (`MaxConsecutiveFailures
+  = 3` means a one-minute AO3 blip permanently fails exactly the first three queued downloads before
+  the breaker starts holding the rest). One is new: **T75**, the login cooldown measured from before
+  the round trip, verified by reading `Ao3SessionProvider`. **Four reviews running have landed nearly
+  every finding in the download path** — T64/T67/T70/T71/T73/T74 are six open tasks over the same few
+  hundred lines. A single dedicated pass over that subsystem is now clearly cheaper than six
+  iterations; worth proposing as a task rather than repeating this observation a fifth time.
+- **The leaked API process is still running** — pid 1963836 (`dotnet run --project Ao3Tracker.Api
+  --no-launch-profile`) and its child 1964058, up 10h26m, first noted in T31's entry. Left alone
+  again: it is not this task's, and killing by pattern is what the "never pkill" rule exists to
+  prevent — the pattern matches the systemd dev instance (pid 2033, up 3d) too. If a future
+  iteration wants the port back, kill **1963836 by pid**, not by name. This task started no
+  processes of its own and did not touch the dev instance.
+
+## 2026-08-26 — T33 One page of known works should not read a cartesian product — done
+
+- did: `WorkIngestor.LoadExistingWorksAsync` says `.AsSplitQuery()`, so the three collection
+  `Include`s stop multiplying out — a page of twenty known works with ~15 tags, ~2 authors and ~1
+  series each was reading a three-way `LEFT JOIN` product with every `Works` column repeated in each
+  row, on every incremental pass over works that had not changed. Added the second-pass test that
+  covers all three joins, which is the invariant the `Include`s exist for and which `Work.Series` had
+  nowhere.
+- files: `Api/Services/Scraping/WorkIngestor.cs`, `Tests/WorkIngestorPseudTests.cs`,
+  `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter FullyQualifiedName~Ingest` → 9 passed (8 before); `dotnet test` → 745
+  passed (744 before); `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings
+  only. Mutation: dropping `Include(w => w.Series)` reds the new test with a `DbUpdateException`.
+- commit: 50f5941
+- next: **T35 is next in plain file order** (`NormalizedPseudIdentity` collides on a third
+  capitalisation) and has no blockers. Its own notes name the hard part: getting a test around a
+  migration, and the seam is undecided — settle that before writing the fix, and do **not** rewrite
+  the applied migration in place. Its filter is `~Pseud`, which currently matches this file's 9 (it
+  bites, but on tests that say nothing about migrations — expect to add the test the filter is
+  supposed to be about).
+- **The verification filter bit, for the first time in four tasks.** `~Ingest` matched 8 before the
+  change and 9 after. T31 and T32 both opened with a filter that had never matched anything; this one
+  matched, and matched tests that actually walk the code path (three of the eight are second-pass
+  re-ingests). The ritual costs one command and has now paid twice and cleared once — keep doing it
+  first.
+- **A behaviour-preserving task has no red-first test, so the evidence has to come from somewhere
+  else.** Two places, both cheap. A throwaway probe printed `ToQueryString()` with and without the
+  split against the **Postgres** provider: without, one statement with three stacked `LEFT JOIN`s;
+  with, the root query plus EF's own note that more follow, and an `ORDER BY w."Id"` EF adds itself.
+  That probe is also why no Npgsql translation test was added — the translator was watched accepting
+  it. And the new test is what makes the diff worth committing: it pins the rule the query's comment
+  states, on the leg nothing tested.
+- **`Work.Series` was the untested third of a three-part invariant, and nothing said so.** Tags and
+  authors each had a second-pass test; series had none in any file, and the failure mode is loud
+  (`DbUpdateException` on the unique key) rather than silent, so it would have surfaced in
+  production as a broken pass rather than as quiet data loss. Worth generalising: when a comment
+  says "all three of these must X", check that three tests exist, not that the comment is true.
+- **The class doc was widened instead of starting a second test file.** `WorkIngestorPseudTests` is
+  named for pseuds and is really about join reconciliation across re-reads; a series-shaped twin
+  would have duplicated its 30-line blurb helper. The name is now the wrong half of the truth and
+  the doc is the right one — a rename is a task for whoever next touches the file.
+- **The review found nothing in this diff and four elsewhere, and all four were already on the list**
+  (T64, T63, T67/T73, T74) — the first review in five to add no task. It also re-derived a worse
+  consequence for T64: two concurrent fetches mean two `File.Move`s onto one destination and two
+  `WorkDownloadFile` inserts, only the second race-handled. **Five reviews running have landed in the
+  download path**, which is now nine open tasks (T63/T64/T67/T69/T70/T71/T73/T74/T75) over a few
+  hundred lines. Three iterations have observed that one dedicated pass would be cheaper; it is now
+  written into the run order as something to *file*, because observing it again is the pattern.
+- **Leaked processes, unchanged and growing older.** pid 1963836 (`dotnet run --project
+  Ao3Tracker.Api --no-launch-profile`, 10h38m) and the chrome-headless-shell tree from T19's live
+  check (1994238 and its children, plus 1996041, ~10h). None of them this task's; killing by pattern
+  is what the "never pkill" rule exists to prevent, since the pattern also matches the systemd dev
+  instance (pid 2033, up 3d08h). Kill **by pid** if a future iteration wants the port or the memory.
+  This task started no processes of its own and did not touch the dev instance.
+  Filters checked to bite, per T22's lesson: `~Ingest` 8 → 9, covering the new test. Still zero and
+  still suspect: none known — T31 retired `~TotalWorks` and T32 fixed `~Monotonic`. T40's
+  `~PagesFetched` is zero by design.
+
+## 2026-08-26 — T35 The pseud dedup migration collides on a third capitalisation — done
+
+- did: `NormalizedPseudIdentity`'s merge now thins each work's author links to one per creator —
+  keeping the lowest pseud id present in the normalized group — before repointing what is left at
+  the group's `MIN(Id)`. The old `DELETE` only dropped a link when the work was *already* linked to
+  the canonical row, so three spellings with the work linked to the second and third dropped
+  nothing and the repoint then moved two links onto one row, failing `PK_WorkAuthors` mid-upgrade.
+  Corrected in both providers, in place.
+- files: `Api/Data/Migrations/Sqlite/20260822182752_NormalizedPseudIdentity.cs`,
+  `Api/Data/Migrations/Postgres/20260822182800_NormalizedPseudIdentity.cs`,
+  `Tests/PseudMigrationTests.cs` (new), `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter FullyQualifiedName~PseudMigration` → 4 passed (2 red first, both with
+  `SQLite Error 19: UNIQUE constraint failed: WorkAuthors.WorkId, WorkAuthors.PseudId` — the defect
+  itself); `--filter ~Pseud` → 13 (9 before); `dotnet test` → 749 passed (745 before);
+  `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only. Mutation:
+  replacing the normalized-group match with `1 = 1` reds
+  `Two_different_creators_on_one_work_both_survive` and nothing else.
+- commit: baf862d
+- next: **T36 is next in plain file order**, `blocked-by: none`. Two things this iteration filed that
+  change what the run looks like: **T76**, a verified defect in the same migration (below), and
+  **T77**, the download-path pass the run order has been asking three iterations for — take T77
+  **instead of T63** when the run reaches T63, not from its position at the end of the file.
+- **The task's warning was conditional and the condition was false.** Its notes said not to rewrite
+  an applied migration *if it has shipped anywhere*; `git branch --contains` says this one exists
+  only on `devloop/dashboard-completion`. So it was corrected in place. What makes that safe is
+  narrower than "it is a dev branch": the old merge either produced the right answer or threw and
+  rolled back, so no database can be holding a wrong state that a repair migration would have to
+  find. Check that property, not the branch name, before doing this again.
+- **The suite could not reach migration SQL at all until this task.** Everything starts from
+  `EnsureCreated`, which builds today's schema and executes no migration. `PseudMigrationTests`
+  takes `IMigrator` off the context's infrastructure, migrates to the revision *before* the one
+  under test, seeds with `ExecuteSqlRaw` (the entity model describes today's schema and cannot
+  write a row to yesterday's), and migrates one step. It targets the migration by name rather than
+  migrating to latest, so a future migration cannot red it for unrelated reasons. **Any of the
+  remaining migration-shaped defects can use this now.**
+- **The review died on the account's monthly spend limit — and its last thought was the best thing
+  it produced.** Second review lost this way after T14's; the limit resets at 22:20 America/Chicago.
+  The notification carried one sentence of the agent's reasoning: *"Let me empirically verify a
+  suspicion about the migration's pseud deletion cascading."* Chased by hand, that is **T76**, and
+  it is filed as verified rather than reported: `SavedWorkFilterAuthors` has a `PseudId` FK to
+  `Ao3Pseuds` declared `onDelete: Cascade`, the migration repoints `WorkAuthors` only, and so the
+  final `DELETE FROM "Ao3Pseuds"` silently takes a saved filter's author criterion with the loser.
+  A throwaway probe through the new seam confirmed it — `PRAGMA foreign_keys` reads `1`, pseuds
+  merged to `[1]`, `SavedWorkFilterAuthors` came out **empty**. **Read what a dead agent was doing
+  when it died before concluding the diff went unreviewed.**
+- **T76 was not folded into this task**, though the file was open and the pattern was already
+  written. T35 delivers "the upgrade does not fail"; T76 is an upgrade that succeeds and loses data,
+  in a different table, and it needs a judgement T35 does not — what `Exclude` means when an include
+  and an exclude of one creator merge onto one row. The seam is what makes it cheap for whoever
+  takes it.
+- **Only SQLite was executed.** The Postgres twin's changed block is byte-identical (`diff`) and
+  `dotnet ef migrations script --context PostgresAppDbContext` renders it, so the C# is right and
+  the SQL is what was intended — but no PostgreSQL server ran it. Not new to this task; it is how
+  every migration on this branch stands. The correlated references were moved out of the subquery's
+  `JOIN ... ON` clauses into its `WHERE` so the form needs no argument about where PostgreSQL allows
+  an outer reference without `LATERAL`.
+- **`Position` comes out of the merge with gaps** — a work linked to spellings at positions 0 and 1
+  keeps position 0. Harmless: `WorkIngestor` rewrites every position from blurb order on the next
+  ingest (`WorkIngestor.cs:206`), and nothing reads Position expecting it to be contiguous.
+- **Leaked processes, unchanged.** pid 1963836 (`dotnet run --project Ao3Tracker.Api
+  --no-launch-profile`) and its child, plus T19's chrome-headless-shell tree (1994238 and children,
+  1996041). None of them this task's; kill **by pid** if a future iteration wants the port. Killing
+  by pattern is what the "never pkill" rule exists to prevent — the pattern matches the systemd dev
+  instance (pid 2033) too. This task started no processes of its own and did not touch it.
+  Filters checked to bite, per T22's lesson: `~Pseud` matched 9 before (all `WorkIngestorPseudTests`,
+  none about migrations — as predicted) and 13 after; `~PseudMigration` matches the 4 new ones.
+  Still zero and still suspect: none known. T40's `~PagesFetched` is zero by design.

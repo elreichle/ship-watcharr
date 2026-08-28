@@ -304,8 +304,12 @@ public class DownloadWorkerTests : IDisposable
     }
 
     [Fact]
-    public async Task Leaves_nothing_behind_when_the_archive_cannot_be_reached_at_all()
+    public async Task Re_queues_a_request_the_archive_could_not_be_reached_for()
     {
+        // A DNS failure, a reset socket or a connect timeout is not AO3's answer about this work —
+        // it is no answer at all, and the transport retries responses only, so this has had exactly
+        // one attempt. Failing it settles the request on one blip and makes the reader notice and
+        // ask again; the "never a retry loop" rule is about a work AO3 has taken down.
         var emma = await ReaderWithAWorkAsync();
         _host.Http.Responds = _ => WorkPage(EpubUrl);
         await QueueAsync(emma);
@@ -317,12 +321,137 @@ public class DownloadWorkerTests : IDisposable
 
         await DrainAsync();
 
-        // Recorded rather than left in flight: a request stuck at Downloading is one the controller
+        var download = await DownloadAsync();
+        Assert.Equal(DownloadStatus.Pending, download.Status);
+
+        // And nothing left in flight: a request stuck at Downloading is one the controller
         // deliberately will not re-arm, so nothing but a restart could ever free it.
+        Assert.Null(download.ErrorMessage);
+        Assert.Empty(FilesUnder(DownloadPaths.Root));
+
+        // The next poll finds the archive back and finishes it, with no second request from anyone.
+        // Three consecutive failures would have settled it; this is the first.
+        _host.Http.Fails = null;
+        await DrainAsync();
+
+        Assert.Equal(DownloadStatus.Complete, (await DownloadAsync()).Status);
+    }
+
+    [Fact]
+    public async Task Stops_re_queueing_once_the_archive_is_plainly_down()
+    {
+        // What bounds the rule above. Every transport failure is recorded against the drain's
+        // budget before it escapes, so the breaker opens on the third and the rest of the queue is
+        // held rather than attempted — a queue of two hundred does not become two hundred requests
+        // at an archive that is not answering.
+        var emma = await ReaderWithAWorkAsync(works: 5);
+        await _host.EnsureAo3SessionAsync();
+
+        for (long workId = 1; workId <= 5; workId++) await QueueAsync(emma, workId);
+
+        _host.Http.Fails = new HttpRequestException("Connection refused");
+
+        await DrainAsync();
+
+        Assert.Equal(3, _host.Http.Requested.Count);
+        Assert.All(await DownloadsAsync(), d => Assert.Equal(DownloadStatus.Pending, d.Status));
+    }
+
+    [Fact]
+    public async Task Records_a_fetch_that_kept_throwing_before_it_could_claim_its_row()
+    {
+        // MarkFailedAsync used to record only rows it found Downloading, which covers "deleted" and
+        // "the fetcher already wrote it" — and also covered a fetcher that threw before claiming
+        // anything. Such a row stayed Pending, so every poll re-selected it, threw again and
+        // recorded nothing, while the reader went on being told it was queued.
+        var thrower = new ThrowingFetcher(new InvalidOperationException("The database is locked"));
+
+        _host.Dispose();
+        _host = new LibraryTestHost(services => services.AddScoped<IDownloadFetcher>(_ => thrower));
+
+        var emma = await ReaderWithAWorkAsync();
+        var id = await QueueAsync(emma);
+
+        var worker = _host.NewDownloadWorker();
+        await worker.DrainQueueAsync(default);
+
+        // Not on the first: a store that was briefly locked is exactly the kind of failure the next
+        // poll gets past, and settling the request on one throw would cost the reader their request
+        // for it.
+        Assert.Equal(DownloadStatus.Pending, (await DownloadAsync()).Status);
+
+        await worker.DrainQueueAsync(default);
+        await worker.DrainQueueAsync(default);
+
+        var download = await DownloadAsync();
+        Assert.Equal(id, download.Id);
+        Assert.Equal(DownloadStatus.Failed, download.Status);
+        Assert.Contains("The database is locked", download.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task Gives_up_on_a_request_no_poll_has_ever_reached_the_archive_for()
+    {
+        // The bound on re-queueing. The drain's circuit breaker only ends one poll and the next
+        // rebuilds it, so with nothing counting across polls an instance whose archive does not
+        // resolve spends three requests a minute on it for ever — thousands a day at an endpoint
+        // that is not answering — while the reader is shown a request that says only "queued".
+        var emma = await ReaderWithAWorkAsync();
+        await QueueAsync(emma);
+        await _host.EnsureAo3SessionAsync();
+
+        _host.Http.Fails = new HttpRequestException("Name or service not known");
+
+        var worker = _host.NewDownloadWorker();
+
+        await worker.DrainQueueAsync(default);
+        await worker.DrainQueueAsync(default);
+        Assert.Equal(DownloadStatus.Pending, (await DownloadAsync()).Status);
+
+        await worker.DrainQueueAsync(default);
+
         var download = await DownloadAsync();
         Assert.Equal(DownloadStatus.Failed, download.Status);
-        Assert.Contains("Connection refused", download.ErrorMessage);
-        Assert.Empty(FilesUnder(DownloadPaths.Root));
+        Assert.Contains("Name or service not known", download.ErrorMessage);
+
+        // And nothing asks again: three requests, made across three polls, and then a row the
+        // reader can see and act on.
+        Assert.Equal(3, _host.Http.Requested.Count);
+
+        await worker.DrainQueueAsync(default);
+        Assert.Equal(3, _host.Http.Requested.Count);
+    }
+
+    [Fact]
+    public async Task Forgets_what_a_request_cost_once_it_leaves_the_queue()
+    {
+        // The count is per request and consecutive: a fetch that failed twice and then worked must
+        // not leave the next failure of the same row one throw from being given up on.
+        var emma = await ReaderWithAWorkAsync();
+        await QueueAsync(emma);
+        await _host.EnsureAo3SessionAsync();
+
+        _host.Http.Fails = new HttpRequestException("Connection refused");
+        var worker = _host.NewDownloadWorker();
+
+        await worker.DrainQueueAsync(default);
+        await worker.DrainQueueAsync(default);
+
+        _host.Http.Fails = null;
+        _host.Http.Responds = _ => WorkPage(EpubUrl);
+        await worker.DrainQueueAsync(default);
+
+        Assert.Equal(DownloadStatus.Complete, (await DownloadAsync()).Status);
+
+        // Asked for again, and failing again: the reader gets the same three attempts they would
+        // have got the first time.
+        await MoveWorkOnAsync(1, FirstVersion.AddDays(1));
+        await QueueAsync(emma);
+        _host.Http.Fails = new HttpRequestException("Connection refused");
+
+        await worker.DrainQueueAsync(default);
+
+        Assert.Equal(DownloadStatus.Pending, (await DownloadAsync()).Status);
     }
 
     [Fact]
@@ -341,6 +470,83 @@ public class DownloadWorkerTests : IDisposable
 
         // What arrived before the copy was abandoned is not a copy of anything, so nothing may name
         // it and nothing may keep it.
+        Assert.Empty(await FilesAsync());
+        Assert.Empty(FilesUnder(DownloadPaths.Root));
+    }
+
+    [Fact]
+    public async Task Does_not_count_a_file_this_instance_refused_against_the_breaker()
+    {
+        // The breaker is about the archive's health, and a ceiling chosen at this end is not
+        // evidence about it: AO3 served every one of these perfectly. Counted as failures, three of
+        // them in a drain hold everything behind them on the grounds that the archive is down.
+        //
+        // The pages come from the response cache, which is what a queue of formats of one work — or
+        // a second poll inside the cache window — actually looks like. A freshly read page records
+        // a success between each file and resets the streak, which is what hides the arithmetic.
+        var emma = await ReaderWithAWorkAsync(works: 4);
+        _host.Http.Responds = _ => WorkPage(EpubUrl) with { FromCache = true };
+        _host.Http.DownloadsExceedTheSizeLimit = true;
+
+        for (long workId = 1; workId <= 4; workId++) await QueueAsync(emma, workId);
+
+        await DrainAsync();
+
+        Assert.Equal(4, _host.Http.FilesRequested.Count);
+        Assert.All(await DownloadsAsync(), d => Assert.Equal(DownloadStatus.Failed, d.Status));
+    }
+
+    [Fact]
+    public async Task Fetches_again_when_the_stored_copy_has_left_the_disk()
+    {
+        // A row is not a file. One left naming bytes that a remounted volume or a hand-cleaned disk
+        // took away would answer every future request for this work and format with Complete and a
+        // path to nothing — and the reader could not ask their way out of it, because the same row
+        // is what says there is nothing to fetch.
+        var emma = await ReaderWithAWorkAsync();
+        var fileId = await SeedFileAsync(1, Ao3DownloadFormat.Epub, FirstVersion);
+
+        File.Delete(DownloadPaths.Absolute(
+            _host.DataDirectory, DownloadPaths.Relative(1, Ao3DownloadFormat.Epub, FirstVersion)));
+
+        _host.Http.Responds = _ => WorkPage(EpubUrl);
+        await QueueAsync(emma);
+
+        await DrainAsync();
+
+        Assert.Equal(DownloadStatus.Complete, (await DownloadAsync()).Status);
+        Assert.Single(_host.Http.FilesRequested);
+
+        // The row that was there is the row that is repaired — the path is derived from
+        // (work, format, version), so the fetch wrote to exactly where it already pointed — and it
+        // describes the bytes now on disk rather than the ones that went missing.
+        var file = await FileAsync();
+        Assert.Equal(fileId, file.Id);
+        Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(FileBody)), file.Sha256);
+        Assert.Equal(FileBody.Length, file.SizeBytes);
+        Assert.Single(FilesUnder(DownloadPaths.Root));
+    }
+
+    [Fact]
+    public async Task Leaves_no_file_behind_when_nothing_can_be_written_to_name_it()
+    {
+        // The bytes are moved into place before the row is written, so a save the database refuses
+        // leaves up to the whole size ceiling on disk that nothing accounts for: no row names it,
+        // the partials sweep does not look there, and only a fetch of this same version of this
+        // same work would ever overwrite it.
+        var emma = await ReaderWithAWorkAsync();
+        _host.Http.Responds = _ => WorkPage(EpubUrl);
+        await QueueAsync(emma);
+
+        // The work leaves the library while its file is on the wire, taking the request with it.
+        _host.Http.RespondsToDownload = _ =>
+        {
+            DeleteWork(1);
+            return (HttpStatusCode.OK, FileBody);
+        };
+
+        await DrainAsync();
+
         Assert.Empty(await FilesAsync());
         Assert.Empty(FilesUnder(DownloadPaths.Root));
     }
@@ -685,8 +891,18 @@ public class DownloadWorkerTests : IDisposable
         HttpStatusCode.OK,
         FromCache: false);
 
+    /// <summary>
+    /// A stored copy: the row, and the bytes it names actually on disk. Both, because a row whose
+    /// file has gone is not a copy this instance has — the fetch runs again instead.
+    /// </summary>
     private async Task<int> SeedFileAsync(long workId, Ao3DownloadFormat format, DateTime version)
     {
+        var relativePath = DownloadPaths.Relative(workId, format, version);
+        var absolutePath = DownloadPaths.Absolute(_host.DataDirectory, relativePath);
+
+        Directory.CreateDirectory(Path.GetDirectoryName(absolutePath)!);
+        await File.WriteAllBytesAsync(absolutePath, FileBody);
+
         await using var db = _host.NewContext();
 
         var file = new WorkDownloadFile
@@ -694,7 +910,7 @@ public class DownloadWorkerTests : IDisposable
             WorkId = workId,
             Format = format,
             WorkUpdatedAt = version,
-            RelativePath = DownloadPaths.Relative(workId, format, version),
+            RelativePath = relativePath,
             SizeBytes = FileBody.Length,
             FetchedAt = version,
         };
@@ -726,6 +942,18 @@ public class DownloadWorkerTests : IDisposable
         download.Status = status;
 
         await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// The work leaves the library, taking every request for it with it — synchronous, so it can
+    /// be done from inside a response the fetcher is in the middle of reading.
+    /// </summary>
+    private void DeleteWork(long workId)
+    {
+        using var db = _host.NewContext();
+
+        db.Works.Remove(db.Works.First(w => w.Id == workId));
+        db.SaveChanges();
     }
 
     /// <summary>The author updates the work, which is what makes a stored copy a stale one.</summary>
@@ -782,6 +1010,19 @@ public class DownloadWorkerTests : IDisposable
             ? Directory.GetFiles(directory, "*", SearchOption.AllDirectories)
             : [];
     }
+}
+
+/// <summary>
+/// Throws before touching the row, the way a fetcher whose own read of it failed would.
+/// </summary>
+internal sealed class ThrowingFetcher : IDownloadFetcher
+{
+    private readonly Exception _cause;
+
+    public ThrowingFetcher(Exception cause) => _cause = cause;
+
+    public Task<DownloadFetchOutcome> FetchAsync(
+        int downloadId, ScrapeBudget budget, CancellationToken ct = default) => throw _cause;
 }
 
 /// <summary>

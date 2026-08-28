@@ -339,6 +339,72 @@ public class DownloadsControllerTests : IDisposable
         Assert.Null(again.SizeBytes);
     }
 
+    [Fact]
+    public async Task Queues_a_fetch_when_the_stored_file_has_left_the_disk()
+    {
+        // A row is not a file. A data directory that lost bytes while keeping their row — a
+        // remounted volume, a hand-cleaned disk, a partial restore — would otherwise answer this
+        // Complete with a path to nothing, and asking again could not get the reader out of it:
+        // the same row is what decides there is nothing to fetch.
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+
+        var path = await SeedFileOnDiskAsync(1, Ao3DownloadFormat.Epub, FirstVersion, [1, 2, 3]);
+        File.Delete(path);
+
+        var queued = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+
+        Assert.Equal(nameof(DownloadStatus.Pending), queued.Status);
+        Assert.Null(queued.SizeBytes);
+    }
+
+    [Fact]
+    public async Task Re_arms_a_completed_request_whose_file_has_left_the_disk()
+    {
+        // The same rule reached through the row that already points at those bytes. Left Complete,
+        // it names a file the reader is served a 410 for and can never get back.
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+
+        var path = await SeedFileOnDiskAsync(1, Ao3DownloadFormat.Epub, FirstVersion, [1, 2, 3]);
+        var complete = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+        Assert.Equal(nameof(DownloadStatus.Complete), complete.Status);
+
+        File.Delete(path);
+
+        var again = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+
+        Assert.Equal(complete.Id, again.Id);
+        Assert.Equal(nameof(DownloadStatus.Pending), again.Status);
+        Assert.True(await _host.DownloadWake.WaitAsync(TimeSpan.Zero));
+    }
+
+    [Fact]
+    public async Task Cannot_un_claim_a_row_a_worker_took_while_it_was_reading()
+    {
+        // The in-flight guard is a read, and the write happens a query later. A fetcher claiming
+        // the row in between was reset to Pending underneath its own fetch — and where the save
+        // landed after the fetch finished, a Complete request was reset with its file reference
+        // cleared, orphaning bytes the worker had just recorded and costing another drain.
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+
+        var queued = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+        await FailAsync(queued.Id, "AO3 answered 503.");
+
+        // Claimed at the one instant that used to matter: after the controller has read the row and
+        // before it writes what it read.
+        _host.ClaimDownloadsWhileTheFileIsRead();
+
+        var answer = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+
+        Assert.Equal(nameof(DownloadStatus.Downloading), answer.Status);
+
+        var row = Assert.Single(await DownloadRowsAsync());
+        Assert.Equal(DownloadStatus.Downloading, row.Status);
+        Assert.Equal("AO3 answered 503.", row.ErrorMessage);
+    }
+
     // ---- the queue -----------------------------------------------------------------------------
 
     [Fact]
@@ -745,6 +811,24 @@ public class DownloadsControllerTests : IDisposable
         Assert.Equal($"{new string('a', 120)}.epub", served.FileDownloadName);
     }
 
+    [Fact]
+    public async Task Cuts_a_long_title_without_leaving_the_dot_the_trim_removed()
+    {
+        // The trim above the cut exists because Windows silently truncates a name ending in a dot.
+        // A title whose 120th character is a period rebuilds exactly that shape, one line later.
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+        await RetitleAsync(1, new string('a', 119) + "." + new string('b', 100));
+        await SeedFileOnDiskAsync(1, Ao3DownloadFormat.Epub, FirstVersion, [1, 2, 3]);
+
+        var complete = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+
+        var served = Assert.IsType<PhysicalFileResult>(
+            await _host.NewDownloadsRequest(emma).GetDownloadFile(complete.Id, default));
+
+        Assert.Equal($"{new string('a', 119)}.epub", served.FileDownloadName);
+    }
+
     // ---- helpers -------------------------------------------------------------------------------
 
     /// <summary>Follows a tag through the real endpoint, returning the ship it resolved to.</summary>
@@ -767,9 +851,19 @@ public class DownloadsControllerTests : IDisposable
         await db.SaveChangesAsync();
     }
 
-    /// <summary>Bytes on disk, as the download worker will leave them.</summary>
+    /// <summary>
+    /// Bytes on disk, as the download worker will leave them: the row, and a file of that size at
+    /// the path the row names. Both, because a row alone is not a copy anyone has — a request is
+    /// only answered off a stored file whose bytes are still there.
+    /// </summary>
     private async Task<int> SeedFileAsync(long workId, Ao3DownloadFormat format, DateTime version, long sizeBytes)
     {
+        var relativePath = DownloadPaths.Relative(workId, format, version);
+        var absolutePath = DownloadPaths.Absolute(_host.DataDirectory, relativePath);
+
+        Directory.CreateDirectory(Path.GetDirectoryName(absolutePath)!);
+        await File.WriteAllBytesAsync(absolutePath, new byte[sizeBytes]);
+
         await using var db = _host.NewContext();
 
         var file = new WorkDownloadFile
@@ -777,7 +871,7 @@ public class DownloadsControllerTests : IDisposable
             WorkId = workId,
             Format = format,
             WorkUpdatedAt = version,
-            RelativePath = $"downloads/{workId}/{format}.bin",
+            RelativePath = relativePath,
             SizeBytes = sizeBytes,
             FetchedAt = version,
         };

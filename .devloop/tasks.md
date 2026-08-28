@@ -72,6 +72,17 @@ a guess. T33's review found nothing in its diff and four elsewhere, **all four a
 **T64**, **T63**, **T67** (read with **T73**) and **T74** — the first review in five not to add a
 task.
 
+**2026-08-28: T77 is done, and with it T63, T64, T65, T66, T67, T69, T70, T71, T73, T74 and T75** —
+eleven tasks closed in one pass over `DownloadsController`, `DownloadFetcher`,
+`RateLimitedAo3HttpClient`, `DownloadWorker` and `Ao3SessionProvider`, each verified by its own
+filter before being marked. The download path is no longer the thing every review re-derives; what
+is left over it is **T59**, **T60**, **T62**, **T68** and **T72**, none of which T77 claimed. Next in
+plain file order is **T16** (notifications), whose blocker T15 is done — T10 is earlier and still
+blocked by T51, and T48–T51 sit above T16 in the file but were passed over by the same run order that
+sent this pass to T77. The three stated verification filters that used to bite nothing —
+`~Ao3Session`, `~Ao3SessionProvider`, `~RateLimited` — now do: the new test classes are named for
+them.
+
 **The download path has now been re-derived by five consecutive reviews.** T63/T64/T67/T69/T70/T71/
 T73/T74/T75 are nine open tasks over the same few hundred lines of `DownloadsController`,
 `DownloadFetcher`, `RateLimitedAo3HttpClient` and `Ao3SessionProvider`. Three iterations running have
@@ -1861,7 +1872,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   may end this loop", which is why it is worth fixing rather than tolerating.
 
 ## T63 — Two workers can each perform the same AO3 login
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: One login at a time, however many workers want a session.
@@ -1881,7 +1892,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   time. A `SemaphoreSlim` around check-then-login, re-reading the cache after acquiring, is the fix.
 
 ## T64 — A controller re-arm can overwrite a fetch already in flight
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: Re-arming a request cannot un-claim a row a worker is already fetching.
@@ -1899,7 +1910,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   rather than a token.
 
 ## T65 — A fetch that throws before claiming its row is retried for ever
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A request whose fetch throws before it was claimed is recorded, not re-attempted on
@@ -1913,7 +1924,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   loop" rule, with a hole in it.
 
 ## T66 — An oversized download must not look like an archive that is down
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A response abandoned for exceeding `MaxDownloadBytes` does not count toward the circuit
@@ -1927,7 +1938,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   this instance chose is not evidence about it.
 
 ## T67 — "AO3 stopped sending" is also said when AO3 never started
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A download that spent its deadline queued behind the rate gate and retries says so,
@@ -1961,7 +1972,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   dropping text typed during a save; consider whether one answer serves both.
 
 ## T69 — A stored file that is no longer on disk must not read as a copy the reader has
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A `WorkDownloadFile` row whose file is missing does not satisfy a request; the fetch
@@ -1980,7 +1991,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   cheap half; what to do with the orphaned row is the part worth deciding rather than assuming.
 
 ## T70 — A download must not be failed for ever because AO3 was briefly unreachable
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A queued download whose fetch failed at the transport — no response at all — returns to
@@ -1999,7 +2010,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   enough on its own, but say so rather than leaving it implied.
 
 ## T71 — A file moved into place before its row is written can be orphaned
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A failed `StoreFileAsync` leaves no unreferenced file behind, so a save the database
@@ -2034,7 +2045,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   `BaseUrl` is the fix; keep the whole-origin comparison T61 introduced.
 
 ## T73 — One `Retry-After` must not park every outbound request on the instance
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A retry backoff is bounded and does not hold the global rate gate while it waits, so one
@@ -2054,7 +2065,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   turns into a fleet-wide one.
 
 ## T74 — A truncated filename can end in the dot the sanitiser just removed
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: `FileNameFor` cannot produce a name ending in `.`, whatever the title's 120th character
@@ -2069,7 +2080,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   filename is the untrusted part.
 
 ## T75 — The login cooldown is measured from before the round trip, not after it
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: `Ao3LoginBackoff.RecordFailure` is given the instant the attempt *finished*, so the
@@ -2120,7 +2131,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   entry.
 
 ## T77 — One pass over the download path instead of eleven
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: T63, T64, T65, T66, T67, T69, T70, T71, T73, T74 and T75 closed together, in one diff

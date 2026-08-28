@@ -133,13 +133,13 @@ public class DownloadsController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
-        var existing = await _db.Downloads
+        // Untracked, because every write on this path is the conditional update below rather than
+        // a save of what was read: the row can be claimed by a worker in between, and a change set
+        // built from the earlier read would overwrite that claim.
+        var existing = await _db.Downloads.AsNoTracking()
             .FirstOrDefaultAsync(d => d.UserId == userId && d.WorkId == workId && d.Format == format, ct);
 
-        // The version identity of the bytes: a file fetched when the work said it was last updated
-        // at some earlier time is a copy of a work that has since changed, not of this one.
-        var onDisk = await _db.WorkDownloadFiles.FirstOrDefaultAsync(
-            f => f.WorkId == workId && f.Format == format && f.WorkUpdatedAt == work.UpdatedAt, ct);
+        var onDisk = await UsableFileAsync(workId, format, work.UpdatedAt, ct);
 
         if (existing is not null)
         {
@@ -156,10 +156,27 @@ public class DownloadsController : ControllerBase
             // it changes nothing unless the bytes have appeared on disk since it was made, in which
             // case it stops being a fetch anyone has to perform.
             Arm(existing, onDisk);
-            await _db.SaveChangesAsync(ct);
-            WakeTheWorker(existing);
 
-            return Ok(ToDto(existing, work.Title, onDisk?.SizeBytes));
+            if (await TryArmAsync(existing, ct))
+            {
+                WakeTheWorker(existing);
+                return Ok(ToDto(existing, work.Title, onDisk?.SizeBytes));
+            }
+
+            // The guard above is a read, and a worker can claim the row between it and the write —
+            // which is the same state the guard exists to refuse, reached from the other side of
+            // it. Re-read rather than assumed: the row is either in flight, and this caller is told
+            // so, or it was dropped while they asked, and a fresh request is what they wanted.
+            var current = await _db.Downloads.AsNoTracking()
+                .FirstOrDefaultAsync(d => d.Id == existing.Id, ct);
+
+            if (current is not null)
+            {
+                long? size = current.WorkDownloadFileId is not null
+                    && current.WorkDownloadFileId == onDisk?.Id ? onDisk.SizeBytes : null;
+
+                return Ok(ToDto(current, work.Title, size));
+            }
         }
 
         var download = new Download
@@ -321,6 +338,59 @@ public class DownloadsController : ControllerBase
     }
 
     /// <summary>
+    /// Writes an armed request back, but only while no worker holds it.
+    /// </summary>
+    /// <remarks>
+    /// A conditional update rather than a concurrency token, which keeps T11's decision that the
+    /// in-flight guard is checked rather than locked: what must not happen is one specific
+    /// overwrite, and <c>Status != Downloading</c> in the <c>WHERE</c> is that guard applied at the
+    /// instant of the write instead of a few milliseconds before it. Without it a fetcher claiming
+    /// the row between the read and the save was reset to Pending mid-fetch — or, when the save
+    /// landed after the fetch finished, a Complete request was reset with its
+    /// <see cref="Download.WorkDownloadFileId"/> cleared, orphaning the file the worker had just
+    /// recorded and costing another drain.
+    /// </remarks>
+    private async Task<bool> TryArmAsync(Download armed, CancellationToken ct) =>
+        await _db.Downloads
+            .Where(d => d.Id == armed.Id && d.Status != DownloadStatus.Downloading)
+            .ExecuteUpdateAsync(
+                set => set
+                    .SetProperty(d => d.Status, armed.Status)
+                    .SetProperty(d => d.WorkDownloadFileId, armed.WorkDownloadFileId)
+                    .SetProperty(d => d.CompletedAt, armed.CompletedAt)
+                    .SetProperty(d => d.ErrorMessage, armed.ErrorMessage),
+                ct) > 0;
+
+    /// <summary>
+    /// The stored file for this work's current version, where its bytes are still on disk.
+    /// </summary>
+    /// <remarks>
+    /// The version identity of the bytes is the row: a file fetched when the work said it was last
+    /// updated at some earlier time is a copy of a work that has since changed, not of this one.
+    /// The file's continued existence is not the row, and a data directory that lost bytes while
+    /// keeping their row would otherwise answer this request Complete with a path to nothing — and
+    /// go on doing it, since this is also what decides there is nothing to fetch. The same check
+    /// the fetcher makes, for the same reason; a request that gets past it repairs the row.
+    /// </remarks>
+    private async Task<WorkDownloadFile?> UsableFileAsync(
+        long workId, Ao3DownloadFormat format, DateTime workUpdatedAt, CancellationToken ct)
+    {
+        var file = await _db.WorkDownloadFiles.AsNoTracking().FirstOrDefaultAsync(
+            f => f.WorkId == workId && f.Format == format && f.WorkUpdatedAt == workUpdatedAt, ct);
+
+        if (file is null) return null;
+
+        if (System.IO.File.Exists(DownloadPaths.Absolute(_paths.DataDirectory, file.RelativePath)))
+            return file;
+
+        _logger.LogWarning(
+            "The stored {Format} of work {WorkId} is recorded at {Path}, which is not on disk. "
+            + "The request will be queued for a fresh fetch.", format, workId, file.RelativePath);
+
+        return null;
+    }
+
+    /// <summary>
     /// Tells <see cref="DownloadWorker"/> there is something to fetch, when there is.
     /// </summary>
     /// <remarks>
@@ -431,7 +501,12 @@ public class DownloadsController : ControllerBase
             // Never between the two halves of one letter: the cut is a UTF-16 index, and a lone
             // surrogate is not a character any filesystem or header encoder can do anything with.
             var cut = char.IsHighSurrogate(name[maxStemLength - 1]) ? maxStemLength - 1 : maxStemLength;
-            name = name[..cut].TrimEnd();
+
+            // Dots as well as spaces: the trim above removed a trailing dot because Windows
+            // silently truncates a name ending in one, and a title whose 120th character is a
+            // period rebuilds exactly that shape. Only these two, since everything the loop kept
+            // is a letter, a digit or one of a handful of characters it names.
+            name = name[..cut].TrimEnd(' ', '.');
         }
 
         if (name.Length == 0) name = $"work-{workId}";

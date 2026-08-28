@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using Ao3Tracker.Api.Services.Credentials;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
@@ -144,8 +145,12 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
         // hold every other outbound request behind it for as long as it stayed open. HttpClient's
         // own timeout does not cover this: with ResponseHeadersRead it stops applying once the
         // headers are in. So the whole download gets a deadline of its own.
+        //
+        // Started where the transfer starts, and deliberately not before it. Armed at this line it
+        // would also be running through the gate wait, the 5-8s spacing and every retry backoff —
+        // so a request that never received a byte would fail as a transfer that stopped part-way,
+        // and the caller would tell a reader AO3 had gone quiet when AO3 had never been asked.
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        deadline.CancelAfter(_options.DownloadTimeout);
 
         // ResponseHeadersRead, so the body is still on the socket when the reader gets it: the
         // whole point of streaming a download is that a large one is never held in memory.
@@ -157,7 +162,11 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
             _httpClient,
             () => new HttpRequestMessage(HttpMethod.Get, url),
             session?.SessionCookie,
-            (response, token) => ReadFileAsync(response, destination, token),
+            (response, token) =>
+            {
+                deadline.CancelAfter(_options.DownloadTimeout);
+                return ReadFileAsync(response, destination, token);
+            },
             deadline.Token,
             HttpCompletionOption.ResponseHeadersRead);
     }
@@ -264,6 +273,13 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
     /// one rate gate, one retry policy and one User-Agent by construction rather than by being
     /// written twice.
     /// </param>
+    /// <remarks>
+    /// The retry loop is here, outside <see cref="SendOnceAsync"/>, so that waiting to retry is not
+    /// done holding the gate. Inside it, one <c>Retry-After: 3600</c> would park every outbound
+    /// request on the instance — the ship walk and the download drain alike — for an hour, and the
+    /// circuit breaker could not intervene, because nothing would be making requests for it to
+    /// count. Even the ordinary path held it for roughly 70 seconds across three retries.
+    /// </remarks>
     private async Task<T> SendAsync<T>(
         HttpClient client,
         Func<HttpRequestMessage> newRequest,
@@ -272,6 +288,54 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
         CancellationToken ct,
         HttpCompletionOption completion = HttpCompletionOption.ResponseContentRead)
     {
+        // Resolved once per logical fetch, not once per client: the settings UI can change the
+        // operator contact at any time, and a pooled HttpClient's default headers would keep
+        // sending the old one until its handler was recycled. Throws if no contact is usable,
+        // which is the intended fail-closed behaviour — no contact, no request.
+        var userAgent = await _userAgents.GetUserAgentAsync(ct);
+        var backoff = _options.InitialBackoff;
+
+        for (var attempt = 0; ; attempt++)
+        {
+            var sent = await SendOnceAsync(
+                client, newRequest, cookieHeader, read, userAgent, completion,
+                mayRetry: attempt < _options.MaxRetries, ct);
+
+            if (sent.Completed) return sent.Value!;
+
+            // Retry-After is AO3 telling us exactly what it wants; honor it verbatim and do not
+            // jitter it — the whole value of an explicit instruction is that it isn't guesswork.
+            // Our own backoff is a guess, so that one gets jittered.
+            var delay = sent.RetryAfter ?? Jitter(backoff);
+
+            _logger.LogWarning(
+                "Scrape request to {Url} got {StatusCode}, retrying in {Delay} (attempt {Attempt}/{MaxRetries})",
+                sent.Url, sent.StatusCode, delay, attempt + 1, _options.MaxRetries);
+
+            await Task.Delay(delay, ct);
+            backoff *= 2;
+        }
+    }
+
+    /// <summary>
+    /// One request: the gate, the spacing owed since the last one, the send, and either the
+    /// caller's reading of the response or a report that it is worth asking again.
+    /// </summary>
+    /// <param name="mayRetry">
+    /// Whether the caller has an attempt left. False means the response is read whatever it says,
+    /// which is what turns the last retry into an answer rather than a fourth wait.
+    /// </param>
+    private async Task<(bool Completed, T? Value, TimeSpan? RetryAfter, HttpStatusCode StatusCode, Uri? Url)>
+        SendOnceAsync<T>(
+            HttpClient client,
+            Func<HttpRequestMessage> newRequest,
+            string? cookieHeader,
+            Func<HttpResponseMessage, CancellationToken, Task<T>> read,
+            string userAgent,
+            HttpCompletionOption completion,
+            bool mayRetry,
+            CancellationToken ct)
+    {
         await Gate.WaitAsync(ct);
         try
         {
@@ -279,15 +343,49 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
 
             try
             {
-                return await SendWithRetryAsync(client, newRequest, cookieHeader, read, completion, ct);
+                using var request = newRequest();
+                request.Headers.UserAgent.ParseAdd(userAgent);
+
+                // Set by hand rather than through a CookieContainer: the session lives in the
+                // database and is shared by every process reading this deployment's data, so a
+                // per-handler cookie jar would be a second, divergent copy of it.
+                if (cookieHeader is not null) request.Headers.Add("Cookie", cookieHeader);
+
+                using var response = await client.SendAsync(request, completion, ct);
+
+                var isRetryable = response.StatusCode == HttpStatusCode.TooManyRequests ||
+                                   (int)response.StatusCode >= 500;
+
+                if (!isRetryable || !mayRetry)
+                    return (true, await read(response, ct), null, response.StatusCode, request.RequestUri);
+
+                var asked = AskedToWaitFor(response.Headers.RetryAfter);
+
+                // Honouring Retry-After is not in question — this project waits when AO3 asks it
+                // to. What is bounded is how long one request may wait *inside* itself: past the
+                // ceiling the answer is to stop asking rather than to come back early, so the
+                // response is read as the failure it is, the caller records it, and the run's own
+                // circuit breaker ends the pass. Coming back after the ceiling instead would be
+                // asking again sooner than AO3 said.
+                if (asked > _options.MaxRetryAfter)
+                {
+                    _logger.LogWarning(
+                        "AO3 answered {Url} with {StatusCode} and asked for {Asked}, past the "
+                        + "{Ceiling} this instance will hold a request for. Not retrying.",
+                        request.RequestUri, response.StatusCode, asked, _options.MaxRetryAfter);
+
+                    return (true, await read(response, ct), null, response.StatusCode, request.RequestUri);
+                }
+
+                return (false, default, asked, response.StatusCode, request.RequestUri);
             }
             finally
             {
                 // Must be in a finally, not on the success path. A network failure or the 30s
-                // HttpClient timeout throws straight out of SendWithRetryAsync, and if the
-                // timestamp were only advanced on success the next caller would compute a
-                // negative "time since last request" and fire immediately. That would remove
-                // the rate limit precisely when AO3 is failing and least able to absorb load.
+                // HttpClient timeout throws straight out of the send, and if the timestamp were
+                // only advanced on success the next caller would compute a negative "time since
+                // last request" and fire immediately. That would remove the rate limit precisely
+                // when AO3 is failing and least able to absorb load.
                 _lastRequestAt = DateTimeOffset.UtcNow;
             }
         }
@@ -295,6 +393,25 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
         {
             Gate.Release();
         }
+    }
+
+    /// <summary>
+    /// How long AO3 asked this instance to wait, in whichever of the two forms it said it in.
+    /// </summary>
+    /// <remarks>
+    /// <c>Retry-After</c> is either a delta or an HTTP-date, and reading only the delta would leave
+    /// the date form unbounded by the ceiling and unhonoured in the wait — an hour asked for as a
+    /// date would be retried in ten seconds, which is the opposite of honouring it. A date already
+    /// past is no wait at all rather than a negative one.
+    /// </remarks>
+    private static TimeSpan? AskedToWaitFor(RetryConditionHeaderValue? header)
+    {
+        if (header is null) return null;
+        if (header.Delta is { } delta) return delta;
+        if (header.Date is not { } date) return null;
+
+        var wait = date - DateTimeOffset.UtcNow;
+        return wait > TimeSpan.Zero ? wait : TimeSpan.Zero;
     }
 
     /// <summary>
@@ -327,52 +444,6 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
         if (max == min) return min;
 
         return min + (max - min) * Random.Shared.NextDouble();
-    }
-
-    private async Task<T> SendWithRetryAsync<T>(
-        HttpClient client,
-        Func<HttpRequestMessage> newRequest,
-        string? cookieHeader,
-        Func<HttpResponseMessage, CancellationToken, Task<T>> read,
-        HttpCompletionOption completion,
-        CancellationToken ct)
-    {
-        var backoff = _options.InitialBackoff;
-
-        // Resolved once per logical fetch, not once per client: the settings UI can change the
-        // operator contact at any time, and a pooled HttpClient's default headers would keep
-        // sending the old one until its handler was recycled. Throws if no contact is usable,
-        // which is the intended fail-closed behaviour — no contact, no request.
-        var userAgent = await _userAgents.GetUserAgentAsync(ct);
-
-        for (var attempt = 0; ; attempt++)
-        {
-            using var request = newRequest();
-            request.Headers.UserAgent.ParseAdd(userAgent);
-
-            // Set by hand rather than through a CookieContainer: the session lives in the database
-            // and is shared by every process reading this deployment's data, so a per-handler
-            // cookie jar would be a second, divergent copy of it.
-            if (cookieHeader is not null) request.Headers.Add("Cookie", cookieHeader);
-
-            using var response = await client.SendAsync(request, completion, ct);
-            var isRetryable = response.StatusCode == HttpStatusCode.TooManyRequests ||
-                               (int)response.StatusCode >= 500;
-
-            if (!isRetryable || attempt >= _options.MaxRetries) return await read(response, ct);
-
-            // Retry-After is AO3 telling us exactly what it wants; honor it verbatim and do not
-            // jitter it — the whole value of an explicit instruction is that it isn't guesswork.
-            // Our own backoff is a guess, so that one gets jittered.
-            var delay = response.Headers.RetryAfter?.Delta ?? Jitter(backoff);
-
-            _logger.LogWarning(
-                "Scrape request to {Url} got {StatusCode}, retrying in {Delay} (attempt {Attempt}/{MaxRetries})",
-                request.RequestUri, response.StatusCode, delay, attempt + 1, _options.MaxRetries);
-
-            await Task.Delay(delay, ct);
-            backoff *= 2;
-        }
     }
 
     private static IReadOnlyList<string> SetCookies(HttpResponseMessage response) =>

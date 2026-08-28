@@ -29,6 +29,21 @@ public class DownloadWorker : BackgroundService
     /// </summary>
     private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(1);
 
+    /// <summary>
+    /// How many polls in a row a request may fail on before it is recorded as failed rather than
+    /// re-queued.
+    /// </summary>
+    /// <remarks>
+    /// Everything that escapes the fetcher is infrastructure — the archive unreachable, the
+    /// database locked, the disk refusing — and all of it may work on the next poll, which is why
+    /// none of it settles the request on one attempt. But a permanent one must not cycle the queue
+    /// for ever: with nothing counting, an instance whose configured archive does not resolve spends
+    /// <see cref="Ao3HttpClientOptions.MaxConsecutiveFailures"/> requests every poll indefinitely —
+    /// thousands a day at an endpoint that is not answering — while the reader is shown a request
+    /// that says only "queued". Three attempts, then a failure they can see and act on.
+    /// </remarks>
+    private const int MaxAttemptsPerRequest = 3;
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<DownloadWorker> _logger;
     private readonly Ao3HttpClientOptions _httpOptions;
@@ -37,6 +52,19 @@ public class DownloadWorker : BackgroundService
 
     /// <summary>Last logged held/allowed state; null until the first drain with something queued.</summary>
     private bool? _allowed;
+
+    /// <summary>
+    /// Consecutive polls each queued request has failed on, for <see cref="MaxAttemptsPerRequest"/>.
+    /// </summary>
+    /// <remarks>
+    /// In memory rather than a column, and so forgotten by a restart — which is the same thing a
+    /// restart already does to a claimed row, since <see cref="ReleaseInterruptedFetchesAsync"/>
+    /// re-queues everything it finds. What it costs is that an instance restarted often enough
+    /// re-attempts a hopeless request; what a column would cost is two migrations for a count
+    /// nothing outside this loop reads. Only failing requests appear here, and each is forgotten
+    /// when it leaves the queue.
+    /// </remarks>
+    private readonly Dictionary<int, int> _attempts = [];
 
     public DownloadWorker(
         IServiceScopeFactory scopeFactory,
@@ -177,6 +205,8 @@ public class DownloadWorker : BackgroundService
         // and for the same reason: an idle instance must not re-authenticate on a timer.
         if (queued.Count == 0) return;
 
+        ForgetRequestsNoLongerQueued(queued);
+
         if (!await MayFetchAsync(scope.ServiceProvider, ct)) return;
 
         // One budget for the drain rather than one per request. A queue of two hundred files is a
@@ -208,9 +238,14 @@ public class DownloadWorker : BackgroundService
                 // refused, which is exactly the case its own context cannot write the failure
                 // through. Hence a fresh scope.
                 _logger.LogError(ex, "Download {DownloadId} could not be fetched", downloadId);
-                await MarkFailedAsync(downloadId, ex, ct);
+                await RecordAttemptAsync(downloadId, ex, ct);
+
                 continue;
             }
+
+            // Anything the fetcher answered for itself — completed, failed, or held — settles the
+            // request as far as this counter is concerned.
+            _attempts.Remove(downloadId);
 
             // The budget this request ran out of is the same one everything behind it would spend.
             if (outcome == DownloadFetchOutcome.Held) break;
@@ -264,6 +299,75 @@ public class DownloadWorker : BackgroundService
         return true;
     }
 
+    /// <summary>Drops the attempt counts of requests that are no longer in the queue.</summary>
+    private void ForgetRequestsNoLongerQueued(IReadOnlyCollection<int> queued)
+    {
+        if (_attempts.Count == 0) return;
+
+        var stillQueued = queued.ToHashSet();
+
+        foreach (var downloadId in _attempts.Keys.Where(id => !stillQueued.Contains(id)).ToList())
+            _attempts.Remove(downloadId);
+    }
+
+    /// <summary>
+    /// Records that this poll's attempt at a request failed: back in the queue, or recorded as
+    /// failed once it has spent <see cref="MaxAttemptsPerRequest"/> polls doing so.
+    /// </summary>
+    /// <remarks>
+    /// Re-queueing rather than failing on the first throw is the point. The transport retries
+    /// *responses* — 429 and 5xx — so a DNS failure, a reset socket or a connect timeout has had
+    /// exactly one attempt, and the ship walk deliberately re-asks in the same case; a database
+    /// that was briefly locked is the same kind of evidence. The fetcher's "never a retry loop"
+    /// rule is about AO3's answers, a work it has taken down, not about failing to reach it. What
+    /// stops that becoming a queue cycling against a dead endpoint is the count, since the drain's
+    /// circuit breaker only bounds one poll and is rebuilt by the next.
+    /// </remarks>
+    private async Task RecordAttemptAsync(int downloadId, Exception cause, CancellationToken ct)
+    {
+        var attempts = _attempts.GetValueOrDefault(downloadId) + 1;
+
+        if (attempts >= MaxAttemptsPerRequest)
+        {
+            _attempts.Remove(downloadId);
+            await MarkFailedAsync(downloadId, cause, ct);
+
+            return;
+        }
+
+        _attempts[downloadId] = attempts;
+        await ReleaseAsync(downloadId, ct);
+    }
+
+    /// <summary>
+    /// Puts a claimed request back in the queue, through a context that never saw the fetch. A row
+    /// the fetch never got as far as claiming is already there, and is left alone.
+    /// </summary>
+    private async Task ReleaseAsync(int downloadId, CancellationToken ct)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var download = await db.Downloads.FirstOrDefaultAsync(d => d.Id == downloadId, ct);
+
+            // Only a row this drain still holds. Anything else was settled by the fetcher or by
+            // another request while this one was failing.
+            if (download is null || download.Status != DownloadStatus.Downloading) return;
+
+            download.Status = DownloadStatus.Pending;
+
+            await db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (!ScrapeCancellation.IsShutdown(ex, ct))
+        {
+            // The row stays Downloading and the next restart re-queues it — the same fallback
+            // MarkFailedAsync has, and for the same reason.
+            _logger.LogError(ex, "Could not re-queue download {DownloadId}", downloadId);
+        }
+    }
+
     /// <summary>
     /// Records a fetch that failed in a way the fetcher could not write down, through a context
     /// that never saw it.
@@ -277,8 +381,15 @@ public class DownloadWorker : BackgroundService
 
             var download = await db.Downloads.FirstOrDefaultAsync(d => d.Id == downloadId, ct);
 
-            // Deleted while it was being fetched, or already recorded by the fetcher itself.
-            if (download is null || download.Status != DownloadStatus.Downloading) return;
+            // Complete and Failed are the fetcher's own record of what happened, written through
+            // its own context; overwriting one would replace an answer with a guess. Everything
+            // else is recordable — Downloading is the ordinary case, a row this drain claimed, and
+            // Pending is a fetch that threw before it could claim one at all. Leaving that second
+            // case alone is what let a request whose read of its own row failed be re-selected,
+            // throw and record nothing on every poll, while the reader went on being told it was
+            // queued.
+            if (download is null || download.Status is DownloadStatus.Complete or DownloadStatus.Failed)
+                return;
 
             download.Status = DownloadStatus.Failed;
             download.ErrorMessage = $"The fetch did not complete: {cause.Message}";

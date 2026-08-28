@@ -2,150 +2,7 @@
 
 Plan changes only — tasks added, split, re-scoped, or dropped, each with its reason.
 
-> The 54 entries before this point live in [`DECISIONS-archive.md`](DECISIONS-archive.md) (2026-08-22 — initial plan → 2026-08-26 — T32's review: nothing in the diff, four elsewhere, three of them already listed). Do not read it end to end; `grep` it for a task id when a live entry points into it.
-
-## 2026-08-26 — T33: the cheap task's only risk was that nothing would notice it working
-
-`.AsSplitQuery()` changes no behaviour, which is exactly what makes it hard to verify: a green suite
-after the change says nothing that the same suite did not say before it. Two things were done instead
-of trusting that.
-
-**The generated SQL was read, once, by hand.** A throwaway probe printed `ToQueryString()` for the
-query with and without the split, against the *Postgres* provider. Without it: one statement with
-three stacked `LEFT JOIN`s onto `WorkTags`, `WorkAuthors` and `WorkSeries`, every `Works` column
-repeated in each row of the product. With it: the root query alone, plus EF's note that further
-queries follow — and an `ORDER BY w."Id"` EF adds itself. That probe also answers the question T18's
-entry would have raised, so no `StatsQueryTranslationTests`-style test was added: the Npgsql
-translator accepts split queries, checked rather than assumed, and a translation test for this query
-would only re-assert what the feature guarantees.
-
-**The invariant the `Include`s exist for was untested on one of its three legs.** The comment above
-the query says an un-included collection reads as empty and the reconcile then deletes and re-inserts
-every join. Tags and authors each had a second-pass test; `Work.Series` had none, in this file or any
-other. `A_second_pass_keeps_every_join_the_first_one_read` walks all three, and dropping
-`Include(w => w.Series)` reds it with a `DbUpdateException` — the reconcile adds a `WorkSeries` row
-the work already has and the insert collides. That is the mutation this task's diff needed to be
-worth committing, and it is a test that keeps earning after the split query is forgotten about.
-
-**The class doc was widened rather than a second file started.** `WorkIngestorPseudTests` is named for
-pseuds and is really about join reconciliation across re-reads; the alternative was duplicating its
-30-line blurb helper into a series-shaped twin. The name is now slightly wrong and the doc is right.
-
-**`AsSplitQuery` is safe here only because the query is unpaged**, and the comment says so. A split
-query under `Skip`/`Take` over a non-deterministic order can tear between its statements; there is no
-row limit in this one, and EF orders by the key on its own.
-
-## 2026-08-26 — T33's review: four findings, all four already on the list
-
-`/code-review high` read the branch (53 commits, ~27.8k insertions) plus the working tree, confirmed
-the change, and found nothing in T33's own diff. Its four findings map one-to-one onto tasks already
-queued: the controller re-arm that clobbers a worker's claim (**T64**), two `BackgroundService`s each
-running the same login (**T63**), a download deadline that covers the gate wait and the `Retry-After`
-backoff and then blames the archive for a stall (**T67**, whose fleet-wide form is **T73**), and the
-120-character cut restoring the trailing dot (**T74**). The reviewer re-derived all four
-independently, including a sharper consequence for T64: two concurrent fetches mean two `File.Move`s
-onto one destination and two `WorkDownloadFile` inserts, only the second of which is race-handled.
-
-**This is the first review in five to add no task, and the reason is not that the code improved.** It
-is that the download path's defects are now all filed, and a high-effort review spends its budget
-re-finding them. The observation has been recorded three iterations running; it is now written into
-the run order as something to file rather than observe again.
-
-## 2026-08-26 — T35: the migration was rewritten in place, and the merge rule changed shape
-
-The task's notes warned against rewriting an applied migration and asked for an idempotent guard
-instead. That warning is conditional — "if it has shipped anywhere" — and it has not:
-`20260822182752_NormalizedPseudIdentity` exists only on `devloop/dashboard-completion`, which
-`git branch --contains` confirms. So the migration was corrected in place rather than followed by a
-repair migration.
-
-The reasoning that makes in-place safe here is worth stating, because it is not general. The old
-merge either produced the right answer (one or two capitalisations) or threw on
-`PK_WorkAuthors` and rolled its transaction back (three or more). There is no third outcome where it
-committed something wrong, so no database can be sitting in a state the corrected version needs to
-find and repair. A database that already applied it successfully applied a version that was correct
-for its data; a database that failed never recorded the migration and will get the new one.
-
-**The rule changed from "drop a link that duplicates one already on the survivor" to "drop a link
-that has a lower-id sibling in the same normalized group on the same work."** The old form asked
-whether the work was *already* linked to the group's `MIN(Id)` row, which is only true when the
-canonical spelling is one of the ones present. Three spellings with the work linked to the second and
-third answer no, nothing is dropped, and the repoint then moves two links onto one row. The new form
-never mentions the canonical row: it thins each work's link set to one link per creator, keeping the
-lowest id present, and the repoint that follows moves that survivor to `MIN(Id)` as before. It is the
-same answer as the old form wherever the old form worked.
-
-The correlated references were also moved out of the subquery's `JOIN ... ON` clauses and into its
-`WHERE`. Both forms are legal in both providers; the second needs no argument about where PostgreSQL
-permits an outer reference without `LATERAL`, which is worth more than the two lines it costs in a
-file nothing executes until an upgrade.
-
-**Only SQLite was executed.** The Postgres twin is byte-identical in the changed block (checked with
-`diff`) and `dotnet ef migrations script` renders it, so the C# is right and the SQL is what was
-intended — but no PostgreSQL server ran it. That gap is not new to this task; it is how every
-migration on this branch stands.
-
-## 2026-08-26 — T35: migration SQL had no test seam, and now has one
-
-Every other test in the suite starts from `EnsureCreated`, which builds the current schema directly
-and executes no migration at all — so the SQL inside a migration was, until now, code the suite could
-not reach. `PseudMigrationTests` reaches it by taking `IMigrator` off the context's infrastructure and
-migrating to a named revision: to `20260822182050_RetirePerUserAo3Credential` in the constructor,
-then raw-SQL seeding by hand against that older schema, then `Migrate` to the one under test.
-
-Two things about the shape. It targets the migration under test by name rather than migrating to
-latest, so a later migration cannot fail this test for reasons that have nothing to do with it. And it
-seeds with `ExecuteSqlRaw` rather than through the entity model, because the model describes today's
-schema and the seed has to be valid against the older one — an `Ao3Pseuds` row before the normalized
-columns exist cannot be written through `SqliteAppDbContext`.
-
-Four cases, and the two that are not about the bug are the ones that make the diff safe: a work linked
-to the survivor *and* a duplicate must keep one link (the case that already worked), and two different
-creators on one work must both survive (the over-deletion a "drop a link with a lower-id sibling"
-rule invites). Mutating the group match to `1 = 1` reds the second and nothing else, which is what
-says that assertion is load-bearing.
-
-## 2026-08-26 — T35's review died on the spend limit, and its last thought was worth chasing
-
-`/code-review high` terminated on the account's monthly spend limit before reporting — the second
-review this branch has lost that way, after T14's. The diff was reviewed by reading instead.
-
-What makes this one different from T14's is that the agent's final visible thought survived: *"Let me
-empirically verify a suspicion about the migration's pseud deletion cascading."* Chased by hand, it
-found a real defect, now filed as **T76** and verified rather than reported. `SavedWorkFilterAuthors`
-carries a `PseudId` FK to `Ao3Pseuds` declared `onDelete: Cascade`, and the migration repoints
-`WorkAuthors` only — so the final `DELETE FROM "Ao3Pseuds"` silently takes a saved filter's author
-criterion with the loser row. A throwaway probe through the new seam confirmed it: `PRAGMA
-foreign_keys` reads `1` under Microsoft.Data.Sqlite's defaults, the pseuds merged to `[1]`, and
-`SavedWorkFilterAuthors` came out empty.
-
-**It was not folded into T35.** T35's `delivers` is that the upgrade does not fail; this is an upgrade
-that succeeds and quietly loses data, in a different table, needing its own dedup-and-repoint pair and
-its own decision about what `Exclude` means when an include and an exclude of one creator merge. One
-task per iteration is the rule that keeps these diffs reviewable, and the seam T35 built is what makes
-T76 cheap for whoever takes it.
-
-**A dead agent's reasoning is still evidence.** The notification carried one sentence of it, and that
-sentence was worth more than the report would have been on the three findings it had presumably
-already discarded. Worth doing again: when a review dies mid-flight, read what it was doing when it
-died before concluding the diff went unreviewed.
-
-## 2026-08-26 — T77: the download-path pass is filed rather than observed a sixth time
-
-The run order has carried "worth filing as a task rather than observing again" since T33, and the
-journal has recorded the same thing in three consecutive entries. It is now **T77**.
-
-It delivers nothing new. It is a scheduling decision: T63, T64, T65, T66, T67, T69, T70, T71, T73, T74
-and T75 are eleven tasks over `DownloadsController`, `DownloadFetcher`, `RateLimitedAo3HttpClient` and
-`Ao3SessionProvider`, several of which interact — T64's re-arm orphans the file T71 is about, T67 and
-T73 are the same clock, T63 and T75 are adjacent lines. Eleven diffs would each re-read the same code
-and at least four would conflict.
-
-Two constraints keep it from becoming an unreviewable mega-diff. The folded tasks stay on the list and
-are marked `done` one at a time as each one's verification goes green, so a pass that runs out of room
-leaves an accurate list rather than an ambiguous one. And it is taken **instead of T63** when the run
-reaches T63 — not from its own position at the end of the file, which would mean walking past every
-task it exists to absorb.
+> The 60 entries before this point live in [`DECISIONS-archive.md`](DECISIONS-archive.md) (2026-08-22 — initial plan → 2026-08-26 — T77: the download-path pass is filed rather than observed a sixth time). Do not read it end to end; `grep` it for a task id when a live entry points into it.
 
 ## 2026-08-27 — T36: the gate grew a field rather than the page growing a parser
 
@@ -786,3 +643,113 @@ last attempt rather than beginning the moment the backfill finishes.
 drives reads the injected `TimeProvider` — pre-existing, and a seam rather than a defect) and
 **T86** (no DTO or page shows sweep state, so a ship sweeping for several ticks looks like a ship
 doing nothing). Both are real; neither is in `delivers`, and both are cheaper as their own diff.
+
+## 2026-08-28 — T77: eleven defects over one subsystem, and the five decisions they needed
+
+The pass itself was scheduled by the run order and is not re-argued here. What follows is the five
+questions the eleven tasks left open, and one thing that did not happen.
+
+**No schema change, against two tasks that had budgeted for one.** T64 offered a concurrency token on
+`Download` and priced it as two migrations. What it is actually about is one specific overwrite — a
+re-arm landing on a row a worker has claimed — so the guard is the same one T11 chose, moved from
+before the write to inside it: `ExecuteUpdateAsync` with `Status != Downloading` in the `WHERE`, and a
+re-read when it matches nothing. A row version would also have made every unrelated concurrent write
+to a `Download` a 409 for callers that have no such problem. T11's "checked, not locked" stands.
+
+**A `Retry-After` longer than the ceiling stops the retrying rather than shortening it.** T73 named two
+candidate answers and said they were not exclusive; both are taken, but the cap is not "come back in
+two minutes instead of an hour" — that would be asking again sooner than AO3 said, which is the one
+thing honouring the header is supposed to prevent. Past `MaxRetryAfter` (2 minutes) the response is
+read as the failure it is, its caller records it, and the run's own circuit breaker ends the pass.
+**Rejected: an instance-wide "send nothing before T" hold**, which would honour a long ask exactly —
+and is precisely the defect T73 is named for, one request's wait becoming every request's. The waits
+that are made now happen outside the gate, so a retry parks one request and nothing else.
+
+**The download deadline starts at the transfer, and the message stays.** T67 asked which of the two to
+change. Moving the start makes the existing message true rather than merely likelier: "AO3 stopped
+sending the file before it was complete" is now only ever said about a transfer that began and did not
+end. What used to spend the deadline — the gate wait, the 5–8s spacing, the retry backoffs — is
+bounded by the ceiling above instead. `Ao3HttpClientOptions.DownloadTimeout`'s own docstring said
+"gate wait included" and now says the opposite; it was documentation of the defect.
+
+**A stored file is re-checked on disk by both readers, and a re-fetch repairs the row rather than
+adding one.** T69's unverified half is confirmed: `DeleteDownload` removes only the request, so the
+orphaned `WorkDownloadFile` row survives and a fresh `POST` finds it again — delete-and-ask-again could
+not recover it, and nothing else in the app deletes a file row. Both readers of that row now stat the
+file (`DownloadFetcher.FindUsableFileAsync`, `DownloadsController.UsableFileAsync`). The orphan is not
+deleted: the path is derived from (work, format, version), so the re-fetch writes to exactly where the
+row already points, and `StoreFileAsync`'s existing unique-index branch updates the size and checksum
+it comes back with. One row, repaired, by the fetch the reader asked for.
+
+**A transport failure re-queues; the breaker is what stops it cycling.** T70 asked what bounds it. The
+fetcher records every failure against the drain's budget before it throws, so `MaxConsecutiveFailures`
+of them opens the breaker and the rest of the queue is held rather than attempted — the same bound the
+ship walk relies on when it re-asks a page. Said in a test (`Stops_re_queueing_once_the_archive_is_
+plainly_down`) rather than left implied.
+
+**And the smaller one: the orphan delete belongs where "no row survived" is known.** T71 offered the
+caller as the place to delete `destination`. It went into `StoreFileAsync`'s catch instead, at the
+`winner is null` branch — the one point that has established no row names those bytes. In the caller it
+would also fire when the lookup itself threw, which is the case where a row may well exist.
+
+## 2026-08-28 — T77: what the test fixture had to grow, and what it had been asserting
+
+**Both `SeedFileAsync` helpers now write bytes.** They wrote a `WorkDownloadFile` row and nothing on
+disk, under a docstring that said "bytes on disk, as the download worker will leave them" — so nine
+tests asserting "already on disk" were asserting a row. T69's fix turned every one of them red, which
+is the correct signal and not a regression: the helper was the thing that was wrong.
+
+**`LibraryTestHost` grew one seam, `ClaimDownloadsWhileTheFileIsRead`.** T64's window — between the
+controller reading a request row and writing it back — is inside one controller call and reachable by
+nothing else; a test that raced a real worker against it would assert a timing rather than a rule. It
+is a `DbCommandInterceptor` attached to the app's own contexts only (`NewContext` builds its own
+options), disarmed unless a test arms it, firing once on the lookup of the stored file. Registering it
+as an `IInterceptor` in the container did **not** work — EF did not discover it — so it is passed to
+`AddInterceptors` explicitly.
+
+## 2026-08-28 — T77's review: eight findings, six taken, and the one bound that was wrong
+
+`/code-review high` on an explicitly named twelve-file target ran to completion — the fifth in a row —
+and reported reading exactly the working-tree diff. **All eight findings were in it.** Six were fixed
+here; one was a mutation run's litter; one is declined.
+
+**The re-queue had no bound across polls, and that is the finding worth the review.** T70's release
+was justified by the drain's circuit breaker — and the breaker is per drain, rebuilt by the next
+poll. So an instance whose archive does not resolve would spend `MaxConsecutiveFailures` requests
+every sixty seconds for ever, ~4,300 a day at an endpoint that is not answering, while the reader was
+shown a request saying only "queued". That is the traffic shape `Ao3LoginBackoff` exists to prevent,
+reproduced one subsystem over. The reviewer also named the other side of it: widening
+`MarkFailedAsync` to `Pending` for T65 meant a store that was briefly locked — SQLite's "database is
+locked", which this app can produce, the controller and the worker writing the same file — settled a
+request that used to be retried.
+
+**Both are now one mechanism: `DownloadWorker` counts consecutive failed polls per request, releases
+under three and records a failure at three.** Everything escaping the fetcher is infrastructure — the
+archive unreachable, the database locked, the disk refusing — and all of it may work next poll, so
+none of it settles a request on one attempt and none of it retries for ever. It replaces
+`NeverReachedAo3`, whose exception-type test was drawing a line that turns out not to be the useful
+one. **Rejected: a column on `Download`.** The count is consecutive, per request, and read by nothing
+outside this loop; two migrations would buy only surviving a restart, and a restart already re-queues
+every claimed row. What it costs is that an instance restarted repeatedly re-attempts a hopeless
+request, which is said in the code.
+
+**Four smaller ones, each about a claim the diff made and did not keep.** `MaxRetryAfter` read only
+`Retry-After`'s delta form, so the same header written as an HTTP-date fell through the new ceiling to
+this instance's ten-second backoff — the opposite of honouring it — while the new docstring said the
+ceiling governed `Retry-After`. The winner-row repair had no failure path, so a save that threw left
+correct bytes under a row describing the ones that had gone. `NeverReachedAo3`'s remarks cited
+`SendWithRetryAsync`, which this diff deleted; the two other references to it (`Program.cs`,
+`Ao3ShipIndexScraper`) were stale for the same reason and fixed with it. And `NewContext`'s summary
+had been left attached to the method inserted above it.
+
+**Declined: making `Ao3SessionProvider`'s login gate injectable.** It is static because one deployment
+per process is exactly what it is for, and the coupling the reviewer names is real but test-only —
+`Ao3SessionProviderTests` parks inside the gate for about 250ms and any parallel class calling
+`EnsureSessionAsync` waits that out. Production surface added for a test's timing is the wrong trade;
+if that hold ever becomes a problem the test is what should change.
+
+**One finding was not the diff's: `var before` in `Ao3SessionProvider` was litter from this
+iteration's own mutation run**, whose restore order put the mutated file back. It changed nothing —
+the line was assigned and never read — and it is gone. The lesson is the review's rather than the
+code's: a mutation script that restores by rewriting whole files must restore in the order it
+mutated, and the diff must be re-read before it is reviewed.

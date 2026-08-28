@@ -39,6 +39,19 @@ public class Ao3HttpClientOptions
     public TimeSpan InitialBackoff { get; set; } = TimeSpan.FromSeconds(10);
 
     /// <summary>
+    /// The longest <c>Retry-After</c> this instance will hold a request open for. AO3 asking for
+    /// more than this is not disregarded — it is taken as an answer rather than a wait: the request
+    /// stops being retried, its caller records the failure, and the run's circuit breaker ends the
+    /// pass. Coming back after this ceiling instead would be asking again sooner than AO3 said.
+    ///
+    /// It exists because <c>Retry-After</c> is a number the archive chooses and this instance has
+    /// to schedule around: without a ceiling a single hour-long ask would keep one request — and,
+    /// before the retry wait was moved off the shared gate, every other request on the instance —
+    /// parked with nothing to show for it.
+    /// </summary>
+    public TimeSpan MaxRetryAfter { get; set; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>
     /// Fraction of the computed backoff added or subtracted at random on each retry (0.2 = ±20%).
     /// Prevents a struggling AO3 from receiving a perfectly synchronized retry volley from every
     /// client that failed at the same moment.
@@ -72,7 +85,11 @@ public class Ao3HttpClientOptions
     public long MaxDownloadBytes { get; set; } = 64L * 1024 * 1024;
 
     /// <summary>
-    /// How long one download may take in total, gate wait included.
+    /// How long one download's transfer may take, measured from the response headers arriving.
+    ///
+    /// Deliberately not from where the request was made: the gate wait, the 5–8s spacing and any
+    /// retry backoff all come first, and a deadline covering those would fail a request that never
+    /// received a byte as a transfer that stopped part-way.
     ///
     /// Separate from <c>HttpClient.Timeout</c>, which only bounds the wait for response *headers*
     /// once a body is being streamed. Without this a stalled transfer holds the global rate gate —

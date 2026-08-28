@@ -99,7 +99,7 @@ public sealed class DownloadFetcher : IDownloadFetcher
         // sat in the queue, and their fetch may already have finished. Checked here as well as in
         // the controller because the window between queueing and draining is exactly where that
         // happens — and the whole point of the shared file is that identical bytes are fetched once.
-        var onDisk = await FindFileAsync(work, download.Format, ct);
+        var onDisk = await FindUsableFileAsync(work, download.Format, ct);
         if (onDisk is not null) return await CompleteAsync(download, onDisk, ct);
 
         if (!budget.CanContinue(out var reason))
@@ -263,16 +263,91 @@ public sealed class DownloadFetcher : IDownloadFetcher
 
             var winner = await FindFileAsync(work, format, ct);
 
-            // No winner means the write failed for a reason other than the race this catch is for.
-            if (winner is null) throw;
+            // No winner means the write failed for a reason other than the race this catch is for,
+            // and the bytes are already at their destination: the move happens before this. Left
+            // there they would be up to MaxDownloadBytes that no row names, that DiscardPartialFiles
+            // does not sweep — it only knows the partials directory — and that nothing collects
+            // until the same version of the same work is fetched again. Deleted here rather than in
+            // the caller because this is the one place that knows no row survived to name them.
+            if (winner is null)
+            {
+                DiscardStoredFile(relativePath);
+                throw;
+            }
+
+            // The path is derived from (work, format, version), so the winner's row already names
+            // the bytes just written. Where the winner is a row whose file had gone missing — the
+            // case FindUsableFileAsync sends back here — its size and checksum describe bytes that
+            // no longer exist, and the row is only true again once they describe these.
+            if (winner.SizeBytes != sizeBytes || winner.Sha256 != sha256)
+            {
+                winner.SizeBytes = sizeBytes;
+                winner.Sha256 = sha256;
+                winner.FetchedAt = _time.GetUtcNow().UtcDateTime;
+
+                try
+                {
+                    await _db.SaveChangesAsync(ct);
+                }
+                catch (DbUpdateException ex)
+                {
+                    // The bytes are right and the row names them, so the reader gets their file;
+                    // what is stale is the size this instance reports for it. Said out loud rather
+                    // than thrown: failing here would fail a request whose file is on disk, and the
+                    // request that replaced it would complete off this same row anyway.
+                    _logger.LogWarning(
+                        ex, "Could not refresh the stored size and checksum of {Path}", relativePath);
+                }
+            }
 
             return winner;
         }
     }
 
+    /// <summary>
+    /// The row for this work's current version, where the bytes it names are still there.
+    /// </summary>
+    /// <remarks>
+    /// A row alone is not evidence of a file. A data directory that lost one while keeping its row
+    /// — a remounted volume, a hand-cleaned disk, a partial restore — would otherwise answer every
+    /// future request for that work and format with Complete and a path to nothing, and the reader
+    /// could not get out of it by asking again: the controller reads the same row to decide there
+    /// is nothing to fetch. Re-fetching writes to the same deterministic path, so the fetch this
+    /// returns null for is also what repairs the row.
+    /// </remarks>
+    private async Task<WorkDownloadFile?> FindUsableFileAsync(
+        Work work, Ao3DownloadFormat format, CancellationToken ct)
+    {
+        var file = await FindFileAsync(work, format, ct);
+        if (file is null) return null;
+
+        if (File.Exists(DownloadPaths.Absolute(_paths.DataDirectory, file.RelativePath))) return file;
+
+        _logger.LogWarning(
+            "The stored {Format} of work {WorkId} is recorded at {Path}, which is not on disk. "
+            + "Fetching it again.", format, work.Id, file.RelativePath);
+
+        return null;
+    }
+
     private Task<WorkDownloadFile?> FindFileAsync(Work work, Ao3DownloadFormat format, CancellationToken ct) =>
         _db.WorkDownloadFiles.FirstOrDefaultAsync(
             f => f.WorkId == work.Id && f.Format == format && f.WorkUpdatedAt == work.UpdatedAt, ct);
+
+    /// <summary>Removes bytes no row survived to name. Never a reason to fail anything further.</summary>
+    private void DiscardStoredFile(string relativePath)
+    {
+        var path = DownloadPaths.Absolute(_paths.DataDirectory, relativePath);
+
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "Could not delete {Path}, which no download row names", path);
+        }
+    }
 
     private async Task<DownloadFetchOutcome> CompleteAsync(
         Download download, WorkDownloadFile file, CancellationToken ct)
@@ -384,7 +459,12 @@ public sealed class DownloadFetcher : IDownloadFetcher
             throw;
         }
 
-        if (result.IsSuccess) budget.RecordSuccess();
+        // A file abandoned for passing this instance's own size ceiling counted as a failure here,
+        // and three oversized files in one drain would trip the breaker and hold the rest of the
+        // queue on the grounds that AO3 was plainly down — when AO3 had served every one of them
+        // perfectly. The breaker is about the archive's health, and a limit chosen at this end is
+        // not evidence about it.
+        if (result.IsSuccess || result.ExceededSizeLimit) budget.RecordSuccess();
         else budget.RecordFailure();
 
         return result;

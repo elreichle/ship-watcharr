@@ -130,7 +130,7 @@ builder.Services.AddScoped<ScrapingGate>();
 builder.Services
     .AddHttpClient<IRateLimitedHttpClient, RateLimitedAo3HttpClient>(client =>
     {
-        // No default User-Agent here on purpose — see RateLimitedAo3HttpClient.SendWithRetryAsync,
+        // No default User-Agent here on purpose — see RateLimitedAo3HttpClient.SendOnceAsync,
         // which sets it per request so a settings change takes effect immediately.
         client.Timeout = TimeSpan.FromSeconds(30);
     })

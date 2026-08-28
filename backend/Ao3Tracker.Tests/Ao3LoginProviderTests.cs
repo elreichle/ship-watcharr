@@ -104,6 +104,185 @@ public class Ao3LoginProviderTests : IDisposable
 }
 
 /// <summary>
+/// The two things <see cref="Ao3SessionProvider"/> owns that no round trip can show: that one login
+/// happens however many callers want a session at once, and what instant the cooldown after a
+/// refused one is measured from.
+///
+/// Both are about a class with two independent callers — the scrape worker and the download worker,
+/// each on its own one-minute timer from host boot — so the establisher here is a stub whose timing
+/// the test controls, rather than the real one over the fake archive.
+/// </summary>
+public class Ao3SessionProviderTests : IDisposable
+{
+    private static readonly DateTimeOffset Start = new(2026, 8, 28, 12, 0, 0, TimeSpan.Zero);
+
+    private readonly StubSessionEstablisher _establisher = new();
+    private readonly CountingSessionCache _sessions = new();
+    private readonly LibraryTestHost _host;
+
+    public Ao3SessionProviderTests()
+    {
+        _host = new LibraryTestHost(services =>
+        {
+            services.AddScoped<IAo3SessionEstablisher>(_ => _establisher);
+
+            // The real cache over the real store, with a counter around it: what the second caller
+            // has to be past before the first is allowed to finish is its own read of the cache.
+            services.AddSingleton<IAo3SessionCache>(sp =>
+            {
+                _sessions.Inner = ActivatorUtilities.CreateInstance<Ao3SessionCache>(sp);
+                return _sessions;
+            });
+        });
+
+        _host.Clock.Now = Start;
+    }
+
+    public void Dispose()
+    {
+        _host.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
+    [Fact]
+    public async Task Logs_in_once_when_two_callers_want_a_session_at_the_same_moment()
+    {
+        // Both workers poll from host boot, so with a queued download and no cached session both
+        // observe "no session" in the same instant. Two logins is four rate-gated requests where
+        // one was needed, it advances the backoff twice per cycle so its schedule skips rungs, and
+        // Rails rotates the session on sign-in — so the first login's cookie is dead the moment the
+        // second lands, and the request already in flight under it comes back logged out.
+        await _host.SaveAo3LoginAsync();
+
+        var inside = new TaskCompletionSource();
+        var release = new TaskCompletionSource();
+
+        _establisher.OnLogIn = async () =>
+        {
+            inside.TrySetResult();
+            await release.Task;
+
+            await _host.WithCredentialStoreAsync(async store =>
+            {
+                await store.SetSessionAsync(new Ao3Session("_otwarchive_session=abc", Start.UtcDateTime, null));
+                return true;
+            });
+
+            return new Ao3LoginResult(true);
+        };
+
+        var first = Task.Run(() => _host.EnsureAo3SessionAsync());
+        await inside.Task;
+
+        var readsBefore = _sessions.Reads;
+        var second = Task.Run(() => _host.EnsureAo3SessionAsync());
+
+        // The second caller has looked at the cache and found nothing, which is the state that used
+        // to send it into a login of its own — and then a moment in which it could start one, while
+        // the first is still parked inside its own and the cache it will repair is still empty.
+        // Only then is the first one allowed to finish: released any earlier, a second login could
+        // find the session already stored and the test would pass on the timing rather than on the
+        // rule.
+        await WaitUntilAsync(() => _sessions.Reads > readsBefore);
+        await Task.Delay(250);
+        release.SetResult();
+
+        Assert.True((await first).Success);
+        Assert.True((await second).Success);
+
+        Assert.Equal(1, _establisher.Calls);
+    }
+
+    [Fact]
+    public async Task Measures_the_cooldown_from_when_the_attempt_finished()
+    {
+        // The attempt is two rate-gated requests, each behind a 5-8s gate wait and a 30s transport
+        // timeout. Timed from before it, the first cooldown expires early by however long it took —
+        // longest in exactly the case the backoff exists for, an archive that is not answering.
+        await _host.SaveAo3LoginAsync();
+
+        _establisher.OnLogIn = () =>
+        {
+            _host.Clock.Now = _host.Clock.Now.AddSeconds(45);
+            return Task.FromResult(new Ao3LoginResult(false, Error: "AO3 did not answer."));
+        };
+
+        Assert.False((await _host.EnsureAo3SessionAsync()).Success);
+
+        // The first rung of the schedule, from where the attempt ended.
+        Assert.Equal(Start.UtcDateTime.AddSeconds(45).AddMinutes(5), _host.LoginBackoff.RetryAfter);
+    }
+
+    [Fact]
+    public async Task Measures_the_cooldown_check_against_the_clock_as_it_stands()
+    {
+        // The other half of reading the clock twice: the check and the record are different
+        // questions about different instants, and a cooldown must still be honoured by a caller
+        // that arrives while it is running.
+        await _host.SaveAo3LoginAsync();
+        _establisher.OnLogIn = () => Task.FromResult(new Ao3LoginResult(false, Error: "AO3 did not answer."));
+
+        await _host.EnsureAo3SessionAsync();
+        _host.Clock.Now = _host.Clock.Now.AddMinutes(1);
+
+        var held = await _host.EnsureAo3SessionAsync();
+
+        Assert.False(held.Success);
+        Assert.Equal(1, _establisher.Calls);
+
+        _host.Clock.Now = _host.Clock.Now.AddMinutes(5);
+        await _host.EnsureAo3SessionAsync();
+
+        Assert.Equal(2, _establisher.Calls);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (var attempt = 0; attempt < 500; attempt++)
+        {
+            if (condition()) return;
+            await Task.Delay(10);
+        }
+
+        Assert.Fail("The second caller never reached the session provider.");
+    }
+}
+
+/// <summary>A login whose timing and answer the test decides, and which counts how often it ran.</summary>
+internal sealed class StubSessionEstablisher : IAo3SessionEstablisher
+{
+    private int _calls;
+
+    public Func<Task<Ao3LoginResult>> OnLogIn { get; set; } = () => Task.FromResult(new Ao3LoginResult(true));
+
+    public int Calls => Volatile.Read(ref _calls);
+
+    public Task<Ao3LoginResult> LogInAsync(CancellationToken ct = default)
+    {
+        Interlocked.Increment(ref _calls);
+        return OnLogIn();
+    }
+}
+
+/// <summary>The real cache, counting reads, so a test can tell when another caller has looked.</summary>
+internal sealed class CountingSessionCache : IAo3SessionCache
+{
+    private int _reads;
+
+    public IAo3SessionCache Inner { get; set; } = null!;
+
+    public int Reads => Volatile.Read(ref _reads);
+
+    public Task<Ao3Session?> GetUsableAsync(CancellationToken ct = default)
+    {
+        Interlocked.Increment(ref _reads);
+        return Inner.GetUsableAsync(ct);
+    }
+
+    public Task DiscardAsync(CancellationToken ct = default) => Inner.DiscardAsync(ct);
+}
+
+/// <summary>
 /// The scope <see cref="Ao3SessionCache"/> reads and writes in.
 ///
 /// It is reached from inside the shared HTTP client, which runs in whatever scope the current scrape

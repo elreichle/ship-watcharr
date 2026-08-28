@@ -12,8 +12,10 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using System.Data.Common;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -33,6 +35,9 @@ internal sealed class LibraryTestHost : IDisposable
     private readonly SqliteConnection _connection;
     private readonly ServiceProvider _provider;
     private readonly IServiceScope _request;
+
+    /// <summary>The hook behind <see cref="ClaimDownloadsWhileTheFileIsRead"/>; inert until armed.</summary>
+    private readonly ClaimingInterceptor _claimer = new();
 
     /// <summary>Scopes handed out one per simulated request; disposed with the fixture.</summary>
     private readonly List<IServiceScope> _perRequestScopes = [];
@@ -98,7 +103,12 @@ internal sealed class LibraryTestHost : IDisposable
 
         // Mirrors Program.cs: the abstract AppDbContext is the service type and the concrete
         // SqliteAppDbContext the implementation, so the tests exercise the composition the app uses.
-        services.AddDbContext<AppDbContext, SqliteAppDbContext>(o => o.UseSqlite(_connection));
+        // Disarmed unless a test arms it, and attached only to the contexts the app resolves —
+        // NewContext builds its own options, so a fixture's own reads never see it. It is the only
+        // way to be inside one of this app's reads and writes at once; see
+        // ClaimDownloadsWhileTheFileIsRead.
+        services.AddDbContext<AppDbContext, SqliteAppDbContext>(
+            o => o.UseSqlite(_connection).AddInterceptors(_claimer));
 
         // Supplies the real ProblemDetailsFactory behind ControllerBase.ValidationProblem, so the
         // 400 bodies asserted below are the ones the API actually returns.
@@ -335,6 +345,25 @@ internal sealed class LibraryTestHost : IDisposable
 
         return await scope.ServiceProvider.GetRequiredService<IWorkIngestor>().IngestAsync(ship, page.Works);
     }
+
+    /// <summary>
+    /// Claims every download row the way a worker does, at the instant the download controller
+    /// looks up the stored file — which is between its read of the request row and its write of
+    /// what it read.
+    /// </summary>
+    /// <remarks>
+    /// That window is not otherwise reachable: both halves are inside one controller call, and a
+    /// test that raced a real worker against it would assert a timing rather than a rule. It fires
+    /// once, so what follows the claim is the ordinary code path.
+    /// </remarks>
+    public void ClaimDownloadsWhileTheFileIsRead() => _claimer.Arm(() =>
+    {
+        using var db = NewContext();
+
+        foreach (var download in db.Downloads.ToList()) download.Status = DownloadStatus.Downloading;
+
+        db.SaveChanges();
+    });
 
     /// <summary>A context of its own, so persistence assertions are real round-trips.</summary>
     public AppDbContext NewContext() => new SqliteAppDbContext(
@@ -681,4 +710,31 @@ internal sealed class FixedClock : TimeProvider
     public DateTimeOffset Now { get; set; } = DateTimeOffset.UtcNow;
 
     public override DateTimeOffset GetUtcNow() => Now;
+}
+
+/// <summary>
+/// Runs one action just before a query that reads stored download files, so a test can be inside
+/// the window between a controller's read and its write.
+/// </summary>
+internal sealed class ClaimingInterceptor : DbCommandInterceptor
+{
+    private Action? _armed;
+
+    public void Arm(Action onFileLookup) => _armed = onFileLookup;
+
+    public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+        DbCommand command,
+        CommandEventData eventData,
+        InterceptionResult<DbDataReader> result,
+        CancellationToken cancellationToken = default)
+    {
+        if (_armed is { } claim && command.CommandText.Contains("WorkDownloadFiles"))
+        {
+            // Cleared first: what the action itself runs must not re-enter this.
+            _armed = null;
+            claim();
+        }
+
+        return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+    }
 }
