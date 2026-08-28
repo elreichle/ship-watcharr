@@ -2563,3 +2563,68 @@ fixture landed, and the revision was written as an answer sheet for the three qu
 it. A fourth obligation that lived in a code comment rather than in the task body did not survive the
 edit. Where a task is rewritten around new evidence, the check worth making is `grep` for the task id
 across the source tree, not only across `.devloop/`.
+
+## 2026-08-27 — T40: an unreadable page is not a page read, but it is still an answer
+
+**The four-line move was the easy half.** `pagesFetched++`, `parseWarnings +=`, `firstPage ??= page`
+and `lastPage = page` sat three lines above the `if (unreadable) break`, so a fresh backfill whose
+page 1 was a 200 maintenance page filed `PagesFetched = 1, FirstPageFetched = 1,
+LastPageFetched = 1, WorksSeen = 0` — a run claiming the one page it could not read, under a counter
+whose own summary reads "listing pages successfully parsed". T37 fixed exactly this on the retreat
+path by `continue`ing above the counters; the non-retreat route to the same page was missed. The
+move is now below the break and both routes agree.
+
+`lastPage`'s arithmetic survives untouched, which was the thing T40's notes said to check. The 404
+branch tests `lastPage == page - 1` to mean "a page this run read said page N exists", and the walk
+only advances past a page that offered a next link — which an unreadable page never does, because it
+breaks. So the page before a 404 is still a page that read, and the guard means what it meant.
+
+**`parseWarnings` moved with the other three, and the number is kept in the log instead.** It is a
+counter, `delivers` says an unreadable page advances no counter, and the retreat path had already
+been dropping it since T37 — leaving it above the break would have re-created the inconsistency one
+field over, with a run reporting warnings from a page its `PagesFetched` says it never read. But it
+is also the only quantitative signal that tells a *markup change* apart from an *empty page*: blurbs
+present and unnameable versus no blurbs at all. So the parse-failure `LogError` now carries
+`{Warnings}`, and `Keeps_an_unreadable_pages_blurb_warnings_out_of_PagesFetched_but_not_out_of_the_log`
+pins both halves.
+
+**The decision T38 handed over: a run whose only page was unreadable counts as a stalled run.**
+`RecordBackfillProgress` guarded with `if (!askedStaleCursor && firstPage is null) return;`, and
+`firstPage` was standing in for "AO3 answered this run at all" only because it was set before the
+unreadable break — "AO3 served a body" and "the parser read it" were the same fact, so either
+reading of the guard gave the same answer. T40 separates them, and the guard has to pick.
+
+Reading it as "the parser read a page" is the narrowing T38's notes originally asked for, and it is
+wrong. Once `JumpCursorBackFrom` has halved a cursor down to page 1, `CursorMayBeStale` is false by
+construction (it requires `page > 1`), so `askedStaleCursor` is false from that run on; with
+`firstPage` null too, the guard returns early every run, the streak freezes, and
+`ShipBackfillState.Failed` becomes unreachable. The ship re-requests one unanswerable page once a
+run, for ever — precisely the load the counter exists to bound. T38 traced this, `/code-review`
+derived it independently during T38, and running the mutation this iteration reds
+`Gives_up_on_a_backfill_that_spends_run_after_run_on_a_cursor_nothing_answers` exactly as predicted.
+
+So the guard reads "did AO3 serve this run a page body", and that needed its own name rather than a
+side effect of a counter about something else: **`pagesServed`**, incremented once the response is a
+200 and before the parser sees it. Narrower than `pagesRequested`, which counts a 404 and a refused
+status; wider than `pagesFetched`, which counts only what read. The middle is exactly what the guard
+wants — "AO3 told this run nothing" (down, refusing, cut off by the budget) is not the ship's
+problem, "AO3 answered with something this run could not use" is.
+
+**Counting it is only defensible because T38 shipped the way back.** Writing a backfill off used to
+be permanent, and twelve runs against an unreadable page 1 retiring a back catalogue would have been
+too strong a conclusion to draw from "the parser could not read this". `POST
+/api/admin/ships/{id}/backfill/restart` puts a `Failed` backfill back to `InProgress`, so the bound
+now ends a pointless request-a-run loop rather than retiring anything. Deciding the other way would
+have needed a different bound, as T40's notes said; this way needed T38 first, which is why the two
+tasks were split rather than merged.
+
+**Two comments that named T40 as an open owner are now answers.** `Ship.BackfillStalledRuns`'s
+summary said the "any unreadable page" half was "wider than intended … and is T40's to settle"; it
+now states the rule and why the narrow one is unavailable. `Clears_a_stalled_streak_when_a_backfill_
+begins` explained its `InRange(0, 1)` as refusing to pin T40's open decision; it now points at the
+test that does pin it, and stays loose on purpose, because a test about the *reset* should not
+assert the *increment*.
+
+**T40's review did not run** — the account's monthly spend limit, for the third time on this branch
+after T14 and T35. Reviewed by reading, with three mutations standing in for the coverage argument:
+see the journal entry.

@@ -945,10 +945,11 @@ public class Ao3ShipIndexScraperTests : IDisposable
 
         await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
 
-        // At most one, rather than exactly one: whether a run whose only page was unreadable counts
-        // against the ship at all is the open question T40 owns. Either answer leaves the streak
-        // this ship arrived with — eleven — discarded, which is what this test is about; asserting
-        // the exact value would pin T40's decision from a test about something else.
+        // At most one, rather than exactly one. T40 settled that a run whose only page was
+        // unreadable *does* count against the ship, and
+        // Counts_a_stalled_run_when_an_unreadable_page_left_PagesFetched_at_zero is
+        // where that is pinned; either answer leaves the streak this ship arrived with — eleven —
+        // discarded, which is what this test is about, so it stays loose about the other rule.
         var ship = await ReloadAsync(shipId);
         Assert.InRange(ship.BackfillStalledRuns, 0, 1);
         Assert.Equal(ShipBackfillState.InProgress, ship.BackfillState);
@@ -996,6 +997,132 @@ public class Ao3ShipIndexScraperTests : IDisposable
         // The cursor still points at the page that failed, so the next run asks for it again —
         // once, at the scheduler's spacing.
         Assert.Equal(2, ship.BackfillNextPage);
+    }
+
+    // ---- and what it may be counted as ----------------------------------------------------------------
+
+    [Fact]
+    public async Task An_unreadable_page_adds_no_PagesFetched_and_names_no_boundary()
+    {
+        // The run history is read by an operator working out what a ship has actually done, and
+        // PagesFetched's own summary says "listing pages successfully parsed". A fresh backfill
+        // whose page 1 is a 200 maintenance page had been filing PagesFetched = 1 with
+        // FirstPageFetched = LastPageFetched = 1 and no works: a run claiming the one page it could
+        // not read. The retreat path was fixed for this in T37 by setting its page aside; this is
+        // the same page reached by the other route.
+        _host.Http.Responds = _ => new ScrapeHttpResponse(
+            "<html><body><h1>Down for maintenance</h1></body></html>",
+            HttpStatusCode.OK, FromCache: false, FinalUrl: "");
+
+        var shipId = await FollowAsync();
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        Assert.Equal(0, outcome.PagesFetched);
+        Assert.Null(outcome.FirstPage);
+        Assert.Null(outcome.LastPage);
+        Assert.Equal(0, outcome.WorksSeen);
+    }
+
+    [Fact]
+    public async Task PagesFetched_and_the_boundary_stop_at_the_last_page_that_read()
+    {
+        // The same rule where the run got somewhere first. Page 1 reads and advertises more, page 2
+        // comes back unreadable: the run has read exactly one page and its boundary is 1..1, not
+        // 1..2. LastPageFetched naming the page that failed is what the error message is for.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1)], nextPage: true),
+            Page(2, []));
+
+        var shipId = await FollowAsync();
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        Assert.Equal(1, outcome.PagesFetched);
+        Assert.Equal(1, outcome.FirstPage);
+        Assert.Equal(1, outcome.LastPage);
+    }
+
+    [Fact]
+    public async Task Keeps_an_unreadable_pages_blurb_warnings_out_of_PagesFetched_but_not_out_of_the_log()
+    {
+        // ParseWarnings is the fourth counter that used to move above the break, and dropping it is
+        // the same rule — a run reporting warnings from a page its PagesFetched says it never read
+        // is the conflation one field over. But this is the number that tells a markup change apart
+        // from an empty page, so the error line carries it: two blurbs were there and neither could
+        // be named, under a heading claiming 4,317 works in the tag.
+        _host.Http.Responds = Pages(Page(1, [Nameless(), Nameless()], total: 4317));
+
+        var shipId = await FollowAsync();
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        Assert.Equal(0, outcome.PagesFetched);
+        Assert.Equal(0, outcome.ParseWarnings);
+
+        var failure = Assert.Single(
+            _logs.Records, r => r.Template.Contains("Treating this as a parse failure"));
+        Assert.Equal(2, failure.Value("Warnings"));
+    }
+
+    [Fact]
+    public async Task Counts_a_stalled_run_when_an_unreadable_page_left_PagesFetched_at_zero()
+    {
+        // The decision T40 had to make. Once a backfill's cursor has been dragged down to page 1 no
+        // retreat can run there — CursorMayBeStale requires page > 1 — so `askedStaleCursor` is
+        // false from then on. Reading the stalled guard as "did a page parse" would therefore
+        // freeze the streak at page 1 and put Failed out of reach: the ship would re-request one
+        // unanswerable page once a run, for ever, which is exactly the load the counter exists to
+        // bound. So a page AO3 served and the parser could not read is counted against the ship,
+        // and the run history it is counted from says PagesFetched = 0.
+        //
+        // Defensible only because T38 made the write-off reversible: POST
+        // /api/admin/ships/{id}/backfill/restart puts a Failed backfill back to InProgress, so the
+        // bound now ends a pointless request-a-run loop rather than retiring a back catalogue.
+        _host.Http.Responds = _ => new ScrapeHttpResponse(
+            "<html><body><h1>Down for maintenance</h1></body></html>",
+            HttpStatusCode.OK, FromCache: false, FinalUrl: "");
+
+        var shipId = await FollowAsync();
+        await ResumeBackfillAtAsync(shipId, page: 1);
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(0, outcome.PagesFetched);
+        Assert.Equal(1, (await ReloadAsync(shipId)).BackfillStalledRuns);
+
+        // And goes on counting, rather than stopping at one: the streak is what reaches
+        // MaxStalledBackfillRuns and ends the asking.
+        await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+        Assert.Equal(2, (await ReloadAsync(shipId)).BackfillStalledRuns);
+    }
+
+    [Fact]
+    public async Task Counts_no_stalled_run_when_a_refused_status_left_PagesFetched_at_zero()
+    {
+        // The other side of the same guard, and the reason it cannot simply count every run that
+        // got nowhere. PagesFetched is zero here too, but AO3 told this run nothing at all — it
+        // refused before serving a page — and twelve such runs are an archive having a bad
+        // afternoon, not a ship whose cursor the listing will not answer. Writing off a back
+        // catalogue for that is the mis-conclusion the guard exists to prevent.
+        _host.Http.Responds = url =>
+            new ScrapeHttpResponse("", HttpStatusCode.ServiceUnavailable, FromCache: false, FinalUrl: url);
+
+        var shipId = await FollowAsync();
+        await ResumeBackfillAtAsync(shipId, page: 1);
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+        await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        Assert.Equal(0, outcome.PagesFetched);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(0, ship.BackfillStalledRuns);
+        Assert.Equal(ShipBackfillState.InProgress, ship.BackfillState);
     }
 
     [Fact]
@@ -1693,6 +1820,14 @@ public class Ao3ShipIndexScraperTests : IDisposable
     };
 
     private sealed record FakePage(int Number, string Html);
+
+    /// <summary>
+    /// A blurb the parser selects and then cannot name: <c>li.blurb</c> with a <c>work_</c> id
+    /// carrying no number and no heading link to fall back to, which is what
+    /// <see cref="Ao3Tracker.Api.Services.Scraping.Ao3BlurbParser"/> counts a parse warning for.
+    /// A blurb with no <c>work_</c> id at all is never selected, so it produces no warning either.
+    /// </summary>
+    private static string Nameless() => """<li id="work_" class="work blurb group"></li>""";
 
     private static FakePage Page(int number, string[] blurbs, bool nextPage = false, int? total = null) =>
         new(number, $"""

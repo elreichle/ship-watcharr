@@ -2121,3 +2121,70 @@ build. Not something a task should chase.
   (`dotnet run`) and child, and T19's chrome-headless-shell tree (1994238, 1996041). This task started
   no processes — it is test-only, and needed no live check. The systemd dev instance (pid 2033) was
   not touched.
+
+## 2026-08-27 — T40 An unreadable page must not be counted as a page that was read — done
+
+- did: Moved `pagesFetched++`, `parseWarnings +=`, `firstPage ??= page` and `lastPage = page` below
+  the `if (unreadable) break` in the walk, so a page AO3 served but the parser could not read
+  advances no counter and names no boundary on the non-retreat path either — T37 had fixed only the
+  retreat. Kept the dropped warning count visible by adding `{Warnings}` to the parse-failure
+  `LogError`. Then settled the increment question T38 handed over: `RecordBackfillProgress`'s
+  stalled guard now reads a new `pagesServed` counter (200s whose body reached the parser) instead
+  of `firstPage`, which had been standing in for "AO3 answered" only because it was set above the
+  break.
+- files: `Api/Services/Scraping/Ao3ShipIndexScraper.cs`, `Api/Models/Ship.cs`,
+  `Tests/Ao3ShipIndexScraperTests.cs`, `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter ~PagesFetched` → 5 passed (**0 before**, by design); `dotnet test` →
+  781 (776 before); `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings
+  only. No live check: backend-only, and the seam the spec names for this is the controller/unit
+  tests.
+- commit: (recorded next iteration)
+- next: **T45 is next in plain file order** and is the incremental twin of what T40 just decided for
+  the backfill — a pass that cannot get past page 1 with no bound on how long it keeps asking. The
+  shape of the answer here (find the fact the guard actually wants, give it its own name, do not
+  re-purpose a counter that means something else) is the one to reach for. **T15 is down to two
+  blockers, T46 and T52**, and nothing else stands between it and the rest of the plan.
+- **The trap T38 wrote down was real, and the mutation proves it.** Reverting the guard to
+  `!askedStaleCursor && firstPage is null` reds `Gives_up_on_a_backfill_that_spends_run_after_run_on_
+  a_cursor_nothing_answers` and the new stalled-run test and nothing else — the cursor halves
+  10 → 5 → 2 → 1, `CursorMayBeStale` requires `page > 1` so no retreat can run at page 1,
+  `askedStaleCursor` goes false for ever, the streak freezes at 3 and `Failed` is unreachable. Two
+  prior readers (T38 and its reviewer) derived this from the code without running it; running it
+  cost one `sed` and confirmed it exactly. **Where a previous iteration hands over a predicted test
+  failure, spend the two minutes to reproduce it before designing around it** — it is the cheapest
+  possible confirmation that the design constraint is real rather than remembered.
+- **Three mutations, each red in a different place.** (1) Guard deleted entirely → only
+  `Counts_no_stalled_run_when_a_refused_status_left_PagesFetched_at_zero` reds, so the "AO3 told us
+  nothing" half is pinned. (2) Guard back to `firstPage is null` → the two tests above red, so the
+  "AO3 told us something unusable" half is pinned. (3) The four counter lines back above the break →
+  four of the five new tests red. The two halves of the guard are therefore held by different tests,
+  which is what makes the pair worth having rather than one test asserting both.
+- **`delivers` was the contract again, and this time it cost something worth naming.** "advances no
+  counter" covers `parseWarnings`, so it moved with the other three — but it is also the one number
+  that tells "the markup changed and the blurbs are unreadable" apart from "the page is empty", and
+  dropping it silently would have made the run history worse at the exact failure it exists for. The
+  resolution was not to keep the counter but to move the fact to where it is still true: the error
+  log line already fires for that page, so it now carries `{Warnings}`. **A counter you are about to
+  stop recording is worth one look at what reads it before it goes.**
+- **A helper the parser will not select produces no warning.** The test needed a page that is
+  unreadable *and* carries parse warnings, and the obvious `<li class="blurb">` with no id produces
+  neither: `SelectBlurbs` filters on `li.blurb` whose `Id` starts with `work_`, so an id-less blurb
+  is never selected and never counted. `Nameless()` emits `id="work_"` — selected, then unnameable,
+  which is the shape that increments `warnings`. Worth knowing before writing any future test about
+  parse warnings.
+- **The review died on the monthly spend limit for the third time on this branch** (T14, T35, now
+  T40; it resets 20:30 America/Chicago). Reviewed by reading instead — the diff is 88 lines of
+  production code, most of it comment. One thing that pass changed: `FinishAsync`'s call site had
+  `askedStaleCursor: retreatedFrom is not null, pagesServed, ct`, a named argument followed by
+  positional ones, which compiles only because the named one sits in its own position; `pagesServed:`
+  is now named too. **Three lost reviews on one branch is a pattern, not an accident** — an iteration
+  that wants one should check the reset time before launching.
+- Filters checked to bite, per T22's lesson: `~PagesFetched` matched **0 before and 5 after**, which
+  is what the task's own verification line warned about. The five are named individually rather than
+  by class, because they belong in `Ao3ShipIndexScraperTests` beside the helpers they use — so a
+  sixth test added to this rule has to carry `PagesFetched` in its own name or the filter will not
+  see it.
+- Leaked processes from earlier iterations, unchanged and none of them this task's: pid 1963836
+  (`dotnet run`) and its child, and T19's chrome-headless-shell tree (1994238, 1996041). This task
+  started none of its own — test-only, no live check. The systemd dev instance (pid 2033) was not
+  touched.

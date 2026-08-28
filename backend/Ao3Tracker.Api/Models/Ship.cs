@@ -89,11 +89,13 @@ public class Ship
 
     /// <summary>
     /// Consecutive backfill runs that got nowhere and were told something by AO3 while getting
-    /// there — a first request landing on a cursor the listing would not answer, or any page that
-    /// came back unreadable. The second half is wider than intended (this was meant to count
-    /// stale cursors alone) and is T40's to settle, because the rule and the placement of
-    /// `firstPage ??= page` are the same decision; see Ao3ShipIndexScraper.RecordBackfillProgress.
-    /// Cleared by a run that gets *further*
+    /// there — a first request landing on a cursor the listing would not answer, or any page AO3
+    /// served a body for that came back unreadable. The second half is wider than the stale cursor
+    /// this was first written for, and deliberately so: a backfill whose cursor has reached page 1
+    /// can no longer retreat (Ao3ShipIndexScraper.CursorMayBeStale requires `page > 1`), so on the
+    /// narrow rule such a ship would re-request one unanswerable page a run for ever with the
+    /// backfill never reaching <see cref="ShipBackfillState.Failed"/>. See
+    /// Ao3ShipIndexScraper.RecordBackfillProgress. Cleared by a run that gets *further*
     /// through the listing than it started, and by a backfill beginning or being restarted;
     /// reading a page is not enough on its own, because a run that retreated to page 1 and found
     /// that unreadable too has read a page and learned nothing.

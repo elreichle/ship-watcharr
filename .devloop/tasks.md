@@ -150,6 +150,24 @@ and its notes say why and which test it has to re-decide. T38's review ran to co
 three real defects in its own diff, all fixed in it; its fourth finding is **T78**, newly filed at
 the end of the file.
 
+**2026-08-27: T40 is done.** T41 does not exist and T42/T43/T44 are all `done`, so the next `todo`
+in plain file order is **T45** (an incremental pass that cannot get past page 1 has no bound),
+`blocked-by: none` — and it is the incremental twin of the question T40 just answered for the
+backfill, so read T40's journal entry before starting it. T10 is earlier and still blocked by T51. **T77 is still
+taken instead of T63** when the run reaches T63. T40 settled the increment question T38 handed it:
+an unreadable page AO3 *served* counts against the stalled streak, and the guard now reads a new
+`pagesServed` counter rather than `firstPage`, which had been saying this by accident.
+
+**T15 is now two tasks away from selectable.** Its `blocked-by` is T29, T30, T38, T40, T44, T46,
+T47, T52; six of those are `done` and only **T46** and **T52** remain — both `todo`, both
+`blocked-by: none`, and both later in file order than T45. Clearing them unblocks T15, and T15
+unblocks T16 → T17 → T20, which is the rest of the plan.
+
+T40's review **did not run**: `/code-review high` died on the account's monthly spend limit for the
+third time on this branch (T14 and T35 were the others; the limit resets 20:30 America/Chicago). The
+diff was reviewed by reading, and the mutation runs recorded in the journal stand in for the coverage
+argument a reviewer would have asked for.
+
 Read `.devloop/spec.md` before starting any task. Every task additionally has to leave
 `cd backend && PATH="$HOME/.dotnet:$PATH" dotnet test`, `cd frontend && npm run build` and
 `npm run lint` green — that is the floor, not the verification.
@@ -1108,7 +1126,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   are rendered by the index template, not by the filter.
 
 ## T40 — An unreadable page must not be counted as a page that was read
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A run's history counts the pages it actually read. A page that came back unreadable

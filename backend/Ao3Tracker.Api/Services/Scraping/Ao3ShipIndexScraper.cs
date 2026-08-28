@@ -122,6 +122,18 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         // once one has. A backfill's first request is the one that lands on the saved cursor.
         var pagesRequested = 0;
 
+        // Pages AO3 served this run a body for, whether or not the parser could make a listing of
+        // it. Narrower than `pagesRequested`, which counts a 404 and a refused status too; wider
+        // than `pagesFetched`, which counts only the ones that read.
+        //
+        // RecordBackfillProgress is the only reader, and it needs exactly this middle: its stalled
+        // counter must distinguish "AO3 told this run nothing" — down, refusing, or cut off by the
+        // budget — from "AO3 answered with something this run could not use", and only the second
+        // is the ship's problem to be counted against. `firstPage` stood in for that reading while
+        // an unreadable page still set it; now that one does not, the distinction needs its own
+        // name rather than a side effect of a counter about something else.
+        var pagesServed = 0;
+
         // The page a stale-cursor retreat stepped back from, once per run. Both a bound on the
         // retreating and the thing that stops the walk turning round and re-asking for it, and —
         // in `retreatBecause` — what that page actually did, since the retreat has two routes into
@@ -267,6 +279,8 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 break;
             }
 
+            pagesServed++;
+
             var listing = Ao3BlurbParser.ParseListing(response.Content);
 
             // Whether the page can be taken for the end of the listing, evaluated before the page
@@ -294,25 +308,26 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 continue;
             }
 
-            pagesFetched++;
-            parseWarnings += listing.ParseWarnings;
-            firstPage ??= page;
-            lastPage = page;
-
-            // Before the heading is trusted for anything. A page that could not be read must not
-            // get to write the ship a number either. ParseTotalWorks now requires the word beside
-            // the digits, so an AO3 soft-error page served as 200 with
-            // <h2 class="heading">Error 404</h2> reads as no total rather than as 404 — but this
-            // guard stays: a page that parsed to nothing is not a page whose heading has earned
-            // the ship's size, whatever that heading says. Two independent reasons a bad page
-            // cannot overwrite LastKnownTotalWorks, which is the field a full sweep checks itself
-            // against before concluding works have left the tag.
+            // Before the heading is trusted for anything, and before any counter moves. A page
+            // that could not be read must not get to write the ship a number either.
+            // ParseTotalWorks now requires the word beside the digits, so an AO3 soft-error page
+            // served as 200 with <h2 class="heading">Error 404</h2> reads as no total rather than
+            // as 404 — but this guard stays: a page that parsed to nothing is not a page whose
+            // heading has earned the ship's size, whatever that heading says. Two independent
+            // reasons a bad page cannot overwrite LastKnownTotalWorks, which is the field a full
+            // sweep checks itself against before concluding works have left the tag.
             if (unreadable)
             {
+                // The blurb warnings are named here rather than added to `parseWarnings` because
+                // this page is about to be un-counted: a run reporting warnings from a page its
+                // PagesFetched says it never read is the same conflation, one field over. On the
+                // page that matters — a listing whose markup changed under the parser — this is
+                // the number that says the blurbs were there and unreadable, rather than absent.
                 _logger.LogError(
                     "Page {Page} for ship {ShipId} ({Tag}) parsed to no works from {Length} characters of "
-                    + "HTML, and {Reason}. Treating this as a parse failure rather than the end of the listing.",
-                    page, ship.Id, ship.CanonicalTagName, response.Content.Length,
+                    + "HTML with {Warnings} unreadable blurbs, and {Reason}. Treating this as a parse "
+                    + "failure rather than the end of the listing.",
+                    page, ship.Id, ship.CanonicalTagName, response.Content.Length, listing.ParseWarnings,
                     WhyNotTheEnd(listing, page, listingWasFiltered, blurbsRead));
 
                 stopReason = ScrapeStopReason.Error;
@@ -324,6 +339,28 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
                 break;
             }
+
+            // Only now. Every one of these four describes a page this run *read*, and until T40
+            // they were written three lines above the break — so a fresh backfill whose page 1 was
+            // a 200 maintenance page filed PagesFetched = 1, FirstPageFetched = 1,
+            // LastPageFetched = 1, WorksSeen = 0: a run claiming a page it could not read, over
+            // a counter whose own summary says "listing pages successfully parsed". T37 fixed the
+            // identical conflation on the retreat path, which sets its page aside by `continue`ing
+            // above; this is the other route to the same page, and it was missed.
+            //
+            // `firstPage` is the one with teeth. FinishAsync reads `firstPage == 1` as "this run
+            // saw the newest end of the listing" and lets it move the watermark, so an unreadable
+            // page 1 was one non-null `newestSeen` away from proposing a watermark off a page that
+            // parsed to nothing — harmless only because the break above means no work was ever
+            // ingested to set it. That is the shape of accident T24 was.
+            //
+            // `lastPage`'s reader is the 404 branch's `lastPage == page - 1`, and that arithmetic
+            // is untouched: the walk only advances past a page that offered a next link, which an
+            // unreadable page never does — it breaks. So the page before a 404 is a page that read.
+            pagesFetched++;
+            parseWarnings += listing.ParseWarnings;
+            firstPage ??= page;
+            lastPage = page;
 
             blurbsRead += listing.Works.Count;
 
@@ -482,7 +519,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
         await FinishAsync(
             context, ship, stopReason, startPage, firstPage, newestSeen,
-            askedStaleCursor: retreatedFrom is not null, ct);
+            askedStaleCursor: retreatedFrom is not null, pagesServed: pagesServed, ct);
 
         return new ScrapeOutcome(
             pagesFetched, budget.RequestsMade, worksSeen, worksAdded, worksUpdated,
@@ -842,7 +879,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// nothing is answering. Closing the gap left behind is a full sweep's job.
     /// </summary>
     private void RecordBackfillProgress(
-        Ship ship, string stopReason, int startPage, int? firstPage, bool askedStaleCursor, DateTime now)
+        Ship ship, string stopReason, int startPage, bool askedStaleCursor, int pagesServed, DateTime now)
     {
         if (stopReason == ScrapeStopReason.LastPage)
         {
@@ -871,7 +908,19 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         // has been told something; a run stopped by the budget, the breaker, a transport failure or
         // a refused status has not — and writing off a back catalogue because AO3 was down for an
         // afternoon is exactly the mis-conclusion this counter must not make.
-        if (!askedStaleCursor && firstPage is null) return;
+        //
+        // `pagesServed` rather than `firstPage`, which used to say this by accident: it was set
+        // before the unreadable-page break, so "AO3 served a body" and "the parser read it" were
+        // the same fact and either reading of the guard gave the same answer. T40 separated them,
+        // and the guard wants the first — a page that arrived and did not read is the case this
+        // counter is counting. Reading it as the second instead freezes the streak for a backfill
+        // whose cursor has reached page 1: `CursorMayBeStale` requires `page > 1`, so no retreat
+        // can run there, `askedStaleCursor` is false for ever, and a ship parked on an unanswerable
+        // page 1 would re-request it once a run with `Failed` unreachable. Counting it is only
+        // defensible because T38 made the write-off recoverable — `POST /api/admin/ships/{id}/
+        // backfill/restart` puts a Failed backfill back to InProgress — so the bound now ends a
+        // pointless request-a-run loop rather than retiring a back catalogue permanently.
+        if (!askedStaleCursor && pagesServed == 0) return;
 
         ship.BackfillStalledRuns++;
 
@@ -895,6 +944,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         int? firstPage,
         DateTime? newestSeen,
         bool askedStaleCursor,
+        int pagesServed,
         CancellationToken ct)
     {
         var now = _time.GetUtcNow().UtcDateTime;
@@ -902,7 +952,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         if (context.Mode == ScrapeRunMode.Incremental) ship.LastIncrementalRunAt = now;
 
         if (context.Mode == ScrapeRunMode.Backfill)
-            RecordBackfillProgress(ship, stopReason, startPage, firstPage, askedStaleCursor, now);
+            RecordBackfillProgress(ship, stopReason, startPage, askedStaleCursor, pagesServed, now);
 
         // Two conditions, and both are about what the run was in a position to *know*.
         //
