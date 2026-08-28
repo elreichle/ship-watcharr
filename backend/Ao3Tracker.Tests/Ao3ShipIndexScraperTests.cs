@@ -1840,6 +1840,203 @@ public class Ao3ShipIndexScraperTests : IDisposable
     }
 
     [Fact]
+    public async Task Holds_a_page_that_fails_at_the_transport_level_as_readily_as_one_it_404s()
+    {
+        // The third and dearest entrance to the stuck state. A page that answers — 404, or 200 with
+        // nothing usable — costs the run one request. A page that does not answer at all is the one
+        // URL the walk deliberately re-asks for, bounded only by the breaker, so it costs
+        // MaxConsecutiveFailures requests a run and stops with Breaker rather than Error. It leaves
+        // the identical signature behind: a run that read up to page 1 and no further.
+        _host.Http.Responds = url => url.Contains("page=2")
+            ? throw new HttpRequestException("connection reset by peer")
+            : Ok(url, Page(1, [Blurb(1, updatedAt: Jan(20))], nextPage: true).Html);
+
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(1));
+        await RecordIncrementalRunsAsync(
+            shipId,
+            [.. Enumerable.Repeat(Breaker(1), Ao3ShipIndexScraper.MinStuckIncrementalRuns)]);
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.Held, outcome.StopReason);
+        Assert.DoesNotContain(_host.Http.Requested, url => url.Contains("page=2"));
+        Assert.Equal(1, outcome.RequestsMade);
+    }
+
+    [Fact]
+    public async Task Holds_no_page_when_the_breaker_opened_before_a_page_was_read()
+    {
+        // The split the widened streak has to keep. A Breaker run that read a page is "this ship is
+        // stuck on the page after it"; a Breaker run that read none is "the archive was down", which
+        // names no page and is nothing this ship can be held for. It is the guard above the streak
+        // that decides that, not the streak itself, so it wants a test of its own now that Breaker
+        // is a reason the streak counts.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1, updatedAt: Jan(20))], nextPage: true),
+            Page(2, [Blurb(2, updatedAt: Jan(15))]));
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(1));
+        await RecordIncrementalRunsAsync(shipId, Breaker(null), Breaker(null), Breaker(null));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
+        Assert.Equal(2, outcome.PagesFetched);
+    }
+
+    [Fact]
+    public async Task Holds_nothing_for_a_run_the_budget_stopped_rather_than_the_archive()
+    {
+        // Cap and TimeCap are budget stops, not archive stops: a run that spent its allowance before
+        // reaching page 2 says nothing at all about page 2. Counting them would hold a page over
+        // runs that never asked for it — the same mistake the null-page guard above exists to avoid,
+        // one column over. Breaker is the only budget stop that means the archive was failing.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1, updatedAt: Jan(20))], nextPage: true),
+            Page(2, [Blurb(2, updatedAt: Jan(15))]));
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(1));
+        await RecordIncrementalRunsAsync(
+            shipId,
+            (ScrapeStopReason.Cap, 1), (ScrapeStopReason.Cap, 1), (ScrapeStopReason.TimeCap, 1));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
+        Assert.Contains(_host.Http.Requested, url => url.Contains("page=2"));
+    }
+
+    [Fact]
+    public async Task Names_the_page_it_gave_up_on_when_the_breaker_stops_a_run()
+    {
+        // A run the breaker stopped is a failed run, and a failed run with no message is a row an
+        // operator can read nothing off. The count is the breaker's own consecutive-failure tally,
+        // which is what tripped it, and the page is the one all of those requests were for.
+        _host.Http.Responds = url => url.Contains("page=2")
+            ? throw new HttpRequestException("connection reset by peer")
+            : Ok(url, Page(1, [Blurb(1, updatedAt: Jan(20))], nextPage: true).Html);
+
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(1));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.Breaker, outcome.StopReason);
+        Assert.NotNull(outcome.ErrorMessage);
+        Assert.Contains("page 2", outcome.ErrorMessage);
+
+        // Read off the option ScrapeAsync builds its budget from rather than written as a literal
+        // three, so the assertion follows the threshold wherever it is tuned to instead of agreeing
+        // with today's default.
+        Assert.Contains(
+            $"{new Ao3HttpClientOptions().MaxConsecutiveFailures} consecutive", outcome.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task Writes_no_message_for_a_run_that_merely_spent_its_request_budget()
+    {
+        // The other arm of the same rule. A run that spent the allowance it was given stopped
+        // healthily — the cap flags on ScrapeRun already say which allowance — so it has nothing to
+        // report, and a message here would put every capped backfill in the run history alongside
+        // the ships that need looking at.
+        //
+        // The run has to have *had* a failure for this to be a test of the rule rather than of the
+        // arrangement: with no failure there is no page for a message to name, so a capped run
+        // would come back silent however the branch were written. One transport failure, then a
+        // page that reads, then the cap.
+        var attempts = 0;
+        _host.Http.Responds = url =>
+        {
+            attempts++;
+            return attempts == 1
+                ? throw new HttpRequestException("connection reset by peer")
+                : Ok(url, Page(1, [Blurb(1, updatedAt: Jan(20))], nextPage: true).Html);
+        };
+
+        var shipId = await FollowAsync();
+
+        var outcome = await _host.ScrapeAsync(
+            shipId,
+            budget: new ScrapeBudget(maxRequests: 2, maxConsecutiveFailures: 3, maxDuration: TimeSpan.FromHours(1)));
+
+        Assert.Equal(ScrapeStopReason.Cap, outcome.StopReason);
+        Assert.Null(outcome.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task Names_the_page_the_failures_were_for_rather_than_the_one_the_retreat_moved_to()
+    {
+        // The breaker can open on a request the walk has already stepped back from. Enough transport
+        // failures at the cursor to leave the breaker one short, and then a 404 there, trips it —
+        // and that same 404 is what the stale-cursor retreat fires on, so the loop decrements the
+        // page and carries on into the budget check with the breaker already open. Naming the page
+        // the loop was holding would name a page nothing had failed on.
+        //
+        // The failures before the 404 are counted off MaxConsecutiveFailures rather than written as
+        // two, so raising the threshold retunes the arrangement instead of silently making the
+        // breaker unreachable and the test vacuous.
+        var beforeTheNotFound = new Ao3HttpClientOptions().MaxConsecutiveFailures - 1;
+        var attempts = 0;
+        _host.Http.Responds = url =>
+        {
+            attempts++;
+            return attempts <= beforeTheNotFound
+                ? throw new HttpRequestException("connection reset by peer")
+                : new ScrapeHttpResponse("", HttpStatusCode.NotFound, FromCache: false, FinalUrl: url);
+        };
+
+        var shipId = await FollowAsync();
+        await ResumeBackfillAtAsync(shipId, 5);
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.Breaker, outcome.StopReason);
+        Assert.Contains("page 5", outcome.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task Bounds_the_transport_failure_route_over_consecutive_runs_through_the_worker()
+    {
+        // Both halves of this change in one assertion, because neither is worth much alone: the
+        // worker has to write `breaker` and record it Failed, and the walk has to read those rows
+        // back as a streak. The request counts are the point — the route being bounded costs
+        // 1 + MaxConsecutiveFailures requests a run against the 404 route's two, so it is the
+        // dearest of the three entrances and was the only one the bound could not see.
+        _host.Http.Responds = url => url.Contains("page=2")
+            ? throw new HttpRequestException("connection reset by peer")
+            : Ok(url, Page(1, [Blurb(1, updatedAt: Jan(20))], nextPage: true).Html);
+
+        var shipId = await FollowAsync();
+        await _host.SaveAo3LoginAsync();
+        await SetWatermarkAsync(shipId, Jan(1));
+        await SettleBackfillAsync(shipId);
+
+        for (var i = 0; i < Ao3ShipIndexScraper.MinStuckIncrementalRuns + 1; i++)
+        {
+            await MakeDueAsync(shipId);
+            await _host.NewScrapeWorker().RunDueJobsAsync(CancellationToken.None);
+        }
+
+        await using var db = _host.NewContext();
+        var runs = await db.ScrapeRuns.OrderBy(r => r.Id).ToListAsync();
+
+        Assert.Equal(
+            [.. Enumerable.Repeat(ScrapeStopReason.Breaker, Ao3ShipIndexScraper.MinStuckIncrementalRuns),
+             ScrapeStopReason.Held],
+            runs.Select(r => r.StopReason));
+        Assert.All(runs, r => Assert.Equal(ScrapeRunStatus.Failed, r.Status));
+
+        // Page 1, then page 2 until the breaker opened, for each run that asked — and one request
+        // for the run that held. Spelled from the two constants rather than as the number they
+        // multiply out to today, because the ratio between them is the whole point of the bound.
+        var perAskingRun = 1 + new Ao3HttpClientOptions().MaxConsecutiveFailures;
+        Assert.Equal(
+            (Ao3ShipIndexScraper.MinStuckIncrementalRuns * perAskingRun) + 1,
+            _host.Http.Requested.Count);
+    }
+
+    [Fact]
     public async Task Keeps_asking_for_a_page_that_has_only_just_started_refusing()
     {
         // Two runs is a page that failed, not a page that is refusing. The hold costs a ship the
@@ -2125,6 +2322,13 @@ public class Ao3ShipIndexScraperTests : IDisposable
     private static (string StopReason, int? LastPage) Held(int? lastPage) => (ScrapeStopReason.Held, lastPage);
 
     /// <summary>
+    /// A finished incremental run the circuit breaker stopped, having read up to
+    /// <paramref name="lastPage"/> — the transport-failure route into the stuck state, where the
+    /// page after it never answered at all and was re-asked until the breaker opened.
+    /// </summary>
+    private static (string StopReason, int? LastPage) Breaker(int? lastPage) => (ScrapeStopReason.Breaker, lastPage);
+
+    /// <summary>
     /// Writes the run history earlier incremental passes would have left, oldest first — which is
     /// also insertion order, and so Id order, which is the order the walk reads them back in.
     ///
@@ -2143,7 +2347,10 @@ public class Ao3ShipIndexScraperTests : IDisposable
             {
                 ScrapeJobId = job.Id,
                 Mode = ScrapeRunMode.Incremental,
-                Status = stopReason is ScrapeStopReason.Error or ScrapeStopReason.Held
+                // Through the worker's own rule rather than a copy of it: these rows stand in for
+                // runs the worker wrote, and a fixture that disagreed with it about which stop
+                // reasons failed would be arranging a history no instance can produce.
+                Status = ScrapeStopReason.RecordsAsFailure(stopReason)
                     ? ScrapeRunStatus.Failed
                     : ScrapeRunStatus.Succeeded,
                 StopReason = stopReason,

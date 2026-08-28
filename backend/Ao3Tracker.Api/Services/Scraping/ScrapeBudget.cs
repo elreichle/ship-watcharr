@@ -15,7 +15,16 @@ public static class ScrapeStopReason
     /// <summary>Spent the per-run wall-clock budget.</summary>
     public const string TimeCap = "timeCap";
 
-    /// <summary>Circuit breaker opened after too many consecutive failures.</summary>
+    /// <summary>
+    /// Circuit breaker opened after too many consecutive failures — the archive answering nothing
+    /// usable, MaxConsecutiveFailures times in a row, spaced by the shared 5-8s gate.
+    ///
+    /// A failed run, unlike the other two budget stops: <see cref="Cap"/> and <see cref="TimeCap"/>
+    /// are a run spending an allowance it was given. It is also counted by
+    /// <c>Ao3ShipIndexScraper.HeldAfterPageAsync</c>'s streak, because the walk re-asks a page that
+    /// fails at the transport level and so reaches a page it cannot get past by this reason rather
+    /// than by <see cref="Error"/>.
+    /// </summary>
     public const string Breaker = "breaker";
 
     /// <summary>
@@ -51,6 +60,19 @@ public static class ScrapeStopReason
     /// until <see cref="Held"/> gave the column a reader.
     /// </summary>
     public const string Interrupted = "interrupted";
+
+    /// <summary>
+    /// Whether a run that stopped for this reason failed, and so must be recorded
+    /// <c>ScrapeRunStatus.Failed</c> rather than <c>Succeeded</c>.
+    ///
+    /// Here rather than inline at <c>ScrapeWorker</c>'s one call site because the run history is
+    /// read back as well as written: <c>Ao3ShipIndexScraper.HeldAfterPageAsync</c> reads these rows
+    /// to decide what it may ask for, and the test fixtures that arrange a run history have to
+    /// agree with the worker about which stops are failures or they arrange histories no instance
+    /// can produce. See the call site for why each value is on this list.
+    /// </summary>
+    public static bool RecordsAsFailure(string? stopReason) =>
+        stopReason is Error or Held or Denied or Breaker;
 }
 
 /// <summary>

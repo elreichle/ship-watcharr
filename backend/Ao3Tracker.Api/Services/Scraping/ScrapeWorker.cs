@@ -329,8 +329,14 @@ public class ScrapeWorker : BackgroundService
             //
             // `Denied` likewise: the job ran, asked for nothing, and cannot ask for anything until
             // the tag is verified again. A success is what an operator scrolls past.
-            run.Status = outcome.StopReason
-                is ScrapeStopReason.Error or ScrapeStopReason.Held or ScrapeStopReason.Denied
+            //
+            // `Breaker` is the one budget stop on that list. `Cap` and `TimeCap` are a run spending
+            // an allowance it was given, which is the expected end of a backfill; the breaker only
+            // opens after MaxConsecutiveFailures requests in a row reached AO3 and came back
+            // unusable, spaced by the shared 5-8s gate. That is the archive failing this ship, and
+            // it is the state the Schedules page most needs to show — a ship collecting nothing
+            // while its run history reads green is exactly what this rule exists to prevent.
+            run.Status = ScrapeStopReason.RecordsAsFailure(outcome.StopReason)
                 ? ScrapeRunStatus.Failed
                 : ScrapeRunStatus.Succeeded;
         }

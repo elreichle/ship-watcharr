@@ -594,3 +594,85 @@ states the fact and stops, and the missing route is **T83**.
 checked against nothing. Where a diff writes a sentence an operator or a later iteration will act on
 — a `delivers` line, a comment, an `ErrorMessage` — the sentence is part of the diff and wants the
 same verification the code got.
+
+## 2026-08-28 — T52 + T81: the breaker is a failed run, and the walk counts it
+
+Shipped as one diff, which both tasks' notes had already settled: T52 makes a `Breaker` run record
+`Failed`, T81 makes `HeldAfterPageAsync`'s streak count one. Either alone leaves the walk and the run
+history disagreeing about the same row — a run the walk treats as stuck while the history calls it a
+success, or the reverse.
+
+**Rejected: a `BreakerOpen` column on `ScrapeRun`.** T52's notes offered it, on the symmetry with
+`HitRequestCap` and `HitTimeCap`, and priced it honestly as a migration on both providers. It buys
+nothing: `StopReason` already carries the fact, `CanContinue` returns `Breaker` ahead of every other
+reason so a run with the breaker open stops for that reason, and the one case where the two could
+differ — an exception overwriting `StopReason` with `Error` while the breaker was open — is a case
+where the exception's own message is the more informative thing to have kept. A column would be a
+second copy of a value already on the row, and the reset half of exactly that pairing is what
+`MaxStalledBackfillRuns` needed two tasks to get right. The narrow fix was the status, plus the error
+message `delivers` asked for.
+
+**`Cap` and `TimeCap` do not join the streak, and T81 asked for this to be said either way.** They
+are runs that spent an allowance they were given. A run that stopped before reaching page N says
+nothing whatever about page N, so counting one would hold a page over runs that never asked for it —
+the same mistake the null-page guard above the streak exists to avoid, one column over. `Breaker` is
+the only budget stop that means the archive was failing. Pinned by
+`Holds_nothing_for_a_run_the_budget_stopped_rather_than_the_archive`.
+
+**The `Breaker`-with-no-page split is kept by the guard, and now has its own test.** T81 asked
+whether the widened predicate keeps "the archive is down" (page 1 itself timing out,
+`LastPageFetched` null, nothing to hold at) apart from "this ship is stuck on a page". It does, by
+the `recent[0].LastPageFetched is not { } page` guard above the streak rather than by the streak
+itself — so it is inherited rather than restated, which is why it wanted a test of its own now that
+`Breaker` is counted. `Holds_no_page_when_the_breaker_opened_before_a_page_was_read` reds against
+the realistic wrong implementation (an `int? page` letting null rows match each other), alongside
+the `Error` test that already covered the same guard.
+
+**The worker's failure rule moved to `ScrapeStopReason.RecordsAsFailure`.** Not a refactor for its
+own sake: the test fixture that arranges a run history was carrying a second copy of the same list,
+and this diff would have deepened the duplication by adding `Breaker` to both. The run history is
+read back as well as written — `HeldAfterPageAsync` decides what to ask for from these rows — so a
+fixture disagreeing with the worker about which stops are failures arranges histories no instance
+can produce. The explanatory comment stays at the worker, which is where the *why* for each value
+belongs.
+
+**The breaker's message names the page the failures were for, not the page the loop was holding.**
+Written first as the loop's own `page`, which is wrong on one reachable path: a 404 at a backfill's
+cursor both trips the breaker and fires the stale-cursor retreat, which decrements `page` and carries
+on into the budget check — so the message would name a page nothing had failed on. The walk now
+tracks `lastFailedPage` at its two `RecordFailure` sites. Found by reading the diff for T46's rule
+that a sentence a diff writes for an operator is part of the diff; pinned by
+`Names_the_page_the_failures_were_for_rather_than_the_one_the_retreat_moved_to`.
+
+## 2026-08-28 — T52+T81's review: zero findings, and one thing the comment did not say
+
+`/code-review high` on an explicitly named five-file target ran to completion — the third in a row —
+reported reading exactly the working-tree diff, and returned **no findings**. The first clean review
+on this branch. Worth recording what it cleared, so it is not re-derived: no `errorMessage` write can
+clobber an earlier one (all seven are followed by `break`); `FinishAsync`'s `mayPropose` still refuses
+to move the watermark on a `Breaker` stop, so a false hold cannot lose works; `ScrapeRun.Status` has
+three readers and nothing schedules, backs off or retires a ship off it, so `Breaker` becoming
+`Failed` has no blast radius; and no duplicate of the old inline failure predicate survives anywhere.
+
+**Its one note was about the comment, not the code, and is now in the diff.** Counting `Breaker` in
+the streak accepts a case the comment did not name: an archive-wide incident spanning three
+consecutive runs that leaves page 1 answering while page 2 times out is indistinguishable, from
+inside `HeldAfterPageAsync`, from a page that is genuinely gone — so page 2 is held for up to
+`ProbeHeldPageEveryNthRun` runs. The null-page guard only catches an outage that takes page 1 down
+too. Accepted rather than fixed: bounded, healed by the probe without an operator, and losing no
+works, against an every-tick cost of `MaxConsecutiveFailures` timed-out requests. The comment now
+says so.
+
+**A test that passed for the wrong reason, caught by a mutation rather than by the review.**
+`Writes_no_message_for_a_run_that_merely_spent_its_request_budget` was first written as a plain
+capped run — which has no failed request, so no page for a message to name, so it came back silent
+whatever `BudgetStopMessage`'s branch said. Deleting the `stopReason == Breaker` condition left it
+green. Rewritten so the run takes one transport failure before reaching its cap, where it reds. This
+is G3 again from the same direction as T45: **the mutation that survives is the one worth having
+run.**
+
+**Launching the review before the diff was finished cost it a pass.** Two edits landed while it was
+reading — the `lastFailedPage` fix and two de-hardcoded constants — and it re-took the diff and
+re-reviewed rather than reporting on a tree that no longer existed. It recovered, and independently
+confirmed both fixes were correct, but the honest rule is to freeze the diff before launching, since
+the recovery was the reviewer's to make and might not have been made.

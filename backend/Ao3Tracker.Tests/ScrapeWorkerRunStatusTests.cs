@@ -82,6 +82,40 @@ public class ScrapeWorkerRunStatusTests
         Assert.Equal(ScrapeStopReason.Denied, run.StopReason);
     }
 
+    [Fact]
+    public async Task A_run_the_circuit_breaker_stopped_is_recorded_as_failed()
+    {
+        // The breaker opens after MaxConsecutiveFailures requests in a row that reached AO3 and got
+        // nothing usable back, each one spaced by the shared 5-8s gate. That is the archive failing
+        // this ship, and it is the state an operator most needs to find in the run history — which
+        // recording it Succeeded, with the run's own message beside it, hid among the healthy ones.
+        using var host = new LibraryTestHost(
+            new StubScraper(
+                Ao3ScraperKeys.ShipIndex,
+                ScrapeStopReason.Breaker,
+                "AO3 failed 3 consecutive requests, the last of them for page 2"));
+
+        var run = await RunOneAsync(host);
+
+        Assert.Equal(ScrapeRunStatus.Failed, run.Status);
+        Assert.Equal(ScrapeStopReason.Breaker, run.StopReason);
+        Assert.Equal("AO3 failed 3 consecutive requests, the last of them for page 2", run.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task A_run_that_spent_its_request_budget_is_still_recorded_as_succeeded()
+    {
+        // The other side of the breaker rule, and the reason it could not simply be "any budget
+        // stop". A backfill exhausting its per-run allowance is the expected end of a backfill: it
+        // saved its cursor and resumes next tick, and nothing about it needs looking at.
+        using var host = new LibraryTestHost(
+            new StubScraper(Ao3ScraperKeys.ShipIndex, ScrapeStopReason.Cap));
+
+        var run = await RunOneAsync(host);
+
+        Assert.Equal(ScrapeRunStatus.Succeeded, run.Status);
+    }
+
     private static async Task<ScrapeRun> RunOneAsync(LibraryTestHost host)
     {
         var emma = host.SeedUser();

@@ -204,6 +204,13 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         // it and a message naming the wrong one misdirects the operator reading the run history.
         int? retreatedFrom = null;
         string? retreatBecause = null;
+
+        // The page the most recent request that reached AO3 and failed was for. Not always the page
+        // the loop is about to ask for: a 404 retreat steps `page` back and carries on, so a run
+        // that then trips the breaker at the top of the loop is holding a page number one lower
+        // than the one its failures were spent on. Only BudgetStopMessage reads it, and naming the
+        // wrong page there is the whole of what it would cost.
+        int? lastFailedPage = null;
         DateTime? newestSeen = null;
 
         string stopReason;
@@ -219,6 +226,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             if (!budget.CanContinue(out var budgetStop))
             {
                 stopReason = budgetStop!;
+                errorMessage = BudgetStopMessage(stopReason, budget, lastFailedPage);
                 break;
             }
 
@@ -247,6 +255,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 // The filter deliberately catches request timeouts, which arrive as
                 // TaskCanceledException — see ScrapeCancellation for what letting one through cost.
                 budget.RecordFailure();
+                lastFailedPage = page;
                 _logger.LogWarning(ex, "Fetching {Url} for ship {ShipId} failed", url, ship.Id);
 
                 // Unlike a non-OK status below, this one *does* re-ask for the same URL. Nothing
@@ -255,7 +264,13 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 // succeed on the next. The re-asking is bounded by the breaker, which counts
                 // consecutive failures and is documented for precisely this — MaxConsecutiveFailures
                 // attempts, spaced by the shared 5-8s gate, and then the run gives up.
-                if (!budget.CanContinue(out var afterFailure)) { stopReason = afterFailure!; break; }
+                if (!budget.CanContinue(out var afterFailure))
+                {
+                    stopReason = afterFailure!;
+                    errorMessage = BudgetStopMessage(stopReason, budget, lastFailedPage);
+                    break;
+                }
+
                 continue;
             }
 
@@ -263,7 +278,11 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
             if (response.FromCache) budget.RecordCacheHit();
             else if (response.StatusCode == HttpStatusCode.OK) budget.RecordSuccess();
-            else budget.RecordFailure();
+            else
+            {
+                budget.RecordFailure();
+                lastFailedPage = page;
+            }
 
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
@@ -695,6 +714,29 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             + $"cursor by more than one page; retrying from page {landing.ToString(CultureInfo.InvariantCulture)}";
     }
 
+    /// <summary>
+    /// What a run stopped by its own budget leaves in the run history's message column.
+    ///
+    /// Only the breaker gets one. <see cref="ScrapeStopReason.Cap"/> and
+    /// <see cref="ScrapeStopReason.TimeCap"/> are a run spending an allowance it was given, and a
+    /// healthy stop with nothing to report — the two cap flags on <c>ScrapeRun</c> already say so.
+    /// <see cref="ScrapeStopReason.Breaker"/> is the archive failing: <paramref name="budget"/>'s
+    /// own consecutive-failure tally is what tripped it, and <paramref name="failedPage"/> is the
+    /// page the last of those requests was for, which is the pair an operator needs to tell one bad
+    /// minute from a listing that is not coming back.
+    ///
+    /// It states what happened and stops there. Nothing in this product re-opens a breaker or
+    /// re-schedules around one — the next run simply asks again — so there is no remedy to name.
+    /// A breaker that opened without <paramref name="failedPage"/> being set is not reachable —
+    /// only a recorded failure opens it — but no page is named rather than the wrong one guessed.
+    /// </summary>
+    private static string? BudgetStopMessage(string stopReason, ScrapeBudget budget, int? failedPage) =>
+        stopReason == ScrapeStopReason.Breaker && failedPage is { } failed
+            ? $"AO3 failed {budget.ConsecutiveFailures.ToString(CultureInfo.InvariantCulture)} "
+                + $"consecutive requests, the last of them for page "
+                + $"{failed.ToString(CultureInfo.InvariantCulture)}; the run stopped rather than asking again"
+            : null;
+
     // ---- a page an incremental pass cannot get past ---------------------------------------------
 
     /// <summary>
@@ -717,11 +759,15 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// a next link, followed by a page 2 that will not answer. Nothing in the walk concludes
     /// anything from that — correctly, since concluding the end of the listing would move the
     /// watermark past works page 2 holds and no later incremental pass looks behind a watermark
-    /// (T24). But the run stops with <see cref="ScrapeStopReason.Error"/>, an <c>Error</c> may not
-    /// move the watermark, and an incremental pass has no cursor — so the next run rebuilds the
-    /// identical two requests, and so does every run after it, for ever. Two ways in: a 404 on
-    /// page 2, and a filtered page 2 carrying no heading to say the result set ended (see
-    /// <see cref="FilteredHeadingSaysThisIsAll"/>, whose own doc names this as its price).
+    /// (T24). But the run stops without moving the watermark, an incremental pass has no cursor —
+    /// so the next run rebuilds the identical two requests, and so does every run after it, for
+    /// ever. Three ways in, and the streak counts the stop reason each leaves behind:
+    /// a 404 on page 2 and a filtered page 2 carrying no heading to say the result set ended (see
+    /// <see cref="FilteredHeadingSaysThisIsAll"/>, whose own doc names this as its price), both
+    /// <see cref="ScrapeStopReason.Error"/>; and a page 2 that does not answer at all, which is the
+    /// one URL this walk re-asks for and so stops with <see cref="ScrapeStopReason.Breaker"/>
+    /// instead. The last is the dearest — 1 + MaxConsecutiveFailures requests a run against the
+    /// other two's two — and was the one the bound could not see when it was first built.
     ///
     /// What is wrong there is only the second request. The first is doing its job — page 1 is where
     /// new works appear, and every one of these runs ingests them — so the bound is on the *depth*
@@ -766,10 +812,27 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         // Held runs count towards the streak alongside the errors that started it: a run that did
         // not ask is not evidence the page has recovered, and dropping them would end the streak on
         // the first held run and restore the every-tick request this exists to stop.
+        //
+        // `Breaker` counts because it is the third entrance and the dearest. It is the only budget
+        // stop here: `Cap` and `TimeCap` are runs that spent an allowance, and one of those stopping
+        // before page N says nothing whatever about page N — counting them would hold a page over
+        // runs that never asked for it, which is the mistake the null-page guard above exists to
+        // avoid. `Watermark` and `LastPage` are healthy ends and break the streak, as they must.
+        //
+        // What counting `Breaker` buys, stated plainly: an archive-wide incident that spans three
+        // consecutive runs *and* leaves page 1 answering while page 2 times out will hold page 2
+        // for up to `ProbeHeldPageEveryNthRun` runs, because from here that is indistinguishable
+        // from a page that is genuinely gone. The guard above only catches an outage that takes
+        // page 1 down with it. Accepted: it is bounded, the probe heals it without an operator, and
+        // no works are lost — a `Held` stop may not move the watermark any more than a `Breaker`
+        // one can. The alternative is the every-tick cost of MaxConsecutiveFailures timed-out
+        // requests on a listing that is not coming back.
         var stuck = recent
             .TakeWhile(r =>
                 r.LastPageFetched == page
-                && r.StopReason is ScrapeStopReason.Error or ScrapeStopReason.Held)
+                && r.StopReason is ScrapeStopReason.Error
+                    or ScrapeStopReason.Held
+                    or ScrapeStopReason.Breaker)
             .Count();
 
         if (stuck < MinStuckIncrementalRuns) return null;

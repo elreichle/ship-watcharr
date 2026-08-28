@@ -1,6 +1,6 @@
 # Journal — archive
 
-Entries rotated out of `JOURNAL.md` on 2026-08-27, oldest first, so that each iteration's mandatory read stops growing with the length of the run. Nothing here is edited or deleted — it is `grep`-able history, and the live file points at it. Covers **2026-08-22 — init** through **2026-08-25 — T44 The authenticated-total flag must come from the request that read the total — done**.
+Entries rotated out of `JOURNAL.md`, oldest first, so that each iteration's mandatory read stops growing with the length of the run. Nothing here is edited or deleted — it is `grep`-able history, and the live file points at it. Rotated on 2026-08-27 (**2026-08-22 — init** through **2026-08-25 — T13 Confirm AO3's real download URLs — done**) and again on 2026-08-28 (through **2026-08-26 — T31 A singular listing heading must not be read as the tag's name — done**).
 
 ## 2026-08-22 — init
 
@@ -1407,3 +1407,335 @@ build. Not something a task should chase.
   reaches only the parser — the two settlement tests live at the seams they are about, so
   `~Download` (80, up from 72) is the filter that covers the whole task. Still zero and still
   suspect: T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.
+
+## 2026-08-25 — T61 The login POST must not send the password to whatever host the form names — done
+
+- did: `Ao3SessionEstablisher` refuses to post the credential anywhere but the configured archive.
+  The form action is resolved as before and then measured against `LoginPath` under
+  `Ao3HttpClientOptions.BaseUrl` — whole origin, not host — and a mismatch is a `Failed` login that
+  names the address it refused. The same origin comparison replaced the host comparison in
+  `Ao3DownloadLinks.Resolve`, which the review found still permitted a scheme downgrade.
+- files: `Api/Services/Scraping/{Ao3SessionEstablisher,Ao3DownloadLinks}.cs`,
+  `Tests/{Ao3LoginEstablisherTests,Ao3DownloadLinksTests}.cs`, `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter FullyQualifiedName~Ao3Login` → 100 passed (97 before, 99 with the two
+  tests the previous iteration left in the tree, one of them red); `--filter ~Download` → 81 (80
+  before); `dotnet test` → 645 passed (641 before); `npm run build` + `npm run lint` → clean, the
+  two known fast-refresh warnings only. Two mutations: removing the establisher's check reds both
+  refusal tests, and narrowing either comparison from `GetLeftPart(UriPartial.Authority)` back to
+  `.Host` reds exactly the downgrade test on that side and nothing else.
+- commit: a1e0e02
+- next: **T14 is next in plain file order** — its blocker (T12) is done, and T12's journal entry
+  lists what it inherits. T10 is earlier and still blocked by T51.
+- **This iteration inherited a claimed task, which is the mechanism working.** T61 was
+  `in_progress` with two tests in the working tree and no fix — a previous turn marked it and died
+  after writing the red test. Nothing was lost: the mark said where to look, the diff said how far
+  it got, and the first thing this turn ran was that red test. The tests were kept as written.
+- **The comparand was the decision, not the check.** The obvious move is to copy T12's twin exactly
+  and compare the action against the page it came from — but the login page is fetched by the
+  transport that *does* follow redirects, so `page.FinalUrl` is a value the archive's own redirects
+  can move, and `Absolute` already resolves a relative action against `BaseUrl` regardless of where
+  the page ended up. Measuring against the configured archive is both stricter and more consistent
+  with what a relative action already does. A twin is not always a copy.
+- **The origin, not the host, and that difference turned out to be live.** The download check
+  compares hosts, which is enough for a cookie already scoped to one; a plaintext password is not,
+  so this one compares scheme, host and port together. The review then found the same gap in the
+  download path — an `http://` link on an https page keeps the host and gets the session cookie in
+  the clear — so the stricter rule went there too. **The check that was copied from the download
+  path came back stricter and fixed it.**
+- **The sweep the previous entry asked for was actually run.** T13's journal recorded the lesson
+  "when a fix comes with a general rule, grep for the rule", and this task existed because nobody
+  had. Every outbound call site in the API is now accounted for: `ShipVerifier` and
+  `Ao3ShipIndexScraper` build URLs from `BaseUrl` and a tag name; `DownloadFetcher` builds the work
+  page URL and fetches one checked link; the login POST is this task. Exactly two fetch targets in
+  this codebase come out of markup and both are checked. Other hrefs the parsers read
+  (`Ao3BlurbParser`'s work, pseud and series links, `Ao3LoginPage`'s greeting) are parsed for ids
+  and names and never fetched — worth knowing so the next sweep is shorter.
+- **A refused action is a refused login, and inherits the backoff.** `Ao3SessionProvider` records it
+  through `Ao3LoginBackoff` (5 → 15 → 30 → 60 minutes, lifted the moment the operator saves the
+  credential again), so a login page whose form has moved is not re-fetched every sixty seconds.
+  Nothing had to be added for that; it is worth writing down because it is the difference between a
+  security check and a security check that hammers the archive.
+- **The review found five and four are queued** — see the T61 review entry in `DECISIONS.md`. Its
+  finding 3 is T67, already on the list from T13's review and now verified rather than reported;
+  T69, T70 and T71 are new and all in T12's download code. The one folded in was the one this
+  task's own doc comment had already claimed to be true.
+  Filters checked to bite, per T22's lesson: `~Ao3Login` matches 100 and covers all three new
+  establisher tests; `~Ao3DownloadLinks` matches 19 and covers the downgrade test. Still zero and
+  still suspect: T31 `~TotalWorks`, T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.
+
+## 2026-08-26 — T14 Downloads in the UI — done
+
+- did: `GET /api/downloads/{id}/file` streams a completed request's bytes with a sanitized
+  filename; a Downloads page lists the reader's queue with live status, size, the failure message
+  and Save/Try again/Remove; five format buttons and this work's requests sit on a work's own page.
+  One `useDownloads` hook behind both pages — the list, the ask, the drop, and polling that runs
+  while anything is `Pending` or `Downloading` and stops on the load that finds nothing is.
+- files: `Api/Controllers/DownloadsController.cs`, `Tests/{DownloadsControllerTests,LibraryTestHost}.cs`,
+  `frontend/src/hooks/useDownloads.ts`, `frontend/src/pages/DownloadsPage.tsx`,
+  `frontend/src/components/WorkDownloads.tsx`, `frontend/src/downloads.ts` (all new),
+  `frontend/src/{App.tsx,index.css,api/client.ts,api/types.ts,components/navigation.ts,pages/WorkDetailPage.tsx}`,
+  `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only;
+  `dotnet test --filter FullyQualifiedName~DownloadsController` → 52 passed (26 before);
+  `--filter ~Download` → 107 (81 before); `dotnet test` → 671 passed (645 before). Seven mutations,
+  every one red on the test that names it: dropping the containment check, dropping the ownership
+  scoping, dropping the missing-file check, using the raw title (nine cases red, and the Russian one
+  green — which is what that case is for), taking the length cut without the surrogate check,
+  judging the title one UTF-16 unit at a time, and naming HTML as `text/html`.
+- commit: 34ca322
+- next: **T18 (Statistics API) is next in plain file order** — its blocker (T6) is done. Everything
+  between is blocked: T15 still waits on T38, T40, T46 and T52; T16 and T17 wait on T15. T10 is
+  earlier still and still blocked by T51.
+- **The live check ran end to end against a stub, and it is worth rebuilding rather than
+  re-deriving.** `scratchpad/live/` holds `stub.js` (a node stand-in for AO3: the login fixture with
+  its relative form action, the captured work page with its download hrefs rewritten to the stub's
+  own origin, and an EPUB payload) and `browse.js` (chrome-headless-shell over CDP). The API ran on
+  :5312 with a scratch data directory, `Ao3HttpClient__BaseUrl` at the stub and the delays at
+  0.2–0.4s; vite on :5313 with `BACKEND_URL` pointed at it. **Two things it needed that are not
+  obvious.** The captured work page names `archiveofourown.org` in its download menu and T12's
+  origin check refuses a link that is not same-origin with the page it was read from, so the stub
+  has to rewrite those hrefs — rewriting them is what *exercises* the check rather than dodging it.
+  And the headless shell defaults to a window narrow enough that the sidebar rails and renders no
+  child links at all; `--window-size=1400,900` is what made the Downloads entry visible.
+- **What the live check proved, in the stub's own log:** login page, login POST, work page with
+  `view_adult=true`, then the file — four requests, every one carrying
+  `ShipWatcharr/0.1 (+contact: …; instance/…)`. The bytes that came back out of
+  `/api/downloads/1/file` were byte-for-byte the stub's payload, under
+  `Content-Disposition: attachment; filename="We Chose to Wait a live check test.epub";
+  filename*=UTF-8''…` — from a title of `We Chose to Wait: a "live" check / test`. Clicking MOBI in
+  the browser went `Fetching…` → `Failed · AO3 answered 404 for the file itself` **without a
+  reload**, which is the polling and the per-half failure message both working in one go.
+- **Seeding a library for a live check does not need the scraper.** Ship, WatchedShip, Work and
+  ShipWork went into the scratch SQLite file with python's `sqlite3` while the API held it open.
+  There is no `sqlite3` binary on this machine; python has the module built in. Use the work id the
+  captured page is of (70441196) so the address `DownloadFetcher` builds is one the stub answers.
+- **The review did not run, and this diff is the least-reviewed on the branch.** `/code-review high`
+  was launched and died on the account's monthly spend limit before reading anything. The pass was
+  done by reading the diff instead. It found three: `Html` falling through to the `_` arm rather than
+  being named (an exception should read as a decision, and the fallback should stay what it says it
+  is); the sanitiser judging chars rather than runes, which reduced any title outside the basic
+  plane to `work-{id}`; and a re-requested row jumping to the top of the list and back down on the
+  next poll, because re-arming does not change `RequestedAt`. All three are fixed here. A later
+  branch-wide review should read this diff first.
+- **One mutation survived and the fix is the same shape as T12's.** Dropping
+  `Status != DownloadStatus.Complete` from the file endpoint's guard left the suite green, because
+  `Arm` moves the status and the file reference together and no test could construct a queued
+  request that still named bytes. That state is precisely what **T59** is deciding whether to
+  create. `Will_not_serve_a_request_that_is_queued_while_still_naming_a_copy` constructs it directly
+  and T59's notes now point at it — the guard is what stops "keep the reference" from meaning "serve
+  the previous version as the answer to the refetch".
+- **The path check nothing can currently trip.** `RelativePath` is written only by
+  `DownloadPaths.Relative`, out of a work id and an enum, so it cannot escape the data directory.
+  It is checked anyway: this endpoint is the one place in the app where a value read out of the
+  database becomes a file handed to whoever asked, and a row naming `../../etc/passwd` would be
+  served in full to any signed-in reader. **The branch's own lesson, applied one input over** — T61
+  swept every URL read out of markup; this is the same rule for a path read out of storage.
+- **Six leaked API processes from earlier iterations are still running** (pids 650339, 651962,
+  663142, 783152, 993804, 1004997 at the time of writing), each a `dotnet run` throwaway a previous
+  live check never killed. Left alone rather than cleaned up, because they are not this task's and
+  killing by pattern is what the "never pkill" rule exists to prevent. Worth an operator's attention.
+  This iteration's own three (API, vite, stub) were killed by pid; the systemd dev instance was not
+  touched.
+  Filters checked to bite, per T22's lesson: `~DownloadsController` matches 52 (26 before) and
+  covers every new test; `~Download` matches 107. Still zero and still suspect: T31 `~TotalWorks`,
+  T32 `~Monotonic`. T40's `~PagesFetched` is zero by design.
+
+## 2026-08-26 — T18 Statistics API — done
+
+- did: `GET /api/stats` answers with two lenses over the caller's library — `corpus` (totals, works
+  per month of last revision, the AO3 rating mix, kudos and word-count histograms, the ten most
+  prolific creators) and `reading` (status mix, words read, and the reader's half-stars laid against
+  what the archive made of the same works) — plus a `ships` table where the two meet, one row per
+  watched ship carrying both its corpus size and how much of it this reader has marked. `?shipId=`
+  narrows every figure and 404s on a ship the caller does not watch. Query-only, no schema, no
+  migration.
+- files: `Api/Data/StatsQueries.cs`, `Api/Dtos/StatsDtos.cs`, `Api/Controllers/StatsController.cs`,
+  `Tests/StatsControllerTests.cs`, `Tests/StatsQueryTranslationTests.cs` (all new),
+  `Api/Data/WorkQueries.cs`, `Api/Controllers/WorksController.cs`, `Tests/LibraryTestHost.cs`,
+  `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter FullyQualifiedName~Stats` → 62 passed (0 before — the filter matches
+  nothing that existed, checked per T22's lesson); `dotnet test` → 733 passed (671 before);
+  `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only. Fourteen
+  mutations, every one killed by the test that names it — dropping the 404 guard, reading every
+  user's states instead of the caller's, turning the bucket comparison into `<`, restricting the
+  status mix to works with a state row, an unweighted average rating, zero instead of null for an
+  empty mean, dropping ships the aggregate returned nothing for, ordering ships by display text,
+  scoring an unrated work as zero, ranking the least prolific first, counting a crossover once per
+  ship in the corpus total, folding the per-ship read count over every status, and lifting the
+  top-ten cap.
+- commit: 119563f
+- next: **T19 (the Statistics page) is next in plain file order** and its blocker is now done. Read
+  T18's section in `tasks.md` for the response shape — the short version is that every fixed
+  vocabulary arrives zero-filled in a stable order so a chart can index by position, buckets carry
+  their bounds as well as their label, and averages are null rather than zero for an empty library.
+  Everything between T14 and T18 is still blocked; T10 is earlier still and still blocked by T51.
+- **One mutation survived on the first pass, and the surviving one named a real gap in the test
+  rather than in the code.** Reading an unrated work as a zero left the suite green, because the
+  test for it seeded a work with *no state row at all* — which the mutation also skips. The state
+  that catches it is a row that exists with a status and a null rating, which is what marking
+  something read without scoring it produces, and is the common case for any reader who marks more
+  than they rate. The test now constructs it. Same shape as T14's surviving mutation: the guard was
+  right and no test could reach the state it guards.
+- **The per-ship figures were written correlated and had to be rewritten grouped.**
+  `library.Count(x => x.Ships.Any(sw => sw.ShipId == w.ShipId))` per figure per watched ship reuses
+  `WorkQueries.Library` verbatim, reads like a sentence, and compiled to **eighty-two lines of SQL**:
+  five full subqueries over the works table, re-executed once per ship. Replaced with one grouped
+  pass joining the library to `ShipWorks`, with the caller's status and rating looked up once per row
+  and folded. Checking the generated SQL cost one throwaway test; it is worth doing for any query on
+  this codebase that reads too well.
+- **`ToQueryString()` under Npgsql is a new kind of test here and it earned its place twice.** No
+  PostgreSQL server exists in this loop's shell, so "translates on both providers" was going to be an
+  assertion rather than a check. `StatsQueryTranslationTests` builds a `PostgresAppDbContext` on a
+  connection string it never opens and compiles each query through the real Npgsql translator. Its
+  coverage list is read off `StatsQueries` by reflection rather than maintained by hand — and that
+  caught a query I had added without a case, during this task, exactly as intended.
+- **The live check ran against a throwaway instance and is worth repeating for any API task.** API
+  on :5321 with a scratch data directory, registered through `/api/auth/register` with a cookie jar,
+  library seeded straight into the scratch SQLite file with python's `sqlite3` (per T14's note —
+  there is no `sqlite3` binary on this machine). It proved the three things controller tests cannot:
+  the route is registered and 401s unauthenticated, the whole DTO tree serializes to camelCase JSON
+  with no cycle, and the numbers are right end to end — a followed ship with no works listed at zero
+  and sorted first by its normalized name, a month series with a real gap in it (January then March),
+  a status mix summing to the corpus, `?shipId=` narrowing everything, and 404 for a ship the caller
+  does not watch. **The seeding needs the schema's own NOT NULL columns**, which are fewer than the
+  model suggests — `pragma table_info` first, do not guess from the entity class. The instance was
+  killed by pid.
+- **`/code-review high` ran this time**, and its three findings are in DECISIONS: two folded in (the
+  bucket-array validation, and one shared predicate for "which ships does this reader watch"), one
+  false. It also flagged that the diff was being rewritten under it, which is fair — the `PerShip`
+  refactor landed mid-review. Launch the review after the diff has settled.
+- **The six leaked API processes from earlier iterations are still running** (pids 650339, 651962,
+  663142, 783152, 993804, 1004997 as of T14's entry). Still not this task's to clean up, still worth
+  an operator's attention. This iteration's own throwaway was killed by pid; the systemd dev instance
+  was not touched.
+  Filters checked to bite, per T22's lesson: `~Stats` matches 62 and covers every new test, and
+  matched zero before this task. Still zero and still suspect: T31 `~TotalWorks`, T32 `~Monotonic`.
+  T40's `~PagesFetched` is zero by design.
+
+## 2026-08-26 — T19 The Statistics page — done
+
+- did: A Statistics view at `/stats`, under Dashboard between Downloads and Schedules. Two lenses
+  over the caller's library — six tiles for the corpus, five for their own reading — a per-ship
+  table where the two meet with a read-through bar, a column chart of works per month of last
+  revision, bar lists for the AO3 rating mix, the kudos and length histograms, the status mix and
+  the ten most prolific creators, and a table of the reader's half-stars against what the archive
+  made of the same works. `?shipId=` narrows every figure and is in the URL, so a narrowed view is
+  linkable. No charting library: every bar is a `width`/`height` percentage on a `<span>` coloured
+  from Obsidian tokens.
+- files: `frontend/src/pages/StatsPage.tsx` (new), `frontend/src/{App.tsx,index.css}`,
+  `frontend/src/api/{client.ts,types.ts}`, `frontend/src/components/navigation.ts`,
+  `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only;
+  `dotnet test` → 733 passed (unchanged — this task touched no backend code); a live check against
+  a throwaway instance on :5331 with vite on :5332, driven through chrome-headless-shell.
+- commit: 2eba093
+- next: **T20 is next in file order and is not selectable** — it waits on T17, which waits on T16,
+  which waits on T15, which waits on T38/T40/T46/T52. Nothing between T10 and T20 is selectable
+  either. **The first selectable task is T31**, and from there the run is the long tail of scraper
+  and UI defects (T31–T71). Those are what unblock T15, and T15 is what unblocks the rest of the
+  plan — so the tail is now the critical path, not a cleanup queue.
+- **The live check is the reason three of the review's findings could be closed with evidence rather
+  than argument, and the recipe is now cheap enough to be routine.** `scratchpad/live/` holds
+  `browse.js` (chrome-headless-shell over CDP, using node 22's own `WebSocket` — the previous
+  iteration's copy needed `ws`, which is not required). API on :5331 with a scratch data directory
+  and `--no-launch-profile`, registered through `/api/auth/register` with a cookie jar, library
+  seeded straight into the scratch SQLite file with python's `sqlite3`, vite on :5332 with
+  `BACKEND_URL` pointed at the API. Three things it needed that are not obvious: the shell's default
+  window is too narrow for the sidebar to render its child links (`--window-size=1400,1000` fixes
+  it, as T14 found); `Page.captureScreenshot` shoots the viewport, so a tall page needs
+  `Emulation.setDeviceMetricsOverride` first and a region needs `clip` with a `scale`; and reading
+  *drawn geometry* rather than text is what makes a chart checkable — `getBoundingClientRect().width`
+  per bar caught nothing, but counting columns that own a `.month-bar-fill` caught every empty month
+  drawing a bar.
+- **Seeding the defect is what verified the fix.** The review's first finding was that one work with
+  an unreadable date puts `{year: 1, month: 1}` at the head of the month series, and the page filled
+  from there — 24,300 columns. Inserting a work at `0001-01-01` into the scratch database reproduced
+  it against the real endpoint, and the same insert then proved the cap: 240 columns, a note reading
+  "1 work is dated before September 2006 and is not drawn", and the page still responsive. **The
+  server's own comment said this would happen** — `WorksByUpdatedMonth` explains that it refuses to
+  zero-fill because a misparsed year would materialise centuries of buckets. It hands the span to
+  the client and the client filled it unbounded. A comment explaining why a hazard is *someone
+  else's* problem is a comment worth reading as a task for whoever becomes someone else.
+- **An empty library has four answers, not one.** No ships followed; ships followed but the AO3
+  login is missing so every scrape is held; one ship narrowed to that has nothing in it; and the
+  whole library empty with everything configured. The first three were checked live (the login one
+  by starting without a credential, the ship one by saving a fake credential and reloading). The
+  login wording is lifted from `ShipsPage` deliberately — the same cause said the same way in both
+  places, and it names an *admin* to non-admin readers rather than showing them a form they cannot
+  use.
+- **Two mutations, both caught by the browser rather than the compiler.** Removing the
+  `month.workCount > 0` guard makes every gap draw a 1px bar (32 columns, 32 bars, where 11 months
+  have works); removing the `Number.isInteger` guard sends `shipId=NaN` and turns `?shipId=abc` into
+  an error page under a picker that says "Everything you follow". There is no test runner in
+  `frontend/` by decision, so for UI work the live check *is* the mutation test — which is worth
+  saying out loud, because "verified by build and lint" would have caught neither.
+- **The review's other two findings were older code and are on the list**: T72 is new
+  (`Ao3DownloadLinks` measures against the post-redirect page URL, not the configured archive —
+  verified here), and the session-login race was already T63 from T13's review as *reported, not
+  verified*, so T63 is now marked verified and carries the extra consequence this reviewer named.
+  Filing a twin for a defect already on the list is a real cost in a loop that reads the list every
+  iteration; T73 was drafted and deleted for that reason.
+- **One leaked API process from an earlier iteration is still running** (pid 1963836, `dotnet run
+  --project Ao3Tracker.Api`), down from the six T14 and T18 recorded — so somebody has been
+  clearing them. Not this task's to kill, and killing by pattern is what the "never pkill" rule
+  exists to prevent. This iteration's own three (API, vite, chrome) were killed by pid; the systemd
+  dev instance (pid 2033) was not touched.
+  Filters checked to bite, per T22's lesson: this task added no tests, so no new filter to check —
+  `dotnet test` matched the same 733 as the baseline, which is the assertion that the backend was
+  not touched. Still zero and still suspect: T31 `~TotalWorks`, T32 `~Monotonic`. T40's
+  `~PagesFetched` is zero by design.
+
+## 2026-08-26 — T31 A singular listing heading must not be read as the tag's name — done
+
+- did: `Ao3BlurbParser.ParseTotalWorks` finds the count with `(?<count>\d[\d,.]*)\s+Works?\b` —
+  singular as well as plural, first match rather than last — and answers null when no such number is
+  in the heading. The trailing-digits fallback is gone, so a tag name carrying digits can no longer
+  donate them to the ship's size and an "Error 404" heading is no longer a tag of 404 works.
+- files: `Api/Services/Scraping/{Ao3BlurbParser,Ao3ShipIndexScraper}.cs` (the second is a comment
+  only), `Tests/{Ao3BlurbParserTests,Ao3ShipIndexScraperTests}.cs`, `.devloop/{tasks,DECISIONS,JOURNAL}.md`
+- ran: `dotnet test --filter FullyQualifiedName~Ao3BlurbParser` → 46 passed (36 before, and 5 red
+  when the tests were written before the fix); `dotnet test` → 743 passed (733 before);
+  `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only. Three
+  mutations: narrowing `Works?` to `Works` reds both singular cases; restoring the trailing-digits
+  fallback reds all three "not a work count" cases; taking the last match instead of the first
+  survived until a case was written for it, and that case is now in the theory.
+- commit: d6045a6
+- next: **T32 is next in plain file order** and has no blockers. `dotnet build` emits **CA2017** on
+  `Ao3ShipIndexScraper.cs:534` — a log template with more placeholders than arguments — which is
+  plausibly T32's own defect wearing a compiler warning; read it before starting. Everything from
+  T31 to T71 is the tail that unblocks T15, and T15 unblocks T16/T17/T20, so this tail is the
+  critical path rather than a cleanup queue.
+- **A surviving mutation named the missing case, again.** Taking the last regex match instead of the
+  first left the suite green, because no heading under test had a second "N Works" in it. The one
+  that catches it is a *tag name* containing the words — "1 - 20 of 4,317 Works in Prompt: 5 Works
+  of Fiction" — which is exactly the class of input this task exists for: everything after "in" is a
+  name somebody else chose. Third iteration running where the mutation that survived was a gap in
+  the tests rather than in the code.
+- **The task's own verification filter matched nothing, and had never matched anything.**
+  `--filter FullyQualifiedName~TotalWorks` returns "No test matches" — the journal has been flagging
+  it as "still zero and still suspect" every iteration since T22, and this is the first iteration to
+  reach the task and act on it. The filter is now `~Ao3BlurbParser`. **Worth generalising: a
+  verification command written at planning time is a guess about test names that do not exist yet**,
+  and T22's ritual of checking that a filter bites is what turns the guess into a finding. T32's
+  `~Monotonic` is the next one on that list, and it is next in file order — expect to have to fix it
+  the same way.
+- **Removing a fallback closed a second hole nobody was looking at.** The trailing-digits scan was
+  what made an AO3 soft error served as 200 (`<h2 class="heading">Error 404</h2>`) offer 404 as the
+  tag's size; `Ao3ShipIndexScraper`'s readability guard was the only thing between that number and
+  `LastKnownTotalWorks`, and a test at `Ao3ShipIndexScraperTests` line ~1007 exists to pin exactly
+  that. The guard stays and the test stays — two independent reasons on a field a full sweep checks
+  itself against — but both comments were rewritten, because a comment that says "the parser will
+  hand you rubbish, so I guard it" is wrong once the parser stops.
+- **The review found nothing in this diff and five in the download code.** Three were already on the
+  list (T67, T70, T64 — T64 promoted from *reported* to *verified*, with a worse consequence than it
+  had been filed with), two are new (T73, T74). See DECISIONS. Three reviews running have now landed
+  most of their findings in T12/T14's code, which is the newest and least-reviewed on the branch —
+  T14's own entry predicted this. A dedicated pass over the download path would probably be cheaper
+  than meeting it one finding at a time, and is worth considering as a task once the T31–T71 tail
+  thins out.
+- **One leaked API process is still running** (pid 1963836, `dotnet run --project Ao3Tracker.Api`).
+  Not this task's, and killing by pattern is what the "never pkill" rule exists to prevent. This
+  task started no processes of its own; the systemd dev instance (pid 2033) was not touched.
+  Filters checked to bite, per T22's lesson: `~Ao3BlurbParser` matches 46 and covers all ten new
+  cases. `~TotalWorks` matched zero and is retired — see above. Still zero and still suspect: T32
+  `~Monotonic`, which is the next task. T40's `~PagesFetched` is zero by design.

@@ -207,6 +207,28 @@ the *backfill* asking, and the operator message T46 wrote named a remedy the pro
 implement. Both texts are corrected in the diff, and the two gaps under them are filed as **T82** and
 **T83**.
 
+**2026-08-28: T52 and T81 are done, shipped as one diff** as both tasks' notes required. With T52
+closed, **T15's `blocked-by` is now entirely `done`** — T29, T30, T38, T40, T44, T46, T47, T52 — so
+**T15 (the full-sweep pass) is the next task**, and it is next in plain file order too: T10 sits
+earlier and is still blocked by T51, and T48–T51 are all later than T15 in the file. T15 unblocks
+T16 → T17 → T20, which is the rest of the plan. Read `.devloop/scraper-audit.md` §D and §E before
+starting it, as its own notes instruct, and note that three of its blockers were added by that audit
+with reasons recorded in the task.
+
+**T77 is still taken instead of T63** when the run reaches T63; the download path's nine open tasks
+(T63/T64/T67/T69/T70/T71/T73/T74/T75) are unchanged by this pass.
+
+T52's `verification` line claimed `~ScrapeWorker` matched 12; it matched **16** before this task and
+18 after. T81's claimed `~Ao3ShipIndexScraper` matched 91; it matched **94** before and 101 after.
+That is the third and fourth consecutive verification line whose count was a stale guess — treat the
+number in a `verification` line as a hint and measure before reading anything into it.
+
+T52+T81's review **ran to completion** (the third in a row), read exactly the working-tree diff for
+the five files it was given, and returned **zero findings** — the first clean review on this branch.
+It did leave one documentation note, now acted on in the diff: the widened streak's comment did not
+name the case the rule now accepts (an archive-wide incident that spans three runs while leaving
+page 1 answering will hold page 2 for up to eight runs). No new tasks came out of this iteration.
+
 Read `.devloop/spec.md` before starting any task. Every task additionally has to leave
 `cd backend && PATH="$HOME/.dotnet:$PATH" dotnet test`, `cd frontend && npm run build` and
 `npm run lint` green — that is the floor, not the verification.
@@ -1533,7 +1555,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   be decided either way, since T10 is blocked on it and the cost of being wrong is deletion.
 
 ## T52 — A run the circuit breaker stopped is recorded as a success
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A run that stopped because the archive was failing is visible as such in the run
@@ -2183,7 +2205,7 @@ PATH="$HOME/.dotnet:$PATH" dotnet ef migrations add <Name> --context PostgresApp
   `LastPage`, never `Error`, on a quiet ship.
 
 ## T81 — A page that fails at the transport level escapes T45's bound
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A ship whose page N times out or resets on every run stops spending
