@@ -529,7 +529,7 @@ Append-only. One entry per iteration, newest last.
   `~DownloadWorker` → 38 (33), `~DownloadsController` → 56 (52); `dotnet test` → 849 (829 before);
   `npm run build` + `npm run lint` → clean, the two known fast-refresh warnings only. Eighteen
   mutations, seventeen red in exactly their own place.
-- commit: <pending>
+- commit: 90d4e29
 - next: **T16 (notifications) is next** — T15 unblocked it and it is next in plain file order among
   selectable tasks. What is left over the download path is **T59, T60, T62, T68 and T72**; T77
   claimed none of them, and none was re-derived by this review. **This iteration filed no new tasks.**
