@@ -102,7 +102,9 @@ public static class StatsQueries
     /// <remarks>
     /// A work carrying two watched relationship tags is counted under both, so these rows do not
     /// sum to the corpus total — which is the honest shape for "how big is this ship", and the
-    /// reason the total is counted separately rather than added up from here.
+    /// reason the total is counted separately rather than added up from here. They can also sum to
+    /// less than it: a work the reader marked and every watched tag has since dropped is in their
+    /// corpus and under no ship.
     /// </remarks>
     /// <remarks>
     /// The caller's status and rating are looked up once per work and then folded, rather than
@@ -123,10 +125,20 @@ public static class StatsQueries
                 (w, sw) => new
                 {
                     sw.ShipId,
+                    sw.MissingSinceAt,
                     w.WordCount,
+                    Marked = states.Any(s => s.WorkId == w.Id),
                     Status = states.Where(s => s.WorkId == w.Id).Select(s => s.Status).FirstOrDefault(),
                     Rating = states.Where(s => s.WorkId == w.Id).Select(s => s.Rating).FirstOrDefault(),
                 })
+
+            // WorkQueries.Library's membership test, restated per ship rather than per work: a work
+            // in the library through one watched tag may have left another, and a figure under the
+            // tag it left is one the feed narrowed to that tag contradicts. A work this reader has
+            // marked counts under the tag it left for the same reason — that feed lists it. Applied
+            // to the flattened rows rather than inside the SelectMany above, where a correlated
+            // EXISTS makes the whole query need SQL APPLY, which SQLite does not have.
+            .Where(x => x.MissingSinceAt == null || x.Marked)
             .GroupBy(x => x.ShipId)
             .Select(g => new ShipStatsRow(
                 g.Key,

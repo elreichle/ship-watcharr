@@ -432,6 +432,19 @@ export function WorksPage() {
                             {ship}
                           </span>
                         ))}
+                        {/* A row is here despite a tag having let go either because another
+                            followed tag still carries it or because this reader marked it — see
+                            WorkQueries.Library. Which of the two is visible from the chips beside
+                            this one, so the chip says the fact and not the reason. */}
+                        {work.leftShips.map((ship) => (
+                          <span
+                            key={ship}
+                            className="chip chip-left"
+                            title={`AO3 no longer lists this work under ${ship}. Everything you have marked on it is untouched, and it comes back if the tag lists it again.`}
+                          >
+                            Left {ship}
+                          </span>
+                        ))}
                         {work.categories.map((category) => (
                           <span key={category} className="chip">
                             {category}

@@ -21,14 +21,23 @@ public static class WorkQueries
     public static bool IsOfferedSort(string sort) => Sorts.Contains(sort);
 
     /// <summary>
-    /// The works one user can see, optionally narrowed to a single ship.
+    /// Every work one user may reach, optionally narrowed to a single ship — including the ones a
+    /// ship's listing has stopped carrying.
     ///
     /// Works are global rows, so "whose library is this" is answered entirely by the caller's
     /// subscriptions. <paramref name="shipId"/> intersects with them rather than replacing them:
     /// passing a ship the user does not watch yields nothing, which is what keeps a saved filter
     /// naming a since-unwatched ship from reaching outside its author's library.
     /// </summary>
-    public static IQueryable<Work> Library(AppDbContext db, string userId, int? shipId)
+    /// <remarks>
+    /// This is the scoping for reaching one named work — its detail page, a state write, a download
+    /// request — and <see cref="Library"/> is the scoping for anything that lists or counts. The
+    /// split exists because <see cref="ShipWork.MissingSinceAt"/> is a soft, reversible mark a sweep
+    /// can get wrong: dropping a work out of the feed on it costs a reader a row they can get back
+    /// by looking, while 404ing the work they had rated, noted and downloaded costs them their own
+    /// data with no way back at all.
+    /// </remarks>
+    public static IQueryable<Work> Reachable(AppDbContext db, string userId, int? shipId)
     {
         var watchedShipIds = WatchedShipIdsOf(db, userId);
 
@@ -37,6 +46,40 @@ public static class WorkQueries
         // on tags would silently drop it. See the remarks on ShipWork.
         return db.Works.Where(w => !w.IsDeleted && w.Ships.Any(sw =>
             watchedShipIds.Contains(sw.ShipId) && (shipId == null || sw.ShipId == shipId)));
+    }
+
+    /// <summary>
+    /// The works one user is shown, optionally narrowed to a single ship — <see cref="Reachable"/>
+    /// minus the ones that have left every watched ship carrying them, unless this reader has said
+    /// something about the work.
+    /// </summary>
+    /// <remarks>
+    /// The narrowing is per membership, not per work: an unmarked crossover that lost one of its two
+    /// watched relationship tags is still in the library through the other, and is gone from the
+    /// feed narrowed to the tag it left. That is what user story 16 asks for — a library that does
+    /// not drift permanently away from AO3 — and only a completed full sweep may write the mark
+    /// that causes it (see <see cref="ShipWork.MissingSinceAt"/>).
+    /// </remarks>
+    /// <remarks>
+    /// A work this reader has a <see cref="UserWorkState"/> row for stays, because a state row only
+    /// exists where they marked, rated or noted the work — an emptied state is stored as no row at
+    /// all (see <c>WorksController.SetWorkState</c>). So the exclusion falls on works nobody here
+    /// ever touched, which is nearly all of a library, and a sweep that marks wrongly never takes a
+    /// reader's own history off the screen — including in a feed narrowed to the very tag the work
+    /// left, where it is listed with the chip that says so rather than quietly withheld. Downloads
+    /// are deliberately not part of the test: a requested file is listed by the Downloads page
+    /// whatever the tag does, and its work is <see cref="Reachable"/>.
+    /// </remarks>
+    public static IQueryable<Work> Library(AppDbContext db, string userId, int? shipId)
+    {
+        var watchedShipIds = WatchedShipIdsOf(db, userId);
+        var myStates = StatesOf(db, userId);
+
+        return Reachable(db, userId, shipId).Where(w =>
+            w.Ships.Any(sw => watchedShipIds.Contains(sw.ShipId)
+                && (shipId == null || sw.ShipId == shipId)
+                && sw.MissingSinceAt == null)
+            || myStates.Any(s => s.WorkId == w.Id));
     }
 
     /// <summary>

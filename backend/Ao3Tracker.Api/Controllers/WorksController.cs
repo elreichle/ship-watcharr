@@ -151,7 +151,16 @@ public class WorksController : ControllerBase
                 // Only the reader's own subscriptions. Which other ships this instance tracks for
                 // other people is not something a work listing should leak.
                 Ships = w.Ships
-                    .Where(sw => watchedShipIds.Contains(sw.ShipId))
+                    .Where(sw => watchedShipIds.Contains(sw.ShipId) && sw.MissingSinceAt == null)
+                    .Select(sw => sw.Ship.CanonicalTagName)
+                    .ToList(),
+
+                // The tags that have stopped carrying it, named separately rather than mixed in
+                // above: a row is here at all despite one of these only because the reader marked
+                // it (see WorkQueries.Library), and a chip that says which tag let go is the only
+                // thing on the page that explains why.
+                LeftShips = w.Ships
+                    .Where(sw => watchedShipIds.Contains(sw.ShipId) && sw.MissingSinceAt != null)
                     .Select(sw => sw.Ship.CanonicalTagName)
                     .ToList(),
 
@@ -176,6 +185,7 @@ public class WorksController : ControllerBase
             Ao3Labels.Describe(r.Warnings),
             r.Fandoms,
             r.Ships,
+            r.LeftShips,
             r.IsComplete,
             r.WordCount,
             r.ChapterCount,
@@ -203,9 +213,13 @@ public class WorksController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Reads the database and nothing else — every field here was written by a listing scrape, so
-    /// opening a work costs AO3 no request at all. The scoping is the list's: a work no ship the
-    /// caller follows carries is a 404, which is what stops this being a way to read another user's
-    /// library by guessing AO3 work numbers.
+    /// opening a work costs AO3 no request at all. A work no ship the caller follows carries is a
+    /// 404, which is what stops this being a way to read another user's library by guessing AO3
+    /// work numbers — but a work that merely left a followed tag opens as it always did, which is
+    /// the whole of the split between <see cref="WorkQueries.Reachable"/> and the list's
+    /// <see cref="WorkQueries.Library"/>. Which of the caller's ships have stopped carrying it is
+    /// on each <see cref="WorkShipDto"/>, so the page can say so rather than the reader wondering
+    /// why it fell out of their feed.
     ///
     /// The summary is sanitized on the way out rather than left to the client. It is markup a
     /// stranger typed into AO3 and this app stored verbatim, and this is the first endpoint that
@@ -220,7 +234,7 @@ public class WorksController : ControllerBase
 
         var watchedShipIds = WorkQueries.WatchedShipIdsOf(_db, userId);
 
-        var row = await WorkQueries.Library(_db, userId, shipId: null)
+        var row = await WorkQueries.Reachable(_db, userId, shipId: null)
             .Where(w => w.Id == id)
             .Select(w => new
             {
@@ -270,11 +284,13 @@ public class WorksController : ControllerBase
                     .ToList(),
 
                 // The reader's own subscriptions, as on the list: which other ships this instance
-                // tracks for other people is not something a work page should leak.
+                // tracks for other people is not something a work page should leak. A ship whose
+                // listing has stopped carrying the work is still one of them, carrying the date it
+                // went missing.
                 Ships = w.Ships
                     .Where(sw => watchedShipIds.Contains(sw.ShipId))
                     .OrderBy(sw => sw.Ship.CanonicalTagName)
-                    .Select(sw => new WorkShipDto(sw.ShipId, sw.Ship.CanonicalTagName))
+                    .Select(sw => new WorkShipDto(sw.ShipId, sw.Ship.CanonicalTagName, sw.MissingSinceAt))
                     .ToList(),
 
                 State = myStates
@@ -493,10 +509,16 @@ public class WorksController : ControllerBase
 
     /// <summary>
     /// Whether the caller can see this work at all — the one question both state endpoints ask
-    /// before anything else, through the same query the list is built from.
+    /// before anything else.
     /// </summary>
+    /// <remarks>
+    /// <see cref="WorkQueries.Reachable"/>, not <see cref="WorkQueries.Library"/>: a work that has
+    /// left the tag stays writable, so a reader can still finish it, re-rate it or clear the note
+    /// they left on it. Marking one is also what keeps it in their feed, and a state endpoint that
+    /// refused would make that unreachable from a work they had never marked.
+    /// </remarks>
     private Task<bool> IsInLibraryAsync(string userId, long workId, CancellationToken ct) =>
-        WorkQueries.Library(_db, userId, shipId: null).AnyAsync(w => w.Id == workId, ct);
+        WorkQueries.Reachable(_db, userId, shipId: null).AnyAsync(w => w.Id == workId, ct);
 
     /// <summary>
     /// The saved set this request should apply, if any: the one it named, otherwise the caller's

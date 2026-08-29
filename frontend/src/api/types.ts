@@ -140,8 +140,14 @@ export interface WorkListItem {
   categories: string[];
   warnings: string[];
   fandoms: string[];
-  /** The watched tags this work turned up under. */
+  /** The watched tags this work turned up under and still appears in. */
   ships: string[];
+  /**
+   * The watched tags whose listing has stopped carrying it. Normally empty: a work that has left
+   * every tag the reader follows is out of the list altogether unless they have marked it, so a
+   * row carrying one of these is here through another tag or through their own mark.
+   */
+  leftShips: string[];
   isComplete: boolean;
   wordCount: number;
   chapterCount: number;
@@ -177,6 +183,12 @@ export interface WorkSeriesRef {
 export interface WorkShipRef {
   shipId: number;
   tagName: string;
+  /**
+   * When a completed sweep of that tag last failed to find this work, or null while it is still
+   * listed there. A work can be opened, marked and downloaded from a tag it has left, so the page
+   * has to be able to say the archive no longer files it under this ship.
+   */
+  missingSinceAt: string | null;
 }
 
 /**

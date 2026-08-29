@@ -115,10 +115,11 @@ public class DownloadsController : ControllerBase
     {
         var userId = CurrentUserId;
 
-        // The same scoping the library list applies, so a work under no ship this reader follows
-        // is a 404 here exactly as it is there — which is also what stops this being used to
-        // discover what other people's instances hold.
-        var work = await WorkQueries.Library(_db, userId, shipId: null)
+        // A work under no ship this reader follows is a 404, which is what stops this being used
+        // to discover what other people's instances hold. Reachable rather than the list's Library:
+        // a work that has left a followed tag can still be asked for, since a reader who wants a
+        // copy of something AO3 may be about to lose is exactly who is asking.
+        var work = await WorkQueries.Reachable(_db, userId, shipId: null)
             .FirstOrDefaultAsync(w => w.Id == workId, ct);
 
         if (work is null) return NotFound();

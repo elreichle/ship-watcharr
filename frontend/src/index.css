@@ -881,6 +881,13 @@
     color: var(--text-accent);
   }
 
+  /* A tag the work has left. Muted rather than coloured: it is an explanation for a row being
+     here at all, not something a reader scans for. */
+  .chip-left {
+    color: var(--text-faint);
+    font-style: italic;
+  }
+
   /* Warnings are the one chip a reader may be scanning *for*, so they get the colour. */
   .chip-warning {
     color: var(--text-warning);

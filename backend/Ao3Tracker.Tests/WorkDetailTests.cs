@@ -198,7 +198,7 @@ public class WorkDetailTests : IDisposable
 
         var ships = Detail(await _host.NewWorksRequest(emma).GetWork(1, default)).Ships;
 
-        Assert.Equal([new WorkShipDto(lexa, Lexa)], ships);
+        Assert.Equal([new WorkShipDto(lexa, Lexa, null)], ships);
     }
 
     [Fact]

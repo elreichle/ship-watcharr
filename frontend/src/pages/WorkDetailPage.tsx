@@ -222,18 +222,30 @@ export function WorkDetailPage() {
       </p>
 
       <div className="work-chips">
-        {work.ships.map((ship) => (
-          // Back into the feed narrowed to that ship, with the reader's default filter left off:
+        {work.ships.map((ship) =>
+          // A tag the work has left is not a link: that feed no longer holds this work, so the
+          // chip would land the reader on a page their work is missing from. The others go back
+          // into the feed narrowed to that ship, with the reader's default filter left off —
           // arriving at a ship's works and seeing none of them because a saved default was applied
           // would read as the ship being empty.
-          <Link
-            key={ship.shipId}
-            className="chip chip-ship"
-            to={`/works?shipId=${ship.shipId}&filter=none`}
-          >
-            {ship.tagName}
-          </Link>
-        ))}
+          ship.missingSinceAt === null ? (
+            <Link
+              key={ship.shipId}
+              className="chip chip-ship"
+              to={`/works?shipId=${ship.shipId}&filter=none`}
+            >
+              {ship.tagName}
+            </Link>
+          ) : (
+            <span
+              key={ship.shipId}
+              className="chip chip-left"
+              title={`Not found under this tag since ${new Date(ship.missingSinceAt).toLocaleDateString()}. Everything you have marked here is untouched, and it comes back if the tag lists it again.`}
+            >
+              Left {ship.tagName}
+            </span>
+          ),
+        )}
         <span className="chip">{work.rating}</span>
         {work.categories.map((category) => (
           <span key={category} className="chip">

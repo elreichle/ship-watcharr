@@ -20,8 +20,14 @@ public record PagedResult<T>(IReadOnlyList<T> Items, int Page, int PageSize, int
 /// different thing from a work whose planned total equals its current count.</param>
 /// <param name="UpdatedAtIsApproximate">True when only the day-granular date was available, so
 /// the UI can avoid implying a precision it does not have.</param>
-/// <param name="Ships">The watched tags this work turned up under. Restricted to the reader's own
-/// subscriptions: which other ships an instance tracks is not this user's business.</param>
+/// <param name="Ships">The watched tags this work turned up under and still appears in. Restricted
+/// to the reader's own subscriptions: which other ships an instance tracks is not this user's
+/// business.</param>
+/// <param name="LeftShips">The watched tags whose listing has stopped carrying it, as concluded by
+/// a completed full sweep. Normally empty: a row is on the list despite one of these only because
+/// another watched tag still carries the work, or because the reader has marked it — see
+/// <c>WorkQueries.Library</c> — and this field is what says so rather than leaving a work AO3 no
+/// longer files under the tag looking as though it does.</param>
 /// <param name="State">The caller's own reading status, rating and note — never another reader's,
 /// and never absent: a work nobody has touched carries <see cref="WorkStateDto.Cleared"/>. It rides
 /// on the row so a page of the feed costs one request rather than one per work.</param>
@@ -35,6 +41,7 @@ public record WorkListItemDto(
     IReadOnlyList<string> Warnings,
     IReadOnlyList<string> Fandoms,
     IReadOnlyList<string> Ships,
+    IReadOnlyList<string> LeftShips,
     bool IsComplete,
     int WordCount,
     int ChapterCount,
@@ -137,4 +144,8 @@ public record WorkSeriesDto(long Id, string Title, int? Part);
 /// A watched ship this work turned up under. The reader's own subscriptions only, and the id rides
 /// along so the page can link back into the feed narrowed to that ship.
 /// </summary>
-public record WorkShipDto(int ShipId, string TagName);
+/// <param name="MissingSinceAt">When a completed full sweep of that tag last failed to find this
+/// work, or null while it is still listed there. A work can be opened, marked and downloaded from
+/// a tag it has left — see <c>WorkQueries.Reachable</c> — so the page has to be able to say that
+/// the archive no longer files it under this ship.</param>
+public record WorkShipDto(int ShipId, string TagName, DateTime? MissingSinceAt);
