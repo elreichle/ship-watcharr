@@ -1269,7 +1269,10 @@ public class Ao3ShipIndexScraperTests : IDisposable
 
         var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
 
-        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        // `NotFound` rather than the `Error` this used to record. Same run, same counter, narrower
+        // name: the reason a 404 counts here is that it is the archive answering, and that is
+        // exactly the fact the incremental pass's own bound reads back off these rows (T82).
+        Assert.Equal(ScrapeStopReason.NotFound, outcome.StopReason);
         Assert.Equal(0, outcome.PagesFetched);
         Assert.Equal(1, (await ReloadAsync(shipId)).BackfillStalledRuns);
 
@@ -1907,7 +1910,10 @@ public class Ao3ShipIndexScraperTests : IDisposable
 
         var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
 
-        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        // `NotFound` rather than a bare `Error`: nothing was read, so the run names no page, and
+        // the archive stating that the page is not there is the one way of reading nothing that
+        // says something about this tag rather than about the archive's health.
+        Assert.Equal(ScrapeStopReason.NotFound, outcome.StopReason);
         Assert.NotEqual(ShipBackfillState.Complete, (await ReloadAsync(shipId)).BackfillState);
     }
 
@@ -2325,10 +2331,11 @@ public class Ao3ShipIndexScraperTests : IDisposable
     [Fact]
     public async Task Holds_no_page_for_a_run_history_that_never_read_one()
     {
-        // Runs that read no page name no page to hold at, and "the page after none" is page 1 —
-        // which the hold, sitting below the read, turns into refusing page 2. That would spend three
-        // failures that never got as far as asking for page 2 on a ship whose page 1 is now
-        // answering perfectly well.
+        // Runs that read no page name no page, and only one way of reading nothing says anything
+        // about this ship. A bare Error there is a transport failure or a refused status — the
+        // archive unwell, not this tag gone — so it holds nothing, and page 2 is asked for by a ship
+        // whose page 1 is now answering perfectly well. Only NotFound widens the streak this far;
+        // see A_page_1_the_archive_404s_run_after_run_is_held_like_any_other_page.
         _host.Http.Responds = Pages(
             Page(1, [Blurb(1, updatedAt: Jan(20))], nextPage: true),
             Page(2, [Blurb(2, updatedAt: Jan(15))]));
@@ -2395,6 +2402,74 @@ public class Ao3ShipIndexScraperTests : IDisposable
         Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
         Assert.Contains(_host.Http.Requested, url => url.Contains("page=2"));
     }
+
+    [Fact]
+    public async Task A_page_1_the_archive_404s_run_after_run_is_held_like_any_other_page()
+    {
+        // The shape T46 left open. A ship whose tag AO3 has stopped serving 404s the only request
+        // its pass makes, so the backfill reaches Failed and the worker falls the ship back to an
+        // incremental pass — which starts at page 1 with no watermark to bound it, builds the
+        // byte-identical URL, takes the same 404, and does it again on every tick for ever. The hold
+        // could not catch it: the streak was keyed on a page some run got through, and no run of
+        // this ship ever got through one.
+        //
+        // So the key is the absence, and the held page is 0 — the walk stops before its first
+        // request rather than after a page it read.
+        _host.Http.Responds = url =>
+            new ScrapeHttpResponse("", HttpStatusCode.NotFound, FromCache: false, FinalUrl: url);
+
+        var shipId = await FollowAsync();
+        await RecordIncrementalRunsAsync(
+            shipId,
+            [.. Enumerable.Repeat(NotFound(), Ao3ShipIndexScraper.MinStuckIncrementalRuns)]);
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.Held, outcome.StopReason);
+        Assert.Equal(0, outcome.RequestsMade);
+        Assert.Empty(_host.Http.Requested);
+    }
+
+    [Fact]
+    public async Task Asks_a_held_page_1_again_once_enough_runs_have_held_it()
+    {
+        // The probe reaches the widest hold too, and it has to: a hold no operator can lift is a
+        // ship written off, and T38's rule is that a write-off must be reversible. A tag that comes
+        // back — renamed away and back, or 404ing through a fault at the archive's end — is found by
+        // the walk itself, at one request every ProbeHeldPageEveryNthRun ticks.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1, updatedAt: Jan(20))]));
+
+        var shipId = await FollowAsync();
+        await RecordIncrementalRunsAsync(
+            shipId,
+            [.. Enumerable.Repeat(NotFound(), Ao3ShipIndexScraper.MinStuckIncrementalRuns),
+             .. Enumerable.Repeat(Held(null), Ao3ShipIndexScraper.ProbeHeldPageEveryNthRun)]);
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
+        Assert.Equal(1, outcome.PagesFetched);
+    }
+
+    [Fact]
+    public async Task Counts_a_held_page_1_run_towards_the_streak_holding_it()
+    {
+        // The same rule as for a deeper page, and it needs saying separately because the streak's
+        // vocabulary narrows when there is no page behind it: a held run is not the archive
+        // answering, so a predicate written to accept only NotFound there would end the streak on
+        // the first hold and put the every-tick 404 straight back.
+        _host.Http.Responds = url =>
+            new ScrapeHttpResponse("", HttpStatusCode.NotFound, FromCache: false, FinalUrl: url);
+
+        var shipId = await FollowAsync();
+        await RecordIncrementalRunsAsync(shipId, NotFound(), NotFound(), NotFound(), Held(null));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.Held, outcome.StopReason);
+        Assert.Empty(_host.Http.Requested);
+    }
+
 
     [Fact]
     public async Task Holds_nothing_for_a_backfill()
@@ -2522,6 +2597,12 @@ public class Ao3ShipIndexScraperTests : IDisposable
 
     /// <summary>A finished incremental run that held rather than asking for the page after <paramref name="lastPage"/>.</summary>
     private static (string StopReason, int? LastPage) Held(int? lastPage) => (ScrapeStopReason.Held, lastPage);
+
+    /// <summary>
+    /// A finished incremental run whose first request the archive answered 404, having read no page
+    /// — the shape a ship pointed at a tag AO3 no longer serves leaves behind on every tick.
+    /// </summary>
+    private static (string StopReason, int? LastPage) NotFound() => (ScrapeStopReason.NotFound, null);
 
     /// <summary>
     /// A finished incremental run the circuit breaker stopped, having read up to

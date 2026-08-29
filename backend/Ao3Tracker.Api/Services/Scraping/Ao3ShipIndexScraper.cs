@@ -249,6 +249,44 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
         while (true)
         {
+            // The page the last several runs each spent a request on and got nothing back from.
+            // Do not spend another.
+            //
+            // Stated as "never ask past the held page", which is one rule over both shapes of it: a
+            // walk held after page N reads N as usual and arrives here on the next turn of the
+            // loop, and a walk held after page 0 — no recent run of which read any page, so the
+            // archive's 404 on page 1 is the whole of what is known — stops before its first
+            // request. The healthy stops all belong to a page the walk has read and are reached on
+            // the iteration that read it, so a listing that has since shrunk to end at the held
+            // page still ends the run on LastPage and still moves the watermark; the hold is on
+            // asking for the page after, never on reading the one before it.
+            //
+            // Above the budget checks because it is the cheaper answer to the same question: a run
+            // that may not ask for anything has no use for an allowance, and reporting Cap for it
+            // would put a held ship among the backfills that merely spent theirs.
+            if (heldAfter is { } held && page > held.Page)
+            {
+                if (held.Page == 0)
+                    _logger.LogWarning(
+                        "Page 1 for ship {ShipId} ({Tag}) has not answered for at least the last {Runs} runs, "
+                        + "so no page of the tag was requested this one. It is asked for again after {Probe} "
+                        + "held runs.",
+                        ship.Id, ship.CanonicalTagName, held.Runs, ProbeHeldPageEveryNthRun);
+                else
+                    _logger.LogWarning(
+                        "Page {Next} for ship {ShipId} ({Tag}) has not answered for at least the last {Runs} runs, "
+                        + "so it was not requested this one. Page {Page} was read as usual, and the page after it "
+                        + "is asked for again after {Probe} held runs.",
+                        page, ship.Id, ship.CanonicalTagName, held.Runs, held.Page, ProbeHeldPageEveryNthRun);
+
+                stopReason = ScrapeStopReason.Held;
+                errorMessage =
+                    $"Page {page.ToString(CultureInfo.InvariantCulture)} has not answered for at least "
+                    + $"the last {held.Runs.ToString(CultureInfo.InvariantCulture)} runs; it was not requested "
+                    + "this run";
+                break;
+            }
+
             if (!budget.CanContinue(out var budgetStop))
             {
                 stopReason = budgetStop!;
@@ -351,15 +389,32 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                     + "Treating this as an error rather than the end of the listing.",
                     page, ship.Id, ship.CanonicalTagName, url);
 
-                stopReason = ScrapeStopReason.Error;
-                errorMessage = retreatedFrom is { } from
-                    ? JumpCursorBackFrom(
+                if (retreatedFrom is { } from)
+                {
+                    stopReason = ScrapeStopReason.Error;
+                    errorMessage = JumpCursorBackFrom(
                         ship, context.Mode, from, retreatBecause!,
-                        $"page {page.ToString(CultureInfo.InvariantCulture)} before it returned 404 as well")
-                    : lastPage == page - 1
-                        ? $"AO3 returned 404 for page {page.ToString(CultureInfo.InvariantCulture)}, which "
-                            + $"page {(page - 1).ToString(CultureInfo.InvariantCulture)} offered a next link to"
-                        : $"AO3 returned 404 for the first page requested, {url}";
+                        $"page {page.ToString(CultureInfo.InvariantCulture)} before it returned 404 as well");
+                }
+                else if (lastPage == page - 1)
+                {
+                    stopReason = ScrapeStopReason.Error;
+                    errorMessage =
+                        $"AO3 returned 404 for page {page.ToString(CultureInfo.InvariantCulture)}, which "
+                        + $"page {(page - 1).ToString(CultureInfo.InvariantCulture)} offered a next link to";
+                }
+                else
+                {
+                    // Nothing was read before this and nothing retreated onto it: the run's first
+                    // request was answered 404. `NotFound` rather than `Error` because that is the
+                    // one run-that-read-nothing whose cause the archive actually stated — every
+                    // other way to end a run with no page behind it is the archive failing to
+                    // answer, and HeldAfterPageAsync has to tell the two apart to bound a tag that
+                    // is gone without holding a whole instance through an outage. Still a failed
+                    // run, still no watermark: the reason is narrower, not softer.
+                    stopReason = ScrapeStopReason.NotFound;
+                    errorMessage = $"AO3 returned 404 for the first page requested, {url}";
+                }
 
                 break;
             }
@@ -640,27 +695,6 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 break;
             }
 
-            // The page after this one is the one the last several runs each spent a request on and
-            // got nothing back from. Do not spend another. Deliberately below the LastPage stop
-            // above, so a listing that has since shrunk to end here still ends the run healthily
-            // and still moves the watermark — the hold applies to asking for the next page, not to
-            // reading this one.
-            if (heldAfter is { } held && page >= held.Page)
-            {
-                _logger.LogWarning(
-                    "Page {Next} for ship {ShipId} ({Tag}) has not answered for at least the last {Runs} runs, "
-                    + "so it was not requested this one. Page {Page} was read as usual, and the page after it "
-                    + "is asked for again after {Probe} held runs.",
-                    page + 1, ship.Id, ship.CanonicalTagName, held.Runs, page, ProbeHeldPageEveryNthRun);
-
-                stopReason = ScrapeStopReason.Held;
-                errorMessage =
-                    $"Page {(page + 1).ToString(CultureInfo.InvariantCulture)} has not answered for at least "
-                    + $"the last {held.Runs.ToString(CultureInfo.InvariantCulture)} runs; it was not requested "
-                    + "this run";
-                break;
-            }
-
             // The retreat's answer, in the case where the listing sides with the cursor. This run
             // already asked for the page after this one and got nothing readable back; the page
             // before it insisting that page exists does not make a second identical request any
@@ -874,12 +908,18 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// history cannot fall out of step: one healthy run and it is gone, with nothing to remember to
     /// clear.
     ///
+    /// A fourth shape has no page behind it at all: a tag whose page 1 the archive 404s. Those runs
+    /// read nothing, so they record no page, and the streak keys on that absence and reports page 0
+    /// — hold the walk after page 0, which is before it asks for anything. That reading is only
+    /// open to <see cref="ScrapeStopReason.NotFound"/>, the one way of reading nothing that is the
+    /// archive answering rather than the archive failing; see the guard below for what it costs to
+    /// get that wrong.
+    ///
     /// Returns null — the walk goes as deep as it likes — in three cases. When the streak is short.
-    /// When the most recent run read no page at all: runs that read nothing name no page to hold at,
-    /// and "the page after none" is page 1, which the hold — sitting below the read rather than
-    /// above it — would turn into refusing page 2 on the strength of failures that never got as far
-    /// as asking for it. And once every <see cref="ProbeHeldPageEveryNthRun"/> held runs, which is
-    /// how a listing that heals is found again without an operator.
+    /// When the most recent run read no page and did not stop on a 404: a run stopped by a
+    /// transport failure, a refused status or the breaker names no page and is evidence about the
+    /// archive rather than about this ship. And once every <see cref="ProbeHeldPageEveryNthRun"/>
+    /// held runs, which is how a listing that heals is found again without an operator.
     /// </summary>
     private async Task<HeldPage?> HeldAfterPageAsync(int jobId, CancellationToken ct)
     {
@@ -898,7 +938,12 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             .ToListAsync(ct);
 
         if (recent.Count == 0) return null;
-        if (recent[0].LastPageFetched is not { } page) return null;
+
+        // The page the streak is keyed on, and null is one of its values. A run that read nothing
+        // records no page, and every run against a tag whose page 1 is a 404 is one of those — so
+        // the key that used to end the search is the key the widest hold is built on. It surfaces
+        // as HeldPage(0): hold the walk after page 0, which is before its first request.
+        var readTo = recent[0].LastPageFetched;
 
         // Held runs count towards the streak alongside the errors that started it: a run that did
         // not ask is not evidence the page has recovered, and dropping them would end the streak on
@@ -919,20 +964,36 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         // one can. The alternative is the every-tick cost of MaxConsecutiveFailures timed-out
         // requests on a listing that is not coming back.
         var stuck = recent
-            .TakeWhile(r =>
-                r.LastPageFetched == page
-                && r.StopReason is ScrapeStopReason.Error
-                    or ScrapeStopReason.Held
-                    or ScrapeStopReason.Breaker)
+            .TakeWhile(r => r.LastPageFetched == readTo && CountsTowardsTheStreak(r.StopReason, readTo))
             .Count();
 
         if (stuck < MinStuckIncrementalRuns) return null;
 
         var heldInARow = recent
-            .TakeWhile(r => r.LastPageFetched == page && r.StopReason == ScrapeStopReason.Held)
+            .TakeWhile(r => r.LastPageFetched == readTo && r.StopReason == ScrapeStopReason.Held)
             .Count();
 
-        return heldInARow >= ProbeHeldPageEveryNthRun ? null : new HeldPage(page, stuck);
+        return heldInARow >= ProbeHeldPageEveryNthRun ? null : new HeldPage(readTo ?? 0, stuck);
+
+        // Which stops say "this ship cannot get past here" — not the same question for the two keys,
+        // and the whole of what keeps the widened hold safe. This is the only place the split is
+        // written: the streak's first row is subject to it like every other, so there is no second
+        // guard above to disagree with.
+        //
+        // With a page behind it the streak reads what a run failed at having got that far, which is
+        // the reading T45 and T81 settled. With none, the run named no page, and only one way of
+        // reading nothing is evidence about *this ship*: `NotFound`, the archive answering that the
+        // page asked for is not there. A transport failure, a refused status and the breaker opening
+        // on page 1 all read nothing too and all mean the archive is unwell — count one of those and
+        // an afternoon's outage stops the walk on every ship on the instance. `Held` counts on both
+        // sides for the same reason it always has: a run that did not ask is no evidence the page
+        // recovered, and dropping it would end the streak on the first hold.
+        static bool CountsTowardsTheStreak(string? stopReason, int? readTo) =>
+            readTo is null
+                ? stopReason is ScrapeStopReason.NotFound or ScrapeStopReason.Held
+                : stopReason is ScrapeStopReason.Error
+                    or ScrapeStopReason.Held
+                    or ScrapeStopReason.Breaker;
     }
 
     // ---- what a page with no readable works may conclude ---------------------------------------
@@ -1571,10 +1632,11 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         // by `askedStaleCursor` already.
         //
         // What that ends is the backfill — the ship stops being InProgress for ever and the run
-        // history finally says why. It does not end the requests: ScrapeWorker gives a Failed
-        // backfill an incremental pass, which asks page 1, takes the same 404, and does it again
-        // every tick. T45's held-page bound cannot catch that one, because the streak it reads is
-        // keyed on a page some run got through — see T82.
+        // history finally says why. It does not end the requests by itself: ScrapeWorker gives a
+        // Failed backfill an incremental pass, which asks page 1 and takes the same 404. Those runs
+        // stop with ScrapeStopReason.NotFound, and HeldAfterPageAsync builds its streak on exactly
+        // that reason where a run read no page, so the incremental pass holds page 1 too and the
+        // ship falls back to one request every ProbeHeldPageEveryNthRun ticks.
         if (!askedStaleCursor && pagesServed == 0 && pagesNotFound == 0) return;
 
         ship.BackfillStalledRuns++;

@@ -2014,7 +2014,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   this is the third.
 
 ## T82 — A page nothing ever read cannot be held, so a dead tag is asked for every tick
-- status: todo
+- status: in_progress
 - attempts: 0
 - blocked-by: none
 - delivers: A pass whose only request 404s at page 1, run after run, stops asking for a while —

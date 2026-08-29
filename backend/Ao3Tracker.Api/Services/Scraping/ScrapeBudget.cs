@@ -32,6 +32,11 @@ public static class ScrapeStopReason
     /// for it. Not a page that failed this run — a page this run deliberately did not spend a
     /// request on, because the last several runs each spent one on it and got nothing back.
     ///
+    /// That page can be page 1, in which case the run made no request at all: a tag the archive
+    /// 404s has no page any run of it ever read, and the hold is on the whole walk rather than on
+    /// its depth. See <see cref="NotFound"/> for what has to be true before the walk reads it that
+    /// way.
+    ///
     /// Recorded as a failed run, because it is one: the pass could not get through the listing. It
     /// is distinct from <see cref="Error"/> so that the walk can tell its own held runs apart from
     /// the failures that caused them, which is what times the periodic re-probe — see
@@ -49,6 +54,23 @@ public static class ScrapeStopReason
     /// means to come back to.
     /// </summary>
     public const string Denied = "denied";
+
+    /// <summary>
+    /// The archive answered 404 for the first page this run asked for, having read none — which is
+    /// the archive saying definitively that the page is not there, rather than failing to answer.
+    ///
+    /// Distinct from <see cref="Error"/>, which it used to be recorded as, because a run that read
+    /// nothing names no page and the two readings of that are opposite. A transport failure, a
+    /// refused status or the breaker opening on page 1 is the archive being unwell, and a walk that
+    /// concluded anything from those would stop scraping the whole instance for the length of an
+    /// outage. A 404 is not that. It is the only stop reason
+    /// <c>Ao3ShipIndexScraper.HeldAfterPageAsync</c> will build a streak on with no page behind it,
+    /// and so the one that lets a tag AO3 no longer serves stop being asked for every tick.
+    ///
+    /// A failure like <see cref="Error"/>, and for the same reason: the pass got nothing, and the
+    /// run history is the only place a headless worker reports itself.
+    /// </summary>
+    public const string NotFound = "notFound";
 
     public const string Error = "error";
 
@@ -72,7 +94,7 @@ public static class ScrapeStopReason
     /// can produce. See the call site for why each value is on this list.
     /// </summary>
     public static bool RecordsAsFailure(string? stopReason) =>
-        stopReason is Error or Held or Denied or Breaker;
+        stopReason is Error or Held or Denied or Breaker or NotFound;
 }
 
 /// <summary>
