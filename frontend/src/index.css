@@ -643,8 +643,9 @@
   }
 
   /* Sits inside a status cell, under the detail line explaining what it is for. Wraps rather than
-     stretching the column: the table is already wide. */
-  .backfill-restart {
+     stretching the column: the table is already wide. Shared by both of a row's admin actions —
+     the control, then the sentence saying what pressing it will and will not do. */
+  .ship-action {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
@@ -653,7 +654,7 @@
     margin-top: var(--size-4-2);
   }
 
-  .backfill-restart label {
+  .ship-action label {
     display: flex;
     flex-direction: column;
     gap: var(--size-2-2);
@@ -662,7 +663,7 @@
     font-size: var(--font-ui-smaller);
   }
 
-  .backfill-restart input {
+  .ship-action input {
     width: 7rem;
   }
 

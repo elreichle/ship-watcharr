@@ -142,8 +142,9 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             return ScrapeOutcome.Empty(ScrapeStopReason.Denied) with
             {
                 ErrorMessage =
-                    $"AO3 has denied the tag {ship.CanonicalTagName}; no page of it was requested, "
-                    + "and nothing re-verifies a tag once its verification has settled.",
+                    $"AO3 has denied the tag {ship.CanonicalTagName}; no page of it was requested. "
+                    + "Nothing re-checks a denied tag on its own: an admin sends it back for "
+                    + "checking from the Ships page.",
             };
 
         // Both walking passes resume from a cursor of their own; the incremental pass has none and

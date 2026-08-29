@@ -20,6 +20,7 @@ import type {
   ShipNotification,
   Stats,
   UnreadNotifications,
+  VerificationRechecked,
   WatchedShip,
   WatchedShipsResponse,
   WorkDetail,
@@ -182,6 +183,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ fromPage }),
     }),
+
+  /**
+   * Sends a tag AO3 denied back through verification. Admin-only and shared, like the restart
+   * above: the check spends a request against a tag the archive has already refused, on behalf of
+   * everyone watching it. The schedule stays off until AO3 answers for the tag.
+   */
+  recheckVerification: (shipId: number) =>
+    request<VerificationRechecked>(`/admin/ships/${shipId}/verification/recheck`, { method: 'POST' }),
 
   getWorks: ({
     page,

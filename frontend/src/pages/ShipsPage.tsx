@@ -62,7 +62,16 @@ function canRestartBackfill(ship: WatchedShip): boolean {
 
 function describeStatus(ship: WatchedShip, verificationEnabled: boolean): Status {
   if (ship.verificationState === 'NotFoundOnAo3') {
-    return { label: 'AO3 has no such tag', tone: 'error', detail: 'Check the spelling and add it again.' };
+    // Not "add it again": following the same name resolves to this same denied ship, which leaves
+    // its schedule off and is never re-checked — so the old advice sent everybody down a path that
+    // provably does nothing. Following the *right* name is a different tag and does work.
+    return {
+      label: 'AO3 has no such tag',
+      tone: 'error',
+      detail:
+        'Check the spelling — following the same name again lands back here. If the tag was ' +
+        'renamed or briefly gone, an admin can have AO3 asked again from this page.',
+    };
   }
 
   if (ship.verificationState === 'Pending') {
@@ -289,6 +298,14 @@ export function ShipsPage() {
                       {user?.isAdmin && canRestartBackfill(ship) && (
                         <BackfillRestart ship={ship} onRestarted={() => void load().catch(() => {})} />
                       )}
+                      {/* Admin-only for the same two reasons, and the only thing in the product
+                          that moves a ship out of NotFoundOnAo3. */}
+                      {user?.isAdmin && ship.verificationState === 'NotFoundOnAo3' && (
+                        <VerificationRecheck
+                          ship={ship}
+                          onRechecked={() => void load().catch(() => {})}
+                        />
+                      )}
                     </td>
                     <td>{formatDate(ship.lastScrapedAt)}</td>
                     <td>{formatDate(ship.nextScrapeAt)}</td>
@@ -358,7 +375,7 @@ function BackfillRestart({ ship, onRestarted }: { ship: WatchedShip; onRestarted
   };
 
   return (
-    <form className="backfill-restart" onSubmit={(e) => void submit(e)}>
+    <form className="ship-action" onSubmit={(e) => void submit(e)}>
       <label>
         Restart at page
         <input
@@ -377,5 +394,47 @@ function BackfillRestart({ ship, onRestarted }: { ship: WatchedShip; onRestarted
       </span>
       {error && <span className="error">{error}</span>}
     </form>
+  );
+}
+
+/**
+ * The way back from a denial.
+ *
+ * A 404 is usually the typo the status line assumes, but it is also what a renamed tag and a tag
+ * briefly withdrawn look like — and nothing re-asks on its own: verification returns before its
+ * first request for a tag already settled, and the scraper skips the ship before its own. Following
+ * the tag again does not help either, because it lands on the same denied row.
+ *
+ * One button and no options: it is a single request against a tag AO3 has already refused, and
+ * there is nothing about it for an admin to choose. The row polls itself while the answer is
+ * pending, so no refresh is needed to see it.
+ */
+function VerificationRecheck({ ship, onRechecked }: { ship: WatchedShip; onRechecked: () => void }) {
+  const [rechecking, setRechecking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const recheck = async () => {
+    setError(null);
+    setRechecking(true);
+    try {
+      await api.recheckVerification(ship.shipId);
+      onRechecked();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to send that tag back for checking.');
+    } finally {
+      setRechecking(false);
+    }
+  };
+
+  return (
+    <div className="ship-action">
+      <button type="button" disabled={rechecking} onClick={() => void recheck()}>
+        {rechecking ? 'Sending…' : 'Check with AO3 again'}
+      </button>
+      <span className="ship-status-detail">
+        For a tag that was renamed or briefly gone. Nothing is scraped until AO3 confirms it.
+      </span>
+      {error && <span className="error">{error}</span>}
+    </div>
   );
 }

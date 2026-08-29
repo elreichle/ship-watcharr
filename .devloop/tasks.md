@@ -2046,7 +2046,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   write-off must be reversible.
 
 ## T83 — A tag AO3 denied stays denied for ever, with no route back
-- status: todo
+- status: in_progress
 - attempts: 0
 - blocked-by: none
 - delivers: A ship whose `VerificationState` is `NotFoundOnAo3` can be sent back through

@@ -48,10 +48,11 @@ public static class ScrapeStopReason
     /// <summary>
     /// The run made no request, because the tag it is for is one AO3 has denied. Distinct from
     /// <see cref="LastPage"/>, which it used to be recorded as: that says the walk read to the end
-    /// of the listing, and this run never asked for a page of it. Nothing here can fix the ship —
-    /// and today nothing else does either, since no path re-verifies a tag once its verification
-    /// has settled (T83) — so it is not <see cref="Held"/> either, which names a page the walk
-    /// means to come back to.
+    /// of the listing, and this run never asked for a page of it. Nothing here can fix the ship, and
+    /// no scrape ever will: only an admin sending the tag back for checking
+    /// (<c>POST /api/admin/ships/{id}/verification/recheck</c>) moves a settled verification back to
+    /// Pending. So it is not <see cref="Held"/> either, which names a page the walk means to come
+    /// back to.
     /// </summary>
     public const string Denied = "denied";
 

@@ -139,6 +139,155 @@ public class ShipVerifierTests : IDisposable
         Assert.False((await db.ScrapeJobs.SingleAsync(j => j.ShipId == shipId)).IsEnabled);
     }
 
+    // ---- the way back from a denial ------------------------------------------------------------
+
+    [Fact]
+    public async Task A_non_admin_may_not_send_a_denied_tag_back_for_checking()
+    {
+        var shipId = await DeniedShipAsync();
+
+        var result = await _host.AdminShips(_host.SeedUser("sam")).RecheckVerification(shipId, default);
+
+        Assert.IsType<ForbidResult>(result.Result);
+        Assert.Equal(ShipVerificationState.NotFoundOnAo3, (await ReloadAsync(shipId)).VerificationState);
+    }
+
+    [Fact]
+    public async Task Rechecking_a_ship_this_instance_has_never_seen_is_a_404()
+    {
+        var result = await Admin().RecheckVerification(4040, default);
+
+        Assert.IsType<NotFoundResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task Sends_a_denied_tag_back_through_verification()
+    {
+        var shipId = await DeniedShipAsync();
+
+        var body = Rechecked(await Admin().RecheckVerification(shipId, default));
+
+        Assert.Equal("Pending", body.VerificationState);
+
+        // Not only Pending but *due*: the worker takes ships whose next attempt is null or past, so
+        // these three are what decide whether a recheck is acted on within the minute or in six
+        // hours. A denial happens to leave them clear already, which is exactly why they are pinned
+        // here — the endpoint's own postcondition, not a neighbour's tidying.
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(ShipVerificationState.Pending, ship.VerificationState);
+        Assert.Equal(0, ship.VerificationAttempts);
+        Assert.Null(ship.NextVerificationAttemptAt);
+        Assert.Null(ship.VerificationError);
+    }
+
+    [Fact]
+    public async Task A_rechecked_tag_is_actually_asked_about_again()
+    {
+        // The assertion that matters. `VerifyAsync` returns before its first request for anything
+        // not Pending, so a recheck that only rewrote the row would leave the ship exactly as
+        // stuck as it was, with the page now claiming otherwise.
+        var shipId = await DeniedShipAsync();
+        await Admin().RecheckVerification(shipId, default);
+
+        _host.Http.Responds = url => Ok(url);
+        _host.Http.Requested.Clear();
+
+        var result = await _host.VerifyAsync(shipId);
+
+        Assert.Equal(ShipVerificationOutcome.Verified, result.Outcome);
+        Assert.NotEmpty(_host.Http.Requested);
+    }
+
+    [Fact]
+    public async Task A_tag_AO3_confirms_on_the_recheck_gets_its_schedule_back()
+    {
+        // The other half of being recoverable: the denial switched the schedule off, and the worker
+        // only ever picks up an enabled job — so a ship left Verified and unscheduled would read as
+        // fixed while no run ever touched it.
+        var shipId = await DeniedShipAsync();
+        await Admin().RecheckVerification(shipId, default);
+
+        _host.Http.Responds = url => Ok(url);
+        await _host.VerifyAsync(shipId);
+
+        await using var db = _host.NewContext();
+        Assert.True((await db.ScrapeJobs.SingleAsync(j => j.ShipId == shipId)).IsEnabled);
+    }
+
+    [Fact]
+    public async Task A_tag_AO3_denies_again_is_left_denied_and_unscheduled()
+    {
+        // A recheck is one request against a tag AO3 has already refused, and nothing about asking
+        // twice makes the second answer less final.
+        var shipId = await DeniedShipAsync();
+        await Admin().RecheckVerification(shipId, default);
+
+        var result = await _host.VerifyAsync(shipId);
+
+        Assert.Equal(ShipVerificationOutcome.NotFound, result.Outcome);
+        Assert.Equal(ShipVerificationState.NotFoundOnAo3, (await ReloadAsync(shipId)).VerificationState);
+
+        await using var db = _host.NewContext();
+        Assert.False((await db.ScrapeJobs.SingleAsync(j => j.ShipId == shipId)).IsEnabled);
+    }
+
+    [Fact]
+    public async Task Verification_does_not_schedule_a_ship_nobody_follows()
+    {
+        // The other thing a disabled schedule can mean: the last watcher left. A verification that
+        // lands afterwards is not a reason to start walking a tag nobody is waiting for.
+        var emma = _host.SeedUser("emma");
+        var shipId = await FollowAsync(emma, Lexa);
+        await _host.Ships(emma).UnwatchShip(shipId, default);
+
+        await _host.VerifyAsync(shipId);
+
+        await using var db = _host.NewContext();
+        Assert.Equal(ShipVerificationState.Verified, (await ReloadAsync(shipId)).VerificationState);
+        Assert.False((await db.ScrapeJobs.SingleAsync(j => j.ShipId == shipId)).IsEnabled);
+    }
+
+    [Fact]
+    public async Task Refuses_to_recheck_a_tag_AO3_has_confirmed()
+    {
+        // Not a no-op: re-verifying a working ship spends a request to re-learn what is already
+        // known, and would drop it back to Pending in the meantime.
+        var shipId = await FollowAsync(_host.SeedUser("emma"), Lexa);
+        await _host.VerifyAsync(shipId);
+
+        var result = await Admin().RecheckVerification(shipId, default);
+
+        Assert.IsType<ConflictObjectResult>(result.Result);
+        Assert.Equal(ShipVerificationState.Verified, (await ReloadAsync(shipId)).VerificationState);
+    }
+
+    [Fact]
+    public async Task Refuses_to_recheck_a_tag_that_has_not_been_checked_yet()
+    {
+        // A Pending ship is already queued, and resetting its attempt count here would cancel the
+        // backoff an unreachable archive earned.
+        var shipId = await FollowAsync(_host.SeedUser("emma"), Lexa);
+
+        var result = await Admin().RecheckVerification(shipId, default);
+
+        Assert.IsType<ConflictObjectResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task Refuses_to_recheck_a_tag_nobody_follows_any_more()
+    {
+        // Rechecking would settle it as verified and, correctly, still not schedule it — one
+        // request spent to leave the ship exactly where it is.
+        var emma = _host.SeedUser("emma");
+        var shipId = await DeniedShipAsync(emma);
+        await _host.Ships(emma).UnwatchShip(shipId, default);
+
+        var result = await Admin().RecheckVerification(shipId, default);
+
+        Assert.IsType<ConflictObjectResult>(result.Result);
+        Assert.Equal(ShipVerificationState.NotFoundOnAo3, (await ReloadAsync(shipId)).VerificationState);
+    }
+
     // ---- inconclusive checks -------------------------------------------------------------------
 
     [Fact]
@@ -442,6 +591,23 @@ public class ShipVerifierTests : IDisposable
     /// <summary>200 with no body, redirected to <paramref name="finalUrl"/>.</summary>
     private static ScrapeHttpResponse Ok(string finalUrl, string content = "") =>
         new(content, HttpStatusCode.OK, FromCache: false, FinalUrl: finalUrl);
+
+    private Api.Controllers.AdminShipsController Admin() =>
+        _host.AdminShips(_host.SeedUser(Guid.NewGuid().ToString("N")[..8], isAdmin: true));
+
+    private static VerificationRecheckedDto Rechecked(ActionResult<VerificationRecheckedDto> result) =>
+        Assert.IsType<VerificationRecheckedDto>(Assert.IsType<OkObjectResult>(result.Result).Value);
+
+    /// <summary>A followed tag AO3 answered 404 for: denied, and its schedule switched off.</summary>
+    private async Task<int> DeniedShipAsync(ApplicationUser? user = null)
+    {
+        _host.Http.Responds = _ => new ScrapeHttpResponse("", HttpStatusCode.NotFound, false);
+
+        var shipId = await FollowAsync(user ?? _host.SeedUser("emma"), "Clarke Griffen/Lexa");
+        await _host.VerifyAsync(shipId);
+
+        return shipId;
+    }
 
     private async Task<int> FollowAsync(ApplicationUser user, string tagName)
     {

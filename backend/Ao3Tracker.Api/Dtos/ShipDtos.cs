@@ -112,3 +112,10 @@ public record BackfillRestartedDto(
     string BackfillState,
     int? BackfillNextPage,
     int BackfillStalledRuns);
+
+/// <summary>
+/// What a recheck left on the ship. A <see cref="BackfillRestartedDto"/>'s sibling, and not a
+/// <see cref="WatchedShipDto"/> for the same reason: it describes the shared ship, on behalf of an
+/// admin who may not be watching it at all.
+/// </summary>
+public record VerificationRecheckedDto(int ShipId, string TagName, string VerificationState);

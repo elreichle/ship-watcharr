@@ -9,18 +9,26 @@ using Microsoft.EntityFrameworkCore;
 namespace Ao3Tracker.Api.Controllers;
 
 /// <summary>
-/// The way back out of a written-off backfill.
+/// The ways back out of a conclusion this instance reached about a ship and will not revisit.
+///
+/// There are two, and they are the same shape one state apart: a written-off backfill, and a tag
+/// AO3 denied. Both are conclusions that were right when they were drawn and can stop being right
+/// without anything here noticing, and neither may clear itself — a give-up that re-arms itself is
+/// a give-up that loops, spending requests on the archive for as long as the condition lasts. So
+/// both exits are a deliberate act by a person, and this is where they perform them.
 ///
 /// A ship gives up on its back catalogue after <c>Ao3ShipIndexScraper.MaxStalledBackfillRuns</c>
 /// consecutive runs against a cursor the listing will not answer. That is right while AO3 is
 /// genuinely refusing and wrong the moment it stops — and nothing in the scraper moves a ship out
-/// of <see cref="ShipBackfillState.Failed"/>, because a give-up that clears itself is a give-up
-/// that can loop: the same run that would re-arm it is the run that would stall again, and the ship
-/// would spend two requests a run forever with the counter never reaching its bound. So the exit is
-/// a deliberate act by a person, and this is where they perform it.
+/// of <see cref="ShipBackfillState.Failed"/>: the same run that would re-arm it is the run that
+/// would stall again, and the ship would spend two requests a run forever with the counter never
+/// reaching its bound. A denial is the harder-edged version — <c>ShipVerifier</c> returns before its
+/// first request for anything not <see cref="ShipVerificationState.Pending"/>, and the scraper skips
+/// the ship before its own — so a tag that was renamed, briefly gone, or wrongly denied stays denied
+/// for as long as the row does.
 ///
-/// Admin-only, and shared rather than per-user: a backfill belongs to the <c>Ship</c> every watcher
-/// shares, so re-arming it spends requests on behalf of the whole instance.
+/// Admin-only, and shared rather than per-user: both a backfill and a verification belong to the
+/// <c>Ship</c> every watcher shares, so either exit spends requests on behalf of the whole instance.
 /// </summary>
 [ApiController]
 [Authorize]
@@ -63,7 +71,8 @@ public class AdminShipsController : ControllerBase
             return Conflict(new
             {
                 message = $"AO3 has no tag called {ship.CanonicalTagName}, so nothing will scrape it. "
-                    + "Follow the tag under the name AO3 files it under instead.",
+                    + "Follow the tag under the name AO3 files it under, or send this one back for "
+                    + "checking if the archive has since renamed or restored it.",
             });
         }
 
@@ -167,6 +176,76 @@ public class AdminShipsController : ControllerBase
             ship.BackfillState.ToString(),
             ship.BackfillNextPage,
             ship.BackfillStalledRuns));
+    }
+
+    /// <summary>
+    /// Sends a tag AO3 has denied back through verification, as <see cref="ShipVerificationState.Pending"/>.
+    /// </summary>
+    [HttpPost("{shipId:int}/verification/recheck")]
+    public async Task<ActionResult<VerificationRecheckedDto>> RecheckVerification(int shipId, CancellationToken ct)
+    {
+        if (!await IsCurrentUserAdminAsync()) return Forbid();
+
+        var ship = await _db.Ships.FirstOrDefaultAsync(s => s.Id == shipId, ct);
+        if (ship is null) return NotFound();
+
+        // Only a denial. A Pending ship is already queued, and zeroing its attempt count here would
+        // cancel the backoff an unreachable archive earned — the one thing the verifier is most
+        // careful to keep. A Verified one would be dropped back to Pending, spending a request to
+        // re-learn what this instance already knows, and reading as unconfirmed until it lands.
+        if (ship.VerificationState != ShipVerificationState.NotFoundOnAo3)
+        {
+            return Conflict(new
+            {
+                message = $"The verification of {ship.CanonicalTagName} is {ship.VerificationState}, not "
+                    + "NotFoundOnAo3. Only a tag AO3 has denied can be sent back for checking.",
+            });
+        }
+
+        // Same shape as the backfill's schedule guard, one concern along. A denied ship keeps its
+        // watchers on purpose — the subscription is what tells someone their tag was wrong — so no
+        // watchers means the last of them left afterwards, and a recheck would spend a request to
+        // settle a ship that stays unscheduled either way.
+        if (!await _db.WatchedShips.AnyAsync(w => w.ShipId == shipId, ct))
+        {
+            return Conflict(new
+            {
+                message = $"Nobody follows {ship.CanonicalTagName} any more, so nothing would scrape it "
+                    + "even if AO3 confirmed the tag. Follow it again to have it checked.",
+            });
+        }
+
+        ship.VerificationState = ShipVerificationState.Pending;
+
+        // Stated rather than assumed. A denial already leaves all three of these clear, so today
+        // these lines change nothing — but "Pending" is not on its own what makes the worker pick
+        // the ship up: it takes ships whose next attempt is null or past, so a recheck that left a
+        // backoff standing would be a recheck nothing acted on for up to six hours. That property
+        // belongs to this endpoint, not to whatever NotFoundAsync happens to tidy on its way out.
+        ship.VerificationAttempts = 0;
+        ship.NextVerificationAttemptAt = null;
+        ship.VerificationError = null;
+
+        // `VerificationCheckedAt` is deliberately left alone: it says when AO3 was last actually
+        // asked, and no request has been made yet. The verifier overwrites it when one has.
+
+        await _db.SaveChangesAsync(ct);
+
+        _logger.LogInformation(
+            "Verification of ship {ShipId} ({Tag}) sent back for checking by {UserId}",
+            ship.Id, ship.CanonicalTagName, _userManager.GetUserId(User));
+
+        // This endpoint does not schedule the ship. Re-enabling here would put a walk against a tag
+        // AO3 has already denied back on the books before anything re-checked it, which is one
+        // guaranteed 404 on the shared gate for every ship an admin is hopeful about. `ShipVerifier`
+        // turns it back on once AO3 has answered — unlike the backfill restart, which leaves the
+        // schedule to the next scheduled run because there the ship is already known to be scrapable.
+        //
+        // Not an invariant, though: while the recheck is outstanding this is an ordinary unverified
+        // ship, so somebody following the tag in that window schedules it exactly as following any
+        // unchecked tag does. That is the accept-on-trust rule the follow path is built on rather
+        // than anything this changes, and a 404 it walks into is held after the first page.
+        return Ok(new VerificationRecheckedDto(ship.Id, ship.CanonicalTagName, ship.VerificationState.ToString()));
     }
 
     private async Task<bool> IsCurrentUserAdminAsync()

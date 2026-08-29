@@ -64,6 +64,13 @@ export interface BackfillRestarted {
   backfillStalledRuns: number;
 }
 
+/** What an admin's recheck left on a ship AO3 had denied. */
+export interface VerificationRechecked {
+  shipId: number;
+  tagName: string;
+  verificationState: WatchedShip['verificationState'];
+}
+
 export interface WatchedShipsResponse {
   ships: WatchedShip[];
   /**
