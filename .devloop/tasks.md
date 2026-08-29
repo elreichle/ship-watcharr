@@ -1764,7 +1764,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   `destination` when the store throws is the smaller one.
 
 ## T72 — A download link must be measured against the archive, not against wherever the page landed
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: `Ao3DownloadLinks.Resolve` compares an href's origin against the configured archive, so

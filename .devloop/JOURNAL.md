@@ -240,3 +240,16 @@ Append-only. One entry per iteration, newest last.
 - ran: `npm run build` → clean; `npm run lint` → the 2 known warnings; `dotnet test` → 952 passed
 - commit: 489fdca
 - next: **T72.** Review skipped: ~20 substantive lines, the rest re-indentation, no new surface.
+
+## 2026-08-29 — T72 A download link is measured against the archive, not where the page landed — done
+
+- did: `Ao3DownloadLinks.Parse` checks every href's origin against the configured `BaseUrl`, the
+  page URL demoted to a base for relative hrefs; the comparison moved to a new `Ao3Origin` the
+  login establisher shares.
+- also: per-link checking still let a substituted page *choose* the file, so `DownloadFetcher`
+  refuses a page whose `FinalUrl` is not the archive. Two backlog lines from the review.
+- files: `Services/Scraping/Ao3{DownloadLinks,Origin,SessionEstablisher}.cs`,
+  `Services/Downloads/DownloadFetcher.cs`, `Ao3DownloadLinksTests.cs`, `DownloadWorkerTests.cs`
+- ran: `dotnet test` → 963 passed; `npm run build` clean; `npm run lint` → the 2 known warnings
+- commit: 8d8a61a
+- next: **T76.**
