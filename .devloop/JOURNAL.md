@@ -219,3 +219,14 @@ Append-only. One entry per iteration, newest last.
 - commit: 2548205
 - next: **T62.** Review's medium is T60's mirror (page *newer* than the row) — pre-existing, in
   BACKLOG.
+
+## 2026-08-29 — T62 The startup partials sweep can take the whole API down with it — done
+
+- did: guarded `Directory.GetFiles` in `DiscardPartialFiles` — an unreadable partials directory is
+  logged, not thrown — and wrapped `ExecuteAsync`'s startup sweep in the loop's own guard, since
+  "nothing may end this loop" applies to the step before it too.
+- files: `Api/Services/Downloads/DownloadWorker.cs`, `Tests/DownloadWorkerTests.cs`
+- ran: `dotnet test` → 952 (951 before); new test red without the guard; build + lint clean.
+- commit: 4ef36b1
+- next: **T68.** Review's other two (a leaked `_attempts` entry, a session dying mid-drain) are
+  pre-existing and in BACKLOG.

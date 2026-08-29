@@ -38,3 +38,15 @@ A human promotes an item into `tasks.md` between runs; the loop only adds here.
   reviewer proposes — compare the link's `?updated_at=` epoch against `Work.UpdatedAt` — is the one
   the 2026-08-25 T13 entry rejected as different clocks; re-opening it needs that verified against a
   live pair, not re-argued.
+- `DrainQueueAsync` returns on an empty queue *before* `ForgetRequestsNoLongerQueued`, so a request
+  the controller settled without the worker (reader B's bytes land, reader A's row goes `Complete`)
+  leaves its `_attempts` entry for ever. Re-arming that same row id later starts it at attempt 1, so
+  it fails after two polls rather than three. From T62's review; the fix is to prune before the
+  return, but the mid-drain reproduction is unverified.
+- Nothing detects an AO3 session that dies *mid*-drain: `MayFetchAsync` checks once, a drain may run
+  for hours, and a logged-out work page is a 200 with no download links — recorded as the permanent
+  "no Epub download, it may be restricted" failure rather than held. From T62's review, unverified.
+- The `try`/`catch` T62 added around `ExecuteAsync`'s startup sweep is defence-in-depth no test pins:
+  `ReleaseInterruptedFetchesAsync` catches everything non-shutdown itself, so the only way through it
+  is an exotic throw from the `finally`. The reviewer's suggested repro (a failing scope factory) is
+  caught inside and does not reach it.

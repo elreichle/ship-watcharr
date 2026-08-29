@@ -1591,7 +1591,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   against; the host rule belongs on the form action, not on the helper as a whole.
 
 ## T62 — The startup partials sweep can take the whole API down with it
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A `DownloadWorker` that starts even when the partials directory cannot be read, logging
