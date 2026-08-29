@@ -1357,7 +1357,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   have the walk treat a run as stuck while the history calls it a success. See T81.
 
 ## T53 — Which pass a ship gets is pinned by no test
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: Tests over `ScrapeWorker`'s mode choice: a `NotStarted` or `InProgress` ship is

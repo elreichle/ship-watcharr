@@ -671,3 +671,14 @@ Append-only. One entry per iteration, newest last.
   :5348. 8 mutations, each red in one place.
 - commit: 9dd0781
 - next: **T53**. Review: 5 in-diff, all fixed — chiefly an unreadable page starving the backlog.
+
+## 2026-08-29 — T53 Which pass a ship gets — done
+
+- did: A theory over all four `ShipBackfillState` values asserting the mode the worker hands the
+  scraper *and* the mode on the `ScrapeRun` row, with the sweep arm held off (`LastFullSweepStartedAt
+  = now`) so backfill-vs-incremental is what is pinned. `Failed` had never been run end to end.
+- files: `backend/Ao3Tracker.Tests/ScrapeWorkerModeChoiceTests.cs` (new; no source change)
+- ran: `~ScrapeWorker` → 22 (18 before); `dotnet test` → 928 (924); build clean, lint 2 pre-existing
+  warnings. 3 mutations of the ternary and of `Mode = mode`, each red only where expected.
+- commit: 21c37b9
+- next: **T54**. No review: 78 lines, one new test file, no source touched.
