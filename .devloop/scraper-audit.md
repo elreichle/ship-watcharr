@@ -180,7 +180,7 @@ destroy a complete one.
 | E5 | Statistics are written unconditionally, never gated on `UpdatedAt` having moved | `:110` | kudos move without a revision, so gating would freeze these columns | `Rewrites_the_statistics_of_a_work_it_has_seen_before` |
 | E6 | Appearing in a listing clears `IsDeleted`/`DeletedAt` | `:147` | presence is proof; it undoes a deletion recorded earlier | — **still nothing sets them true, and it is not the sweep's to set.** T15 concluded absence from a *tag*, which is `ShipWork.MissingSinceAt` (E7); a work being gone from AO3 is a 404 on its own page, which is T10's fetch |
 | E7 | Appearing in a listing clears `ShipWork.MissingSinceAt` | `:167` | the one direction safe on a partial pass | **closed by T15** (2026-08-28): `Ao3ShipIndexScraper.ConcludeSweepAsync` sets it, from a completed sweep only, for rows whose `LastSeenAt` predates the sweep's start. `Marks_a_work_the_completed_sweep_did_not_see_as_having_left_the_tag`, `Concludes_nothing_from_a_sweep_that_ran_out_of_budget_part_way`, `A_work_that_comes_back_stops_being_missing` |
-| E8 | Tags are reconciled from **a listing blurb** | `:172` | the blurb's tag set is the work's whole tag set | `Drops_a_tag_the_author_has_removed` — **gap: T51.** The spec says a blurb does not carry the complete tag list; T10 fetches the rest from the work's own page, and the next incremental pass then deletes it |
+| E8 | Tags are reconciled from a listing blurb **only until the work's own page has been read**; after that the blurb may add but never delete | `ApplyTags` | a source may delete only within a scope it observed completely, and a blurb is not a complete observation of a work's tags | `Drops_a_tag_the_author_has_removed`, `Tags_a_detail_fetch_added_survive_the_next_listing_pass`, `A_detail_fetched_work_still_gains_a_tag_the_listing_has_started_showing`, `A_work_no_detail_fetch_has_read_still_drops_a_tag_the_author_removed` — **T51 closed 2026-08-28** |
 | E9 | Two blurbs for one work on one page keep the last | `:53` | AO3 can render a work twice and the `(ShipId, WorkId)` key must stay satisfiable | unpinned — see the foot of §F |
 
 **E7 is now built; E6 is not, and is not the sweep's.** Both directions of "a work left
@@ -189,13 +189,15 @@ neither pass below is entitled to set them — but it means T15 is writing the *
 concludes absence, with the reading side of it already shipped and every test in the suite proving
 only the clear.
 
-**E8 is the one live cross-task hazard this audit found.** `ApplyTags` reconciles a work's tags
-against `blurb.Tags`, which is the listing blurb's list. The spec's own user story 11 says the
-listing blurb does not carry the complete tag list, and T10 exists to fetch what it lacks. Under
-that premise, every detail fetch is undone by the next incremental pass over the same ship — the
-work loses the tags only the detail page carried, silently, on a run recorded as a success. Whether
-the premise holds is a markup question of T39's family; either way T10 cannot be built until this
-rule says which observation wins. Queued as **T51** and added to T10.
+**E8 was the one live cross-task hazard this audit found, and T51 has ruled on it.** `ApplyTags`
+reconciled a work's tags against `blurb.Tags`, the listing blurb's list, while the spec's own user
+story 11 says that list is not complete — so every detail fetch would have been undone by the next
+incremental pass over the same ship, silently, on a run recorded as a success. The rule now written
+into `ApplyTags`: **a source may delete only within a scope it observed completely.** The blurb is
+authoritative until `Work.DetailFetchedAt` is set, and from then on adds but never deletes. It
+needed no schema change and no answer to the markup question of T39's family, because it defers to
+the fuller observation rather than trying to partition the two. The accepted cost is a stale tag on
+a detail-fetched work, never a lost one. T10 writes through it.
 
 ## F. What the run history is told
 
@@ -254,7 +256,7 @@ listing, and the rules it inherits are now written down rather than inferred.
 
 | Gap | Row | Went to |
 |-----|-----|---------|
-| A listing blurb's tag list is reconciled as if it were complete, so T10's detail fetch is undone by the next pass | E8 | **T51** (new), and T10's `blocked-by` |
+| A listing blurb's tag list is reconciled as if it were complete, so T10's detail fetch is undone by the next pass | E8 | T51 — **done 2026-08-28**; the blurb stops deleting once `DetailFetchedAt` is set |
 | A run stopped by the circuit breaker is recorded `Succeeded` | F1 | T52 — **done 2026-08-28**, with T81 in one diff |
 | Which pass a ship gets is pinned by no test | A1 | **T53** (new) |
 | The ingestor's unreadable-date preservation is pinned by no test | E4 | **T54** (new) |

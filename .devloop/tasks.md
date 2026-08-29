@@ -1299,7 +1299,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   as a row about tests, not only about rules.
 
 ## T51 — A listing blurb's tag list must not delete what a detail fetch added
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A rule, written down and applied, for which observation of a work's tags wins when a

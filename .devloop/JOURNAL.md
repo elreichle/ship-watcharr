@@ -633,3 +633,16 @@ Append-only. One entry per iteration, newest last.
   lint clean.
 - commit: 05239f5
 - next: **T51.** Review: 5 findings, none in this diff → BACKLOG; one is T80 found independently.
+
+## 2026-08-28 — T51 A blurb's tag list must not delete what a detail fetch added — done
+
+- did: The rule, in `ApplyTags`: **a source may delete only within a scope it observed completely.**
+  A blurb owns a work's tags until `Work.DetailFetchedAt` is set, then adds but never deletes, so
+  T10's fuller list survives the next pass. No schema change. Per-type scoping and a `WorkTag`
+  provenance column are rejected in the comment; `ApplyAuthors`/`ApplySeries` keep the reconcile.
+  Cost: a stale tag, never a lost one; BACKLOG has the unbounded case.
+- files: `Services/Scraping/WorkIngestor.cs`, `Tests/WorkIngestorPseudTests.cs`, audit E8
+- ran: `~Ingest` → 15 (**11 before, not 7**), 2 red first; `dotnet test` → 885 (881); build + lint
+  clean. Inverting the guard reds all four tests.
+- commit: fa72ce9
+- next: **T10** — its only blocker. Review: 2 findings, in-diff, fixed.
