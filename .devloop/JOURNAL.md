@@ -682,3 +682,15 @@ Append-only. One entry per iteration, newest last.
   warnings. 3 mutations of the ternary and of `Mode = mode`, each red only where expected.
 - commit: 21c37b9
 - next: **T54**. No review: 78 lines, one new test file, no source touched.
+
+## 2026-08-29 — T54 An unreadable date must not erase the date a working pass read — done
+
+- did: Two tests on the ingestor's `UpdatedAt` guard — a work re-seen through an undated blurb keeps
+  the date an earlier pass read; a work first seen undated still takes the next readable date. Only
+  the first-seen arm was pinned before. No production change.
+- files: `backend/Ao3Tracker.Tests/WorkIngestorTimestampTests.cs` (new)
+- ran: `~Ingest` → 17; `dotnet test` → 930 (928 before); build clean, lint 2 pre-existing warnings.
+  3 mutations of the guard and its else arm, each red only in the test that owns it.
+- commit: d480e43
+- next: **T55**. The else arm also marks a *preserved* exact date approximate — asserted as current
+  behaviour, written up in `BACKLOG.md`. No review: 77 lines, one new test file, no source touched.

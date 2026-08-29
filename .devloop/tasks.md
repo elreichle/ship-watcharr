@@ -1376,7 +1376,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   `Failed`, is the one nothing has ever exercised end to end.
 
 ## T54 — An unreadable date must not erase the date a working pass read
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A test that fails if `WorkIngestor` ever writes `DateTime.MinValue` over a revision
