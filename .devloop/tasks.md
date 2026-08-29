@@ -1267,7 +1267,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   T41 is retired, not reusable; see `DECISIONS.md`.
 
 ## T50 — Page 1 accepts the same filtered contradiction page 2 now refuses
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A decision, applied, about what a filtered listing's heading counting more works than
@@ -1970,7 +1970,8 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   fixture instead.
   Watch the interaction with T50, which is about *filtered* page 1 accepting a contradiction page 2
   refuses. Same short-circuit, different half of it; do not let one fix silently make the other's
-  test vacuous. `Reads_a_quiet_filtered_pass_with_a_populated_heading_as_nothing_new` and
+  test vacuous. `Reads_a_quiet_filtered_pass_whose_heading_counts_zero_as_nothing_new` (T50 renamed
+  it and gave it a `total: 0` fixture) and
   `Reads_AO3s_own_zero_result_Listing_as_nothing_new_rather_than_an_error` are the two that pin the
   filtered path today and both must stay green — an incremental pass must keep concluding
   `LastPage`, never `Error`, on a quiet ship.

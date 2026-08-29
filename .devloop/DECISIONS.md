@@ -661,3 +661,16 @@ holds; the bool makes the split explicit — one condition is the page's, two ar
 **Rejected: a unique index on (user, ship, work).** Nothing can produce a duplicate, and the
 constraint's failure mode is losing a whole ingested page to one row — the same trade the truncation
 rules in this file already decided the other way. The per-user cap bounds the table regardless.
+
+## 2026-08-28 — T50: the filtered heading is re-based, not skipped
+
+A filtered page 1 counting 4,317 matches over zero blurbs now stops with `Error`. The heading
+condition was gated on the listing being *unfiltered*; it is now compared against the denominator
+the heading counts — zero unfiltered, the run's blurb tally filtered — on every page, which is C3's
+existing rule for page 2 applied one page earlier.
+
+**Rejected: leaving page 1 to conclude.** T42's argument — holding a heading against zero blurbs
+fails a quiet pass every tick — is about the *unfiltered* heading. A filtered request matching
+nothing is served `0 Works` (T39's capture), so the quiet pass still concludes; only the
+contradiction is refused. And refusing spends no extra request: the run asked for page 1 either way,
+so the whole cost is a run recorded failed instead of a success over an empty library.

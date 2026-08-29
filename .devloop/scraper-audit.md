@@ -108,16 +108,18 @@ backfill is `Complete` and which nothing later revisits.
 | C2 | `page > 1` on an unfiltered listing — the walk only got here because a page advertised more | `:646` | unfiltered | `Still_refuses_an_empty_page_past_the_first_when_the_pass_was_not_filtered`, `Refuses_to_conclude_from_an_empty_page_a_resumed_backfill_started_on` |
 | C3 | …waived on a **filtered** page past the first, but only where the heading says the run was served everything (`matched <= blurbsRead`) | `:646`, `:670` | filtered, page > 1 | `Ends_a_filtered_pass_on_an_empty_page_whose_heading_agrees_it_was_served_everything`, `Refuses_an_empty_filtered_page_whose_heading_counts_more_than_the_run_was_served`, `Refuses_an_empty_filtered_page_that_carries_no_heading_at_all` |
 | C4 | A Next link — the page says there is more after it | `:647` | every page | `Still_refuses_an_empty_filtered_page_that_offers_a_next_one` |
-| C5 | An **unfiltered** heading counting works the blurbs do not contain | `:648` | unfiltered | `Refuses_to_call_a_backfill_complete_when_a_page_parses_to_no_works_under_a_populated_heading` |
+| C5 | A heading counting works the page cannot account for, against the denominator that heading is counting: zero when unfiltered, the run's own blurb tally when filtered | `:982`, `:1008` | every page | `Refuses_to_call_a_backfill_complete_when_a_page_parses_to_no_works_under_a_populated_heading`, `Refuses_a_filtered_first_page_whose_heading_counts_more_than_the_run_was_served`, `Reads_a_quiet_filtered_pass_whose_heading_counts_zero_as_nothing_new` |
 | C6 | `WhyNotTheEnd` names which of the above failed, for the run history | `:680` | every page | `Says_which_evidence_made_a_page_unreadable_rather_than_one_sentence_for_all_of_them` |
-| C7 | **Page 1 waives C2 and C3 outright** — the short-circuit, and the last unexamined clause | `:646` | every page 1 | `Still_treats_an_empty_first_page_as_an_empty_tag`, `Reads_a_quiet_filtered_pass_with_a_populated_heading_as_nothing_new` |
+| C7 | **Page 1 waives C2 and C3 outright** — the short-circuit. C5 now applies to it (T50); what it still waives unread is the *absence* of a heading | `:979` | every page 1 | `Still_treats_an_empty_first_page_as_an_empty_tag`, `Reads_a_quiet_filtered_pass_whose_heading_counts_zero_as_nothing_new` |
 
-**C7 is where the two open questions in this method live.**
+**C7 had two open questions; one is now closed.**
 
-- *Filtered page 1 carrying a heading that counts more than the run was served* concludes `LastPage`
-  with a null error message: the ship ingests nothing and the run is recorded a clean success, every
-  tick. This is exactly the contradiction C3 now refuses one page later. Queued as **T50**, whose
-  notes carry the argument on both sides.
+- *Filtered page 1 carrying a heading that counts more than the run was served* used to conclude
+  `LastPage` with a null error message — the ship ingesting nothing and the run recorded a clean
+  success, every tick. **T50, done 2026-08-28**: C5 is no longer gated on the listing being
+  unfiltered, it is re-based on the denominator the heading counts, so the same contradiction C3
+  refuses on page 2 is refused on page 1. A quiet filtered pass is served a heading counting zero
+  and still concludes, and refusing costs no request the run was not making anyway.
 - *Unfiltered page 1 with the container, no works, no Next link and **no heading at all*** concludes
   `LastPage` too — and for a backfill that is `Complete`, the whole back catalogue written off from
   the absence of every piece of evidence. C3's rule for filtered pages is that no evidence is not
@@ -238,7 +240,7 @@ their own right because every one of them was true of code that read as correct 
 |---|------|-------------|--------------------------------|
 | G1 | **A waiver is only as good as the evidence it substitutes, and may not fire on a page carrying neither piece.** No evidence is not permission | T47 | C3. The waiver replaces `page > 1` with a heading; a page with no heading keeps `page > 1` |
 | G2 | **When a rule is waived because its argument does not hold, ask what that rule was *carrying*, not only whether it was sound.** | T42 | C2 was carrying "the listing says there is more", which a filtered listing says with a number instead of a Next link |
-| G3 | **Read the fixture, not the test name.** A fix and its test are written in the same sitting by the same reasoning, so a wrong premise produces a test that agrees with it | T42, T43, T47, and open in T50 | Three tests in this suite have now been deleted for constructing a different situation from the one their comment cited. The fourth is `Reads_a_quiet_filtered_pass_with_a_populated_heading_as_nothing_new`, which builds `Page(1, [], total: 4317)` and is named for a quiet pass |
+| G3 | **Read the fixture, not the test name.** A fix and its test are written in the same sitting by the same reasoning, so a wrong premise produces a test that agrees with it | T42, T43, T47, T50 | Four tests in this suite have now been rewritten or deleted for constructing a different situation from the one their comment cited. The fourth was `Reads_a_quiet_filtered_pass_with_a_populated_heading_as_nothing_new`, whose `Page(1, [], total: 4317)` was the contradiction rather than the quiet pass; T50 gave it `total: 0` and moved the old fixture to the test that refuses it |
 | G4 | **When a fix turns one signal into a conclusion, ask what else in the same document can produce that signal.** | T26, and open in T48 | E2/E3. One `h4.heading` holds a title, four people's names and a gift recipient |
 | G5 | **A proxy signal keeps looking sound right up until the real signal arrives beside it — and then it is only ever a way to disagree with it.** | T30 | D14. The lock symbol was a proxy for a session; `response.Authenticated` is the session |
 
@@ -259,7 +261,7 @@ listing, and the rules it inherits are now written down rather than inferred.
 | An unreadable page is counted as a page that was read, which also feeds D8 | D8, F7 | T40, added to T15's `blocked-by` |
 | The authenticated-total flag ORs across a run whose total is written per page | D13 | T44 — **done 2026-08-25**; the flag is written inside `RecordTotal` from the response the heading came off |
 | Nothing refreshes a watermarked ship's tag total | D12 | T15's notes — its sweep is both the only refresher and the only consumer |
-| Filtered page 1 accepts the contradiction page 2 refuses | C7 | T50 (already queued) |
+| Filtered page 1 accepts the contradiction page 2 refuses | C7, C5 | T50 — **done 2026-08-28** |
 | Unfiltered page 1 with no heading may complete a backfill | C7 | **T80** (new) — T39's capture removed the reason not to fix it, but the code is unchanged and still concludes |
 | A 404 at page 1 never counts as a stalled run; a denied tag reports `LastPage` | D6, A2 | T46's notes |
 | A page failing at the transport level stops with `Breaker`, so T45's bound never sees it | B18, F1 | T81 — **done 2026-08-28**, with T52 in one diff |

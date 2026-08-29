@@ -14,3 +14,4 @@ A journal `next:` is for *this* handoff; a lesson is what would have saved a pas
 - A count both polled and written by a click needs the poll to check a write counter before applying, or a slow poll reverts the click.
 - The docker daemon has network even though the loop's shell does not: `docker pull` and in-image `npm ci`/`dotnet restore` all work.
 - A logger provider that never renders hides CA2017: a template with too few args throws only when formatted, and the throw unwinds the code that logged it.
+- `code-review <paths>` reads whole files, not the diff, when they are new in `main...HEAD` — expect branch-wide findings and ~10 minutes.

@@ -619,3 +619,17 @@ Append-only. One entry per iteration, newest last.
 - next: **T50.** The old template reds **five** tests here, not just the new one — class-wide
   rendering is the seam. No other API template reuses a name, so "check the rest of the file" is
   closed; `Ao3ShipIndexFullSweepTests` renders nothing yet.
+
+## 2026-08-28 — T50 Page 1 accepts the filtered contradiction page 2 refuses — done
+
+- did: The heading is now compared against the denominator it counts — zero unfiltered, the run's
+  blurb tally filtered — on every page, so a filtered page 1 counting 4,317 over no blurbs stops
+  with `Error`, not a silent `LastPage`. No extra request; a quiet pass gets `0 Works` and still
+  concludes. The quiet-pass test's fixture *was* the contradiction: now `total: 0`, the old one
+  moved to the test refusing it.
+- files: `Api/Services/Scraping/Ao3ShipIndexScraper.cs`, `Tests/Ao3ShipIndexScraperTests.cs`,
+  `.devloop/scraper-audit.md` (C5, C7, G3, H)
+- ran: `~Ao3ShipIndexScraper` → 103 (**not 67**), 1 red first; `dotnet test` → 881 (880); build +
+  lint clean.
+- commit: 05239f5
+- next: **T51.** Review: 5 findings, none in this diff → BACKLOG; one is T80 found independently.
