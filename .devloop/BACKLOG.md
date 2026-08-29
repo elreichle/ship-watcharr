@@ -26,3 +26,15 @@ A human promotes an item into `tasks.md` between runs; the loop only adds here.
   container killed in that window leaves the database needing hand repair. It is the first such
   migration here — worth a general answer (back up before migrating, or a rebuild-free rule) rather
   than a per-migration one.
+- The detail pass has T60's stale-cache shape and no guard: it selects works where
+  `UpdatedAt > DetailFetchedAt`, then reads the page through `GetAsync`, so a copy cached before the
+  revision writes the previous version's tags and `PublishedAt` and stamps `DetailFetchedAt = now` —
+  dropping the work out of the backlog holding stale detail until the next revision.
+  `Work.UpdatedAtObservedAt` and `IRateLimitedHttpClient.GetFreshAsync` now exist to answer it.
+- T60's mirror, pre-existing and untouched by it: a work page *newer* than the row. AO3 revises at
+  10:00, no listing pass has seen it, a reader downloads at 10:05 — the page is fetched fresh, so
+  T60's guard passes, and the new version's bytes are stored keyed to the old `Work.UpdatedAt`.
+  `FindUsableFileAsync` then serves them to everyone asking for the old version. The exact fix a
+  reviewer proposes — compare the link's `?updated_at=` epoch against `Work.UpdatedAt` — is the one
+  the 2026-08-25 T13 entry rejected as different clocks; re-opening it needs that verified against a
+  live pair, not re-argued.

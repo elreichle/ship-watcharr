@@ -1539,7 +1539,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   task decides, that test is the thing it has to keep true.
 
 ## T60 — A download must not read its address off a page the work has moved past
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A download whose work has changed since the work page was cached fetches the current

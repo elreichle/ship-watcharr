@@ -1,6 +1,6 @@
 # Decisions — archive
 
-Entries rotated out of `DECISIONS.md` on 2026-08-27, oldest first, so that each iteration's mandatory read stops growing with the length of the run. Nothing here is edited or deleted — it is `grep`-able history, and the live file points at it. Rotated again on 2026-08-28, twice. Covers **2026-08-22 — initial plan** through **2026-08-27 — T38: only a `Failed` backfill may be restarted, and a restart does not make the ship due**.
+Entries rotated out of `DECISIONS.md` on 2026-08-27, oldest first, so that each iteration's mandatory read stops growing with the length of the run. Nothing here is edited or deleted — it is `grep`-able history, and the live file points at it. Rotated again on 2026-08-28, twice, and on 2026-08-29. Covers **2026-08-22 — initial plan** through **2026-08-27 — T46's review: two findings, both about what the diff claimed rather than what it did**.
 
 ## 2026-08-22 — initial plan
 
@@ -2463,3 +2463,340 @@ that never moved. A restart at the ship's own cursor is the same walk, so it kee
 Nothing on today's paths sets a `NotStarted` ship's counter above zero, so it is defence rather than
 a live bug — asserted through a run that *stalls*, because a run that got anywhere clears the counter
 on its own and the test would pass with the reset deleted.
+
+## 2026-08-27 — T38's review: three defects in its own diff, and the cursor is not what it looked like
+
+`/code-review high` ran to completion (the third in a row to survive) and read the working tree
+rather than the branch, since `@{upstream}...HEAD` was 59 already-reviewed commits behind. Four
+findings, three of them in T38's own changes and all three fixed in it.
+
+**The floor guard was backwards in the common case.** T38 cleared `BackfillMinUpdatedAtSeen` only
+`if (fromPage < ship.BackfillNextPage)`, on the assumption that the stored cursor is how deep the
+walk got. It is not: `JumpCursorBackFrom` halves the cursor on every run where the cursor page and
+the page before it are both unreadable, which is exactly the path to `Failed`. A walk that reached
+page 40 and read its floor from page 39 ends up parked at page 1, and a default restart then finds
+`1 < 1` false and keeps a floor no page of the re-walk can be newer than — so `TrackBackfillFloor`
+logs "a full sweep will be needed" on every page and never updates again. **The floor is now dropped
+unconditionally.** One page of shift detection is lost at the restart point; the next page
+re-establishes it. That is strictly cheaper than a comparison that is wrong whenever the halving has
+run, and the halving has run by definition on every ship this endpoint can be used on.
+
+**"Where the walk gave up" was not where the walk gave up**, in four places — the controller comment,
+`RestartBackfillRequest.FromPage`, the `restartBackfill` JSDoc, and the Ships page's detail line,
+which named the cursor as the page AO3 would not answer for. All four now say what the cursor is:
+where the last run *landed*. The improvement the reviewer suggested — record the deepest page
+actually read and default to that — is **T78**, filed rather than folded in because it wants a
+column and two migrations, and because re-walking pages is a politeness cost rather than a
+correctness one.
+
+**The restart was offered, and accepted, for ships that cannot scrape.** A `Failed` ship whose tag
+AO3 has denied, or whose schedule is off, showed the form under a status line saying "AO3 has no such
+tag" or "Paused" — and the endpoint took it, because it checked only `BackfillState`. Neither ship
+would ever run: `Ao3ShipIndexScraper` returns before its first request for a `NotFoundOnAo3` tag, and
+the worker only takes enabled jobs. So a "restarted" ship sat at `InProgress` for ever, which is
+worse than the written-off state it replaced — that one at least said so. The endpoint now returns
+409 with the reason for both, and the page has a `canRestartBackfill` predicate carrying the same two
+conditions `describeStatus` returns early on.
+
+**The fourth finding is T40's**, and the reviewer derived both halves of the reasoning already on the
+record above — including, unprompted, that narrowing to `askedStaleCursor` alone would make `Failed`
+unreachable for a ship parked at page 1. Two of its sub-points were acted on here: `Ship.cs`'s
+summary line now describes what the counter actually counts and names T40 as the owner of the
+discrepancy, rather than stating an intent the code does not implement; and
+`Clears_a_stalled_streak_when_a_backfill_begins` asserts `InRange(0, 1)` rather than `== 1`, so a
+test about the *reset* stops pinning T40's decision about the *increment*.
+
+## 2026-08-27 — T39: the capture answered three questions and a fourth was still pointing at it
+
+**T39 shipped as tests, not as a fix, and that was settled before this iteration started.** The
+2026-08-24 entry above recorded that the capture confirms every premise T39 was written to doubt:
+the container is present on a zero-result page, its class is `work index group` rather than the bare
+`index group` the fallback selector guesses at, and a genuinely empty listing carries a `0 Works in
+<tag>` heading. No code changed. What this iteration added is the tests that hold those three facts,
+so the next re-capture diffs against an assertion instead of against a paragraph of prose.
+
+**The scraper tests are part of the task, not surplus.** T39's `delivers` line says "parser tests",
+and the convention T36 and T38 put on the record is that `delivers` is the contract. But its purpose
+clause names `PlausiblyTheEndOfTheListing`, which is not in the parser — and a parser test pins only
+that method's *inputs*. The gap T39 was written against is precisely that every scraper test reaching
+the zero-work path goes through the `Page(n, [])` helper, which emits the container unconditionally
+and therefore agrees with the premise whatever AO3 does; leaving that helper as the only route to
+that path would have closed the task without closing the hole it names. So two tests in
+`Ao3ShipIndexScraperTests` feed the real capture through a whole run: the filtered/incremental side
+stops `LastPage` rather than `Error`, and the unfiltered/backfill side concludes `Complete` off the
+`0 Works` heading. Mutation-checked apart: breaking `FindListing` reds both, and removing
+`PlausiblyTheEndOfTheListing`'s `page == 1` short-circuit reds only the backfill one — the filtered
+one survives on the heading waiver, which is the design saying so out loud.
+
+**T28's §C7 is unblocked, not closed — and this iteration first wrote down that it was closed.**
+The fear recorded there was that an unfiltered page 1 with the container, no works, no Next link and
+no heading concludes `LastPage` — for a backfill, `Complete`, a whole back catalogue written off from
+the absence of every piece of evidence. The capture says a real empty listing *does* carry a heading,
+and it reads `0 Works`, and the first draft of this entry and of the audit's C7 row both read that as
+the finding being answered. It is not. `PlausiblyTheEndOfTheListing` short-circuits on `page == 1`
+**before any heading is consulted**, so the no-heading page 1 still concludes exactly as it did
+before; nothing in the diff changed it. What the capture actually buys is the freedom to fix it — a
+heading requirement on page 1 can no longer strand a genuinely empty tag, because a genuinely empty
+tag has a heading. That fix is **T80**, and C7 stays open until it lands.
+
+The claim was caught by T39's own review, and it is the more useful kind of finding: not a defect in
+the code, but a document asserting a guarantee the code does not make. `Still_treats_an_empty_first_
+page_as_an_empty_tag` had been sitting in the suite the whole time, green, with `Page(1, [])` — which
+emits no heading — concluding `Complete`. The disproof of the claim was already a passing test.
+**A note that says "X is now safe" is worth grepping the code for before it is written down.**
+
+**T39's fourth question was never in T39's notes, and is now T79.**
+`Ao3ShipIndexScraper.cs:335` says "that premise is T39's business, and this line is how it would
+first announce itself" about a different premise entirely: that AO3 does not show restricted works to
+a request carrying no session. T39's notes were rewritten on 2026-08-24 around the three questions
+the capture answers and this one was dropped on the floor. The capture cannot answer it — it is a
+zero-result page, so it carries no blurb at all, and it was taken *logged in*, so it is not an
+anonymous request either. Closing T39 silently would have left a comment in shipped code pointing at
+a `done` task, which is how a premise stops being anyone's business. Filed as **T79**, `blocked` on a
+capture only Emma can take, per the loop policy on fixture tasks. It does not touch
+`LastKnownTotalWasAuthenticated`: T30 and T44 settled that the transport, not the markup, says what a
+request carried, and that holds whichever way T79 lands. What it decides is whether the warning
+beside it can ever fire.
+
+**A lesson about tasks whose scope a capture rewrites.** T39's notes were revised in place when the
+fixture landed, and the revision was written as an answer sheet for the three questions in front of
+it. A fourth obligation that lived in a code comment rather than in the task body did not survive the
+edit. Where a task is rewritten around new evidence, the check worth making is `grep` for the task id
+across the source tree, not only across `.devloop/`.
+
+## 2026-08-27 — T40: an unreadable page is not a page read, but it is still an answer
+
+**The four-line move was the easy half.** `pagesFetched++`, `parseWarnings +=`, `firstPage ??= page`
+and `lastPage = page` sat three lines above the `if (unreadable) break`, so a fresh backfill whose
+page 1 was a 200 maintenance page filed `PagesFetched = 1, FirstPageFetched = 1,
+LastPageFetched = 1, WorksSeen = 0` — a run claiming the one page it could not read, under a counter
+whose own summary reads "listing pages successfully parsed". T37 fixed exactly this on the retreat
+path by `continue`ing above the counters; the non-retreat route to the same page was missed. The
+move is now below the break and both routes agree.
+
+`lastPage`'s arithmetic survives untouched, which was the thing T40's notes said to check. The 404
+branch tests `lastPage == page - 1` to mean "a page this run read said page N exists", and the walk
+only advances past a page that offered a next link — which an unreadable page never does, because it
+breaks. So the page before a 404 is still a page that read, and the guard means what it meant.
+
+**`parseWarnings` moved with the other three, and the number is kept in the log instead.** It is a
+counter, `delivers` says an unreadable page advances no counter, and the retreat path had already
+been dropping it since T37 — leaving it above the break would have re-created the inconsistency one
+field over, with a run reporting warnings from a page its `PagesFetched` says it never read. But it
+is also the only quantitative signal that tells a *markup change* apart from an *empty page*: blurbs
+present and unnameable versus no blurbs at all. So the parse-failure `LogError` now carries
+`{Warnings}`, and `Keeps_an_unreadable_pages_blurb_warnings_out_of_PagesFetched_but_not_out_of_the_log`
+pins both halves.
+
+**The decision T38 handed over: a run whose only page was unreadable counts as a stalled run.**
+`RecordBackfillProgress` guarded with `if (!askedStaleCursor && firstPage is null) return;`, and
+`firstPage` was standing in for "AO3 answered this run at all" only because it was set before the
+unreadable break — "AO3 served a body" and "the parser read it" were the same fact, so either
+reading of the guard gave the same answer. T40 separates them, and the guard has to pick.
+
+Reading it as "the parser read a page" is the narrowing T38's notes originally asked for, and it is
+wrong. Once `JumpCursorBackFrom` has halved a cursor down to page 1, `CursorMayBeStale` is false by
+construction (it requires `page > 1`), so `askedStaleCursor` is false from that run on; with
+`firstPage` null too, the guard returns early every run, the streak freezes, and
+`ShipBackfillState.Failed` becomes unreachable. The ship re-requests one unanswerable page once a
+run, for ever — precisely the load the counter exists to bound. T38 traced this, `/code-review`
+derived it independently during T38, and running the mutation this iteration reds
+`Gives_up_on_a_backfill_that_spends_run_after_run_on_a_cursor_nothing_answers` exactly as predicted.
+
+So the guard reads "did AO3 serve this run a page body", and that needed its own name rather than a
+side effect of a counter about something else: **`pagesServed`**, incremented once the response is a
+200 and before the parser sees it. Narrower than `pagesRequested`, which counts a 404 and a refused
+status; wider than `pagesFetched`, which counts only what read. The middle is exactly what the guard
+wants — "AO3 told this run nothing" (down, refusing, cut off by the budget) is not the ship's
+problem, "AO3 answered with something this run could not use" is.
+
+**Counting it is only defensible because T38 shipped the way back.** Writing a backfill off used to
+be permanent, and twelve runs against an unreadable page 1 retiring a back catalogue would have been
+too strong a conclusion to draw from "the parser could not read this". `POST
+/api/admin/ships/{id}/backfill/restart` puts a `Failed` backfill back to `InProgress`, so the bound
+now ends a pointless request-a-run loop rather than retiring anything. Deciding the other way would
+have needed a different bound, as T40's notes said; this way needed T38 first, which is why the two
+tasks were split rather than merged.
+
+**Two comments that named T40 as an open owner are now answers.** `Ship.BackfillStalledRuns`'s
+summary said the "any unreadable page" half was "wider than intended … and is T40's to settle"; it
+now states the rule and why the narrow one is unavailable. `Clears_a_stalled_streak_when_a_backfill_
+begins` explained its `InRange(0, 1)` as refusing to pin T40's open decision; it now points at the
+test that does pin it, and stays loose on purpose, because a test about the *reset* should not
+assert the *increment*.
+
+**T40's review did not run** — the account's monthly spend limit, for the third time on this branch
+after T14 and T35. Reviewed by reading, with three mutations standing in for the coverage argument:
+see the journal entry.
+
+## 2026-08-27 — T45: the bound on a stuck incremental pass is a page it stops asking for
+
+**Three answers were on the table and `delivers` picked one.** T45's notes weighed widening the
+`revised_at` bound, dropping the filter for a run so the walk reaches page 2 by a different address,
+and a give-up threshold; they also ruled the third out ("give up on new works is not a terminal state
+this product can have"). The `delivers` line settles between the other two, and it reads *"stops
+spending a request **on it** every tick, without that ever being written as a moved watermark"* —
+"on it" is the page. The bound is on the depth of the walk.
+
+**Dropping the filter was the notes' own preference and is not available.** It rests on the two
+addresses being different requests, and **T58 is a filed, browser-verified finding that AO3 discards
+`work_search[revised_at]` on this endpoint entirely** — the tag listing's filter form offers
+`date_from`/`date_to` and has no `revised_at` field. So today the "unfiltered" retry would be the
+identical request under a parameter Rails throws away: a second round trip to the same shared 5–8s
+gate for a guaranteed-identical answer. That is exactly the load this project refuses to spend. The
+idea is not wrong, it is *blocked on T58*, and it is worth revisiting there rather than building it
+now against a parameter that does nothing.
+
+**Widening the bound has the same problem and one more**: it is still a conclusion about how much of
+the listing to ask for, drawn from a failure that says nothing about the listing.
+
+**So: after three consecutive incremental runs that stopped short at the same page, the walk reads
+that page and stops, without asking for the one after it.** Recorded as `ScrapeStopReason.Held` and
+as a `Failed` run carrying a message that names the page and says it was not requested.
+
+Three properties are what make this the cheap answer rather than a compromise:
+
+- **It gives up nothing the erroring runs were achieving.** They were not getting past page N either.
+  What the held run keeps is the request that was doing the work — page 1 is where new works appear
+  in a `revised_at desc` listing, and every held run still reads and ingests it. A bound on how
+  *often* the ship is scraped (backing `NextRunAt` off) would have cost exactly that, and would have
+  been paid by the reader waiting longer for new works to appear.
+- **It concludes nothing.** `Held` is not in `FinishAsync`'s `mayPropose` set, so the watermark does
+  not move, which is the whole reason B6/B7/B11 leave the pass stuck in the first place. The hold
+  sits *below* the `LastPage` stop in the walk, so a listing that has since shrunk to end at page N
+  still ends the run healthily and still moves the watermark on the listing's own word.
+- **It is reversible without an operator.** Held runs are counted too, and
+  `ProbeHeldPageEveryNthRun` of them in a row lifts the hold for one run. Steady state is one
+  request a run plus one extra every eight, against two every run — and a listing that heals is
+  found by the next probe rather than by someone noticing.
+
+**The streak is derived from `ScrapeRuns`, not counted into a column on the ship.** The run history
+already records what each run read (`LastPageFetched`) and why it stopped (`StopReason`), so a
+counter would be a second copy of a fact the database already holds, with an increment site and a
+reset site to keep in step — and the reset half of that exact pairing is what `BackfillStalledRuns`
+took T38 and T40 to get right. A streak read from history cannot drift: one healthy run and it is
+gone, with nothing to remember to clear. It also means **no schema change and no migrations**, which
+the notes had budgeted for.
+
+**Two things only the end-to-end test could catch, and one of them was real.** The walk reads a
+streak the *worker* writes, and it reads it while its own `ScrapeRun` row is already open and still
+says nothing about where it got to — so without `CompletedAt != null` the most recent row is always
+the run in flight, always reads back as "no page", and **the hold would never fire on a real
+instance while every direct-call test passed**. `Bounds_a_stuck_incremental_pass_over_consecutive_
+runs_through_the_worker` drives four real runs through `RunDueJobsAsync` and is the only test that
+reds when that filter is removed. It needed `IAo3Scraper` registered for this test class: the host
+registers the real scraper as itself, which is all `ScrapeAsync` needs, but `ScraperRegistry`
+resolves the interface — registered per-class rather than in the host because the registry's
+`ToDictionary` throws on the duplicate key the worker tests' stub would create.
+
+**`Held` is a `Failed` run.** It read and ingested what it reached, but it did not get through the
+listing, and the run history is the only place a headless worker reports itself — F1's finding, one
+row over. It is a distinct stop reason rather than a reused `Error` because the walk has to tell its
+own held runs from the failures that caused them; that is what times the probe. The Schedules page
+renders both `stopReason` and `errorMessage` verbatim, so it needs no change to show this.
+
+**Recorded as B18 and F8 in `.devloop/scraper-audit.md`**, per T45's note that whatever came out
+belongs in T28's table. B18 is the only rule in §B that decides what to ask from the run history
+rather than from the page in hand, and §G's question — *which pass is entitled to conclude this* —
+has the answer "none, and it does not".
+
+## 2026-08-27 — T45's review: three fixes in the diff, and the bound has a third entrance it misses
+
+`/code-review high` ran to completion — the first review to do so on this branch since T38, and the
+fourth attempt after T14, T35 and T40 all died on the monthly spend limit. It returned five findings,
+all in T45's own diff. Three are fixed here; one is the reason **T81** exists; one was already
+addressed by an edit made before the review returned.
+
+**Fixed — the streak window silently coupled two constants that are documented as independent.**
+`stuck` and `heldInARow` are both `TakeWhile`s over one `Take(ProbeHeldPageEveryNthRun)`, so `stuck`
+could never exceed 8. Raising `MinStuckIncrementalRuns` to 8 or above — a plausible response to a
+false hold — would make `stuck < MinStuckIncrementalRuns` permanently true and **turn the bound off
+entirely, with no error and no failing test**. The window is now `StreakWindow`, derived as the max
+of the two. Demonstrated rather than argued: with the threshold raised to 9,
+`Stops_asking_for_a_page_that_has_not_answered_for_the_last_few_runs` reds under the coupled window
+and passes under the derived one. That test now seeds `MinStuckIncrementalRuns` rows rather than a
+literal three, which is what makes it follow the constant instead of agreeing with today's value.
+
+**Fixed — the doc line claiming an exhaustive stop-reason vocabulary was not exhaustive.**
+`ScrapeRun.StopReason`'s summary was edited in this task to list the values, and
+`ReconcileInterruptedRunsAsync` writes a bare `"interrupted"` literal that is in neither the list nor
+`ScrapeStopReason`. That mattered more after this task than before it, because `HeldAfterPageAsync`
+is the first reader to treat the column as a closed vocabulary. Promoted to
+`ScrapeStopReason.Interrupted` and used at its one write site — same string, no behaviour change, and
+the vocabulary is now genuinely closed.
+
+**Already fixed before the review returned — `held.Runs` saturates at the window.** Finding 3 read a
+version in which the log and the run-history message said "for the last {Runs} runs" over a number
+capped at 8. Both now say "for **at least** the last N runs", and `HeldPage`'s own doc states that
+`Runs` is a floor and why widening the query to make it exact buys nothing either decision needs.
+
+**Not fixed, and filed as T81 — a transport failure reaches the same stuck state and escapes the
+bound.** The streak counts `Error` and `Held`. B5 — the transport-failure branch, the one rule in
+the walk that deliberately re-asks a URL — re-requests a timing-out page until the breaker opens,
+and the run stops with `Breaker` on the same `LastPageFetched`. Neither arm matches, the streak never
+accumulates, and **the variant that escapes is the expensive one**: 1 + `MaxConsecutiveFailures`
+requests a tick against the `Error` route's two.
+
+It is filed rather than folded in for the reason T38 set the precedent for: `delivers` is the
+contract, and T45's says *"stops with `Error` on the same page every tick"*. But the stronger reason
+is that **folding it in would half-ship it.** The review's second finding is that a `Breaker` run is
+still recorded `Succeeded` — which is already queued as **T52**, one of the two remaining blockers on
+T15. Widening the streak to count `Breaker` while the history still calls those runs successes would
+leave the walk and the run history disagreeing about the same row, which is the split this codebase
+has spent T38, T40 and T44 closing elsewhere. T81 and T52 are the same fact one column over and the
+task notes on both now say to take them in one diff. Recorded in the audit as a gap against B18 and
+F1.
+
+**What the review checked and found sound, recorded so it is not re-derived a seventh time:**
+`FinishAsync`'s `mayPropose` is an allowlist, so `Held` cannot move the watermark by construction;
+`CompletedAt != null` does exclude the run's own open row; the hold and the stale-cursor retreat
+cannot interact, being incremental- and backfill-gated respectively; and the probe cadence works out
+to one request per nine runs as designed.
+
+## 2026-08-27 — T46: a 404 is the archive answering, and the stalled counter now hears it
+
+**The guard needed a third fact, not a wider reading of an existing one.** `RecordBackfillProgress`
+split runs into "the archive told this run nothing" (budget, breaker, transport failure, refused
+status — must not count) and "the archive answered with something unusable" (`pagesServed > 0` —
+counts). A 404 is neither: no body was served, and yet the archive answered definitively. Rather
+than loosen `pagesServed`, which T40 had just given a precise meaning, the walk now carries
+`pagesNotFound` and the guard reads all three. It changes the outcome at exactly one cursor
+position — page 1, where `CursorMayBeStale` cannot fire — because every deeper cursor already
+retreats and is counted through `askedStaleCursor`.
+
+**Rejected: disabling the ship's scrape job when the tag 404s.** T46's notes offered it as the
+cheaper alternative. It is a state only an operator can undo, and T38's rule is that a write-off has
+to be reversible; `BackfillState.Failed` already has `POST /api/admin/ships/{id}/backfill/restart`
+behind it. Filed on **T82** as the option to price first if the streak logic proves expensive.
+
+**The A2 sibling shipped in the same diff: a denied tag reports `denied`, not `lastPage`.** A run
+that returns before making a single request was recording the stop reason that means "walked off the
+end of the listing", and the only thing keeping that from marking a backfill `Complete` was that the
+early return sits above `FinishAsync`. `ScrapeStopReason.Denied` is a new value in a vocabulary
+`HeldAfterPageAsync` reads as closed, so it went in that class beside the others, and
+`ScrapeWorker` records it `Failed` — the run could not do its job and the ship needs an operator.
+
+## 2026-08-27 — T46's review: two findings, both about what the diff claimed rather than what it did
+
+`/code-review high` ran to completion on an explicitly named target and reported reading exactly the
+working-tree diff — the second review in a row to survive, after three consecutive losses to the
+monthly spend limit. Neither finding was a defect in the code; both were sentences that overstated it.
+
+**The `delivers` line was wrong, and the comment repeated it.** "Stops backfilling instead of asking
+forever" is two claims, and only the first is true. `ScrapeWorker` hands a `Failed` backfill an
+incremental pass, which starts at page 1 with no watermark, emits the identical URL, and takes the
+same 404 every tick. T45's held-page bound cannot catch it: the streak is keyed on
+`LastPageFetched`, which is null for a run that read nothing. The comment now says what the bound
+does end (the backfill, and the ship reading as InProgress for ever) and points at **T82** for what
+it does not.
+
+**An operator message named a remedy that does not exist.** T46's own notes say `ShipVerifier`
+returns early for anything not `Pending`; writing "re-verification is what can clear this" into
+every denied run's `ErrorMessage` turned that into advice. Confirmed by reading: nothing anywhere
+moves a settled verification back to `Pending`, and re-following reuses the row. The message now
+states the fact and stops, and the missing route is **T83**.
+
+**Both findings are the same failure.** The code was checked against the tests; the prose was
+checked against nothing. Where a diff writes a sentence an operator or a later iteration will act on
+— a `delivers` line, a comment, an `ErrorMessage` — the sentence is part of the diff and wants the
+same verification the code got.

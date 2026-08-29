@@ -206,3 +206,16 @@ Append-only. One entry per iteration, newest last.
 - ran: `dotnet test` → 943 (935 before); build + lint clean. Mutation: drop the carry-over → 5 red.
 - commit: cf78fd6
 - next: **T60.** Two findings the review raised are pre-existing — in BACKLOG.
+
+## 2026-08-29 — T60 A download must not read its address off a page the work has moved past — done
+
+- did: compared the page's age against the revision's — `Work.UpdatedAtObservedAt` (ours, stamped by
+  the ingestor only on a move) against `ScrapeHttpResponse.FetchedAt` (stamped before caching).
+  Older page → re-read via the new `GetFreshAsync`; an unchanged work stays a cache hit.
+- files: `Api/{Models/Work,Services/Scraping/{IRateLimitedHttpClient,RateLimitedAo3HttpClient,
+  WorkIngestor},Services/Downloads/DownloadFetcher}.cs`, 2 migrations, `Tests/{DownloadWorker,
+  WorkIngestorTimestamp,Ao3ResponseCache}Tests.cs`, `Tests/LibraryTestHost.cs`
+- ran: `dotnet test` → 951 (943 before); build + lint clean. 3 mutations → 2, 1, 1 red.
+- commit: 2548205
+- next: **T62.** Review's medium is T60's mirror (page *newer* than the row) — pre-existing, in
+  BACKLOG.

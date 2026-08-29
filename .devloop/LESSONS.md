@@ -25,3 +25,4 @@ A journal `next:` is for *this* handoff; a lesson is what would have saved a pas
 - A "did this field change" guard misses an editor closed and reopened mid-write; one counter bumped by every touch of it covers both, erring toward keeping text.
 - A substring assertion on a query parameter's *name* can pass on the sort column's value — pin the whole URL.
 - A "no usable file" answer folds two causes — stale version, and bytes gone — so any reference carried across on the strength of that answer must be re-checked on disk.
+- A cache hit costs the budget nothing, so a guard that turns one into a real request must re-ask `CanContinue` itself.
