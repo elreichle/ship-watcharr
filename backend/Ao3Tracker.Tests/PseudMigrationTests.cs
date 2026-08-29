@@ -20,6 +20,11 @@ namespace Ao3Tracker.Tests;
 /// so every capitalisation of one creator has to collapse onto a single row, and every work linked
 /// to more than one of them has to end up linked to the survivor exactly once. Two links repointed
 /// onto the same survivor collide on <c>PK_WorkAuthors</c> and take the whole upgrade down.
+///
+/// A saved filter's author criteria are the second thing pointing at a pseud, and they fail the
+/// other way round: <c>SavedWorkFilterAuthors.PseudId</c> cascades on delete, so a criterion naming
+/// a losing spelling is taken out with it silently — an upgrade that succeeds and quietly stops
+/// narrowing to the creator it was saved for. They need the same thin-then-repoint treatment.
 /// </summary>
 public class PseudMigrationTests : IDisposable
 {
@@ -124,6 +129,104 @@ public class PseudMigrationTests : IDisposable
         Assert.Equal([(100L, 1), (101L, 1)], AuthorLinks());
     }
 
+    [Fact]
+    public void A_saved_filters_author_criterion_follows_the_creator_onto_the_survivor()
+    {
+        // The cascade this task exists for. `SavedWorkFilterAuthors.PseudId` is declared
+        // `onDelete: Cascade`, so a criterion naming the loser is deleted with it rather than
+        // moved — the upgrade reports success and the filter silently stops naming anyone.
+        SeedPseud(1, "someuser", "somepseud");
+        SeedPseud(2, "SomeUser", "SomePseud");
+        SeedUser("user-1");
+        SeedFilter(10, "user-1");
+        SeedFilterAuthor(10, 2, exclude: false);
+
+        _migrator.Migrate(Under);
+
+        Assert.Equal([1], PseudIds());
+        Assert.Equal([(10, 1, false)], FilterAuthors());
+    }
+
+    [Fact]
+    public void Two_spellings_of_one_creator_on_one_filter_collapse_onto_one_criterion()
+    {
+        // `PK_SavedWorkFilterAuthors (SavedWorkFilterId, PseudId)` collides exactly the way
+        // `PK_WorkAuthors` does, so repointing without thinning first would swap the silent loss
+        // for a failed upgrade.
+        SeedPseud(1, "someuser", "somepseud");
+        SeedPseud(2, "SomeUser", "SomePseud");
+        SeedPseud(3, "SOMEUSER", "SOMEPSEUD");
+        SeedUser("user-1");
+        SeedFilter(10, "user-1");
+        SeedFilterAuthor(10, 2, exclude: false);
+        SeedFilterAuthor(10, 3, exclude: false);
+
+        _migrator.Migrate(Under);
+
+        Assert.Equal([1], PseudIds());
+        Assert.Equal([(10, 1, false)], FilterAuthors());
+    }
+
+    [Fact]
+    public void An_include_and_an_exclude_of_one_creator_merge_as_an_include()
+    {
+        // Two spellings can be named in opposite directions, which the API forbids for one pseud
+        // id but cannot forbid across ids it does not know are the same creator. The include is
+        // what makes the filter narrow, and the pre-merge answer was always some of that
+        // creator's works — so the include survives, and it survives from the *higher* id here to
+        // show the rule is the direction and not the id order that thins the links.
+        SeedPseud(1, "someuser", "somepseud");
+        SeedPseud(2, "SomeUser", "SomePseud");
+        SeedUser("user-1");
+        SeedFilter(10, "user-1");
+        SeedFilterAuthor(10, 1, exclude: true);
+        SeedFilterAuthor(10, 2, exclude: false);
+
+        _migrator.Migrate(Under);
+
+        Assert.Equal([1], PseudIds());
+        Assert.Equal([(10, 1, false)], FilterAuthors());
+    }
+
+    [Fact]
+    public void An_exclusion_of_a_losing_spelling_is_still_an_exclusion()
+    {
+        // Nothing to merge with: a lone exclude is repointed like any other criterion, and a
+        // filter that hid a creator keeps hiding them.
+        SeedPseud(1, "someuser", "somepseud");
+        SeedPseud(2, "SomeUser", "SomePseud");
+        SeedUser("user-1");
+        SeedFilter(10, "user-1");
+        SeedFilterAuthor(10, 2, exclude: true);
+
+        _migrator.Migrate(Under);
+
+        Assert.Equal([(10, 1, true)], FilterAuthors());
+    }
+
+    [Fact]
+    public void Criteria_are_thinned_per_filter_and_only_within_one_creator()
+    {
+        // The two over-reaches the thinning must not commit: a second creator on the same filter
+        // is not a duplicate of the first, and a second filter naming the same creator belongs to
+        // its own owner and keeps its own criterion.
+        SeedPseud(1, "someuser", "somepseud");
+        SeedPseud(2, "SomeUser", "SomePseud");
+        SeedPseud(3, "otheruser", "otherpseud");
+        SeedUser("user-1");
+        SeedUser("user-2");
+        SeedFilter(10, "user-1");
+        SeedFilter(11, "user-2");
+        SeedFilterAuthor(10, 2, exclude: false);
+        SeedFilterAuthor(10, 3, exclude: true);
+        SeedFilterAuthor(11, 2, exclude: false);
+
+        _migrator.Migrate(Under);
+
+        Assert.Equal([1, 3], PseudIds());
+        Assert.Equal([(10, 1, false), (10, 3, true), (11, 1, false)], FilterAuthors());
+    }
+
     private void SeedPseud(int id, string username, string pseudName) =>
         _db.Database.ExecuteSqlRaw(
             """
@@ -155,9 +258,44 @@ public class PseudMigrationTests : IDisposable
             """,
             workId, pseudId, position);
 
+    private void SeedUser(string id) =>
+        _db.Database.ExecuteSqlRaw(
+            """
+            INSERT INTO "AspNetUsers" (
+                "Id", "IsAdmin", "UserName", "EmailConfirmed", "PhoneNumberConfirmed",
+                "TwoFactorEnabled", "LockoutEnabled", "AccessFailedCount")
+            VALUES ({0}, 0, {0}, 0, 0, 0, 0, 0);
+            """,
+            id);
+
+    private void SeedFilter(int id, string userId) =>
+        _db.Database.ExecuteSqlRaw(
+            """
+            INSERT INTO "SavedWorkFilters" (
+                "Id", "UserId", "Name", "IsDefault", "Sort", "Ascending", "CreatedAt", "UpdatedAt")
+            VALUES ({0}, {1}, 'A filter', 0, 'updated', 0,
+                    '2026-01-01 00:00:00', '2026-01-01 00:00:00');
+            """,
+            id, userId);
+
+    private void SeedFilterAuthor(int filterId, int pseudId, bool exclude) =>
+        _db.Database.ExecuteSqlRaw(
+            """
+            INSERT INTO "SavedWorkFilterAuthors" ("SavedWorkFilterId", "PseudId", "Exclude")
+            VALUES ({0}, {1}, {2});
+            """,
+            filterId, pseudId, exclude ? 1 : 0);
+
     private List<int> PseudIds() => Query(
         """SELECT "Id" FROM "Ao3Pseuds" ORDER BY "Id";""",
         reader => reader.GetInt32(0));
+
+    private List<(int FilterId, int PseudId, bool Exclude)> FilterAuthors() => Query(
+        """
+        SELECT "SavedWorkFilterId", "PseudId", "Exclude" FROM "SavedWorkFilterAuthors"
+        ORDER BY "SavedWorkFilterId", "PseudId";
+        """,
+        reader => (reader.GetInt32(0), reader.GetInt32(1), reader.GetBoolean(2)));
 
     private List<(long WorkId, int PseudId)> AuthorLinks() => Query(
         """SELECT "WorkId", "PseudId" FROM "WorkAuthors" ORDER BY "WorkId", "PseudId";""",

@@ -96,6 +96,53 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                     WHERE dup."Id" = "WorkAuthors"."PseudId");
                 """);
 
+            // The same treatment for the other table pointing at a pseud. `SavedWorkFilterAuthors`
+            // declares its `PseudId` FK `onDelete: Cascade`, so a criterion still naming a loser
+            // when the `DELETE` below runs is not repointed but taken out with it — an upgrade that
+            // reports success and leaves a saved filter no longer narrowing to the creator it was
+            // saved for. Thin first for the same reason as above: `PK_SavedWorkFilterAuthors
+            // (SavedWorkFilterId, PseudId)` collides exactly the way `PK_WorkAuthors` does.
+            //
+            // The order that decides which criterion survives is (Exclude, PseudId), so an include
+            // beats an exclude whatever their ids. Two spellings of one creator can be named in
+            // opposite directions — the API forbids that for one pseud id, but cannot forbid it
+            // across ids it does not know are the same creator — and merging them is a judgement
+            // either way. The include is the criterion that makes the filter narrow, and the
+            // pre-merge result was always a subset of that creator's works, so keeping it stays a
+            // superset of the old answer; keeping the exclude instead would flip the view to
+            // everything *except* them, which is the largest change available.
+            migrationBuilder.Sql("""
+                DELETE FROM "SavedWorkFilterAuthors"
+                WHERE EXISTS (
+                    SELECT 1 FROM "SavedWorkFilterAuthors" other
+                    JOIN "Ao3Pseuds" theirs ON theirs."Id" = other."PseudId"
+                    JOIN "Ao3Pseuds" mine
+                      ON mine."UsernameNormalized" = theirs."UsernameNormalized"
+                     AND mine."PseudNameNormalized" = theirs."PseudNameNormalized"
+                    WHERE other."SavedWorkFilterId" =
+                          "SavedWorkFilterAuthors"."SavedWorkFilterId"
+                      AND mine."Id" = "SavedWorkFilterAuthors"."PseudId"
+                      AND (other."Exclude" < "SavedWorkFilterAuthors"."Exclude"
+                        OR (other."Exclude" = "SavedWorkFilterAuthors"."Exclude"
+                            AND other."PseudId" < "SavedWorkFilterAuthors"."PseudId")));
+                """);
+
+            migrationBuilder.Sql("""
+                UPDATE "SavedWorkFilterAuthors"
+                SET "PseudId" = (
+                    SELECT MIN(keep."Id") FROM "Ao3Pseuds" keep
+                    JOIN "Ao3Pseuds" dup
+                      ON keep."UsernameNormalized" = dup."UsernameNormalized"
+                     AND keep."PseudNameNormalized" = dup."PseudNameNormalized"
+                    WHERE dup."Id" = "SavedWorkFilterAuthors"."PseudId")
+                WHERE "PseudId" <> (
+                    SELECT MIN(keep."Id") FROM "Ao3Pseuds" keep
+                    JOIN "Ao3Pseuds" dup
+                      ON keep."UsernameNormalized" = dup."UsernameNormalized"
+                     AND keep."PseudNameNormalized" = dup."PseudNameNormalized"
+                    WHERE dup."Id" = "SavedWorkFilterAuthors"."PseudId");
+                """);
+
             migrationBuilder.Sql("""
                 DELETE FROM "Ao3Pseuds"
                 WHERE "Id" <> (
