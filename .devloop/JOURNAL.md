@@ -279,3 +279,14 @@ Append-only. One entry per iteration, newest last.
 - commit: 12afd3f
 - next: **T80** (T39 removed its blocker). Review's two findings fixed in the amend — which is why
   the column is `ResumePage`, not `DeepestPageRead`.
+
+## 2026-08-29 — T80 An unfiltered page 1 with no heading must not complete a backfill — done
+
+- did: `page == 1` now waives `page > 1` only where the page carries a readable heading, so page 1
+  concludes on what it says, not on everything it failed to say. `WhyNotTheEnd` gains page 1's own
+  sentence. T28's C7 closed in the audit.
+- files: `Api/Services/Scraping/Ao3ShipIndexScraper.cs`, `Tests/Ao3ShipIndexScraperTests.cs`
+- ran: `~Listing` → 39 (2 red first); `dotnet test` → 976; build clean; lint → 2 known.
+- commit: ffb5b96
+- next: **T82.** Review's one finding is the same hole on the *non-empty* route (`:637` takes
+  `LastPage` off a missing Next link alone) → BACKLOG; the doc overclaim it caught is in the amend.

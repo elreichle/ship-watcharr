@@ -110,9 +110,9 @@ backfill is `Complete` and which nothing later revisits.
 | C4 | A Next link — the page says there is more after it | `:647` | every page | `Still_refuses_an_empty_filtered_page_that_offers_a_next_one` |
 | C5 | A heading counting works the page cannot account for, against the denominator that heading is counting: zero when unfiltered, the run's own blurb tally when filtered | `:982`, `:1008` | every page | `Refuses_to_call_a_backfill_complete_when_a_page_parses_to_no_works_under_a_populated_heading`, `Refuses_a_filtered_first_page_whose_heading_counts_more_than_the_run_was_served`, `Reads_a_quiet_filtered_pass_whose_heading_counts_zero_as_nothing_new` |
 | C6 | `WhyNotTheEnd` names which of the above failed, for the run history | `:680` | every page | `Says_which_evidence_made_a_page_unreadable_rather_than_one_sentence_for_all_of_them` |
-| C7 | **Page 1 waives C2 and C3 outright** — the short-circuit. C5 now applies to it (T50); what it still waives unread is the *absence* of a heading | `:979` | every page 1 | `Still_treats_an_empty_first_page_as_an_empty_tag`, `Reads_a_quiet_filtered_pass_whose_heading_counts_zero_as_nothing_new` |
+| C7 | **Page 1 waives C2 and C3, but only where the page carries a readable heading** (T80). C5 then reads that heading, so page 1 concludes on what it says and never on what it failed to say | `:1006`, `:1036` | every page 1 | `Still_treats_an_empty_first_page_as_an_empty_tag`, `Refuses_an_unfiltered_first_page_with_no_heading_to_end_the_Listing_on`, `Refuses_a_filtered_first_page_with_no_heading_to_end_the_Listing_on` |
 
-**C7 had two open questions; one is now closed.**
+**C7 had two open questions; both are now closed.**
 
 - *Filtered page 1 carrying a heading that counts more than the run was served* used to conclude
   `LastPage` with a null error message — the ship ingesting nothing and the run recorded a clean
@@ -120,17 +120,19 @@ backfill is `Complete` and which nothing later revisits.
   unfiltered, it is re-based on the denominator the heading counts, so the same contradiction C3
   refuses on page 2 is refused on page 1. A quiet filtered pass is served a heading counting zero
   and still concludes, and refusing costs no request the run was not making anyway.
-- *Unfiltered page 1 with the container, no works, no Next link and **no heading at all*** concludes
-  `LastPage` too — and for a backfill that is `Complete`, the whole back catalogue written off from
-  the absence of every piece of evidence. C3's rule for filtered pages is that no evidence is not
-  permission (T47); page 1 has the opposite rule, on the premise that AO3 renders the container for a
-  genuinely empty tag. That premise was **T39's**, and **T39 settled the premise on 2026-08-27**
-  without closing this row: the capture shows a zero-result index rendering the container *and* a
-  `0 Works in <tag>` heading. What that buys is the *freedom to fix this* — requiring a heading on
-  page 1 can no longer strand a genuinely empty tag, because a genuinely empty tag has one. The code
-  is unchanged: `page == 1` still short-circuits before any heading is read, so an unfiltered page 1
-  with no heading at all still concludes `LastPage` and, for a backfill, `Complete`. **C7 stays open
-  and the fix is T80.**
+- *Unfiltered page 1 with the container, no works, no Next link and **no heading at all*** used to
+  conclude `LastPage` too — and for a backfill that is `Complete`, the whole back catalogue written
+  off from the absence of every piece of evidence. C3's rule for filtered pages is that no evidence
+  is not permission (T47); page 1 had the opposite rule, on the premise that AO3 renders the
+  container for a genuinely empty tag. **T39 settled that premise on 2026-08-27** without closing
+  this row: the capture shows a zero-result index rendering the container *and* a `0 Works in <tag>`
+  heading, which bought the *freedom to fix this* — requiring a heading on page 1 can no longer
+  strand a genuinely empty tag, because a genuinely empty tag has one. **T80, done 2026-08-29**:
+  the short-circuit is now `page == 1 && HeadingWasReadable(listing)`, so page 1 is waived past C2
+  and C3 only by a heading C5 then reads. A headingless page 1 stops the run with `Error` naming the
+  page — it cannot retreat (B-series: `CursorMayBeStale` needs `page > 1`) — and the backfill stays
+  unfinished for the scheduler to ask again. The filtered half moved with it: a quiet incremental
+  pass still concludes on `0 Works in <tag>`, and a page that cannot even say that is refused.
 
 ## D. What is written back to the ship, and what a later pass may believe
 
@@ -264,7 +266,7 @@ listing, and the rules it inherits are now written down rather than inferred.
 | The authenticated-total flag ORs across a run whose total is written per page | D13 | T44 — **done 2026-08-25**; the flag is written inside `RecordTotal` from the response the heading came off |
 | Nothing refreshes a watermarked ship's tag total | D12 | T15's notes — its sweep is both the only refresher and the only consumer |
 | Filtered page 1 accepts the contradiction page 2 refuses | C7, C5 | T50 — **done 2026-08-28** |
-| Unfiltered page 1 with no heading may complete a backfill | C7 | **T80** (new) — T39's capture removed the reason not to fix it, but the code is unchanged and still concludes |
+| Unfiltered page 1 with no heading may complete a backfill | C7 | T80 — **done 2026-08-29** |
 | A 404 at page 1 never counts as a stalled run; a denied tag reports `LastPage` | D6, A2 | T46's notes |
 | A page failing at the transport level stops with `Breaker`, so T45's bound never sees it | B18, F1 | T81 — **done 2026-08-28**, with T52 in one diff |
 | Two tasks describe the same CA2017 warning | — | T41 folded into T49; see `DECISIONS.md` |

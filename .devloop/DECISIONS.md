@@ -457,3 +457,11 @@ reading anything must not have the *next* restart discard the admin's choice —
 pages between the two re-requested at the shared gate, which is the cost this task removes. Not
 conditioned on the page differing from the default: the Ships page pre-fills that default and posts
 it, so the one-click path arrives as an explicit page and writes back what was already there.
+
+## 2026-08-29 — T80 requires the heading on *both* halves of the page 1 short-circuit
+
+T80 names the unfiltered page. The short-circuit is one clause serving both, and the rejected
+option — waiving it for filtered page 1 only — would have left a filtered page 1 concluding on no
+evidence one line after T50 refused exactly that on the evidence it had. Requiring the heading of
+both costs the filtered path nothing: a quiet pass is served `0 Works in <tag>`, which T50's own
+fixtures already carry, so both its pinned tests stay green and neither became vacuous.

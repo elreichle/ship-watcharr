@@ -1939,7 +1939,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   noise on every unauthenticated pass over a tag with one restricted work in it, which is most tags.
 
 ## T80 — An unfiltered page 1 with no heading must not complete a backfill
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none — T39 removed the reason this could not be fixed.
 - delivers: `PlausiblyTheEndOfTheListing`'s `page == 1` short-circuit requires the page to carry a

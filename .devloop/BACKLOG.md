@@ -67,3 +67,8 @@ A human promotes an item into `tasks.md` between runs; the loop only adds here.
   migration-merge cases would close it.
 - `frontend/src/pages/ShipsPage.tsx`: `describeStatus`'s doc block is orphaned above
   `canRestartBackfill`'s — pre-existing, noticed by T78's review; a one-line move.
+- A page that parsed to *some* works and offers no Next link takes `LastPage` at
+  `Ao3ShipIndexScraper.cs:637` with its heading unread, and a backfill's `LastPage` is `Complete`
+  — so a pagination markup change files a 60,000-work tag as fully backfilled off page 1's twenty
+  blurbs, with `TotalWorks` sitting there saying 60,000. Same shape as T80, the non-empty route;
+  `HeadingCountsMoreThanTheRunWasServed` is already the predicate for it. (T80's review.)
