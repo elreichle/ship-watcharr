@@ -367,7 +367,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   without bound.
 
 ## T17 — The notification UI
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: T16
 - delivers: An unread count in the sidebar, a list of notifications linking to the works that

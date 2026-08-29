@@ -11,3 +11,4 @@ A journal `next:` is for *this* handoff; a lesson is what would have saved a pas
 - `/usr/bin/dotnet` is runtime-only: non-interactive shells need `PATH="$HOME/.dotnet:$PATH"`.
 - Never `pkill` on `Ao3Tracker.Api.dll` — it matches the systemd dev instance on :5110; kill by PID.
 - `dotnet ef database update` ignores your connection string: the design-time factory sends it to `design-time.db` in the API directory, never `appdata/`.
+- A count both polled and written by a click needs the poll to check a write counter before applying, or a slow poll reverts the click.

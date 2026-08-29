@@ -566,3 +566,16 @@ Append-only. One entry per iteration, newest last.
   never reaching the ingestor.
 - commit: f4efe9c
 - next: **T17, the UI**, its only blocker. 4 review fixes in; 3 BACKLOG lines.
+
+## 2026-08-28 — T17 The notification UI — done
+
+- did: A Notifications page listing what followed ships gained, each line linking to its work,
+  marking read per row and all at once; a sidebar badge on shared context, so a row read on the
+  page drops the count at once; polled at 60s, not at all while the tab is hidden.
+- files: `frontend/src/pages/NotificationsPage.tsx`, `hooks/useNotifications.ts`, `App.tsx`,
+  `components/{NotificationsProvider,NavItem,Sidebar,AppLayout,navigation}`, `api/*`, `*.css`
+- ran: `npm run build` clean; `npm run lint` → the two known warnings only; `dotnet test` → 875
+  (unchanged, no backend change). **No live check**: the task's verification line asks for one but
+  carries no `verify: live`, the marker the skill makes deciding.
+- commit: c598c0f
+- next: **T20** — blockers T4, T14, T17, T19 all done. Review found 5, all in this diff, all fixed.
