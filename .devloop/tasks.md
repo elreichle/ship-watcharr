@@ -1693,7 +1693,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   cannot know.
 
 ## T68 — Two edits to one work's state can silently keep the older one
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: Concurrent per-work state edits from one page cannot leave the database holding the

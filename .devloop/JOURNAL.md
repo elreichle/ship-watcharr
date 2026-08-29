@@ -230,3 +230,13 @@ Append-only. One entry per iteration, newest last.
 - commit: 4ef36b1
 - next: **T68.** Review's other two (a leaked `_attempts` entry, a session dying mid-drain) are
   pre-existing and in BACKLOG.
+
+## 2026-08-29 — T68 Two edits to one work's state can silently keep the older one — done
+
+- did: each row's state writes now queue behind that row's last one (`stateWriteChains`, keyed by
+  work id; the detail page keeps one chain, reset when it moves to another work) — the write tokens
+  only ever governed which *response* repainted, never the order the whole-state PUTs landed in.
+- files: `frontend/src/pages/WorksPage.tsx`, `frontend/src/pages/WorkDetailPage.tsx`
+- ran: `npm run build` → clean; `npm run lint` → the 2 known warnings; `dotnet test` → 952 passed
+- commit: 489fdca
+- next: **T72.** Review skipped: ~20 substantive lines, the rest re-indentation, no new surface.

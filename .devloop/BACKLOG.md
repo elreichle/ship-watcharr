@@ -50,3 +50,6 @@ A human promotes an item into `tasks.md` between runs; the loop only adds here.
   `ReleaseInterruptedFetchesAsync` catches everything non-shutdown itself, so the only way through it
   is an exotic throw from the `finally`. The reviewer's suggested repro (a failing scope factory) is
   caught inside and does not reach it.
+- A refused state write reverts the row to the value it held when the reader clicked, which may
+  itself be an optimistic value an earlier refused write left there — so two failures in a row can
+  leave the row showing state the server never accepted. Predates T68 and is untouched by it.
