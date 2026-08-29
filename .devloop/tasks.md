@@ -1912,7 +1912,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   Decide which, and say why in DECISIONS.
 
 ## T79 — Does an anonymous listing show restricted works at all?
-- status: blocked
+- status: done
 - attempts: 0
 - blocked-by: **a capture only Emma can take.** The loop's shell has no network. Needed: a works
   index for a tag known to contain at least one restricted work, saved **logged out** — the same

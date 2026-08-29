@@ -646,3 +646,15 @@ Append-only. One entry per iteration, newest last.
   clean. Inverting the guard reds all four tests.
 - commit: fa72ce9
 - next: **T10** — its only blocker. Review: 2 findings, in-diff, fixed.
+
+## 2026-08-29 — T79 Does an anonymous listing show restricted works? — done
+
+- did: No — they are withheld outright, not marked. Emma's matched pair measures the premise under
+  the scraper's warning and under `LastKnownTotalWasAuthenticated`: 12,285 works anonymously against
+  13,736 with a session, same twenty on page 1, every facet up a tenth. The warning stays as the
+  alarm for the day that stops holding (DECISIONS).
+- files: `Scraping/Ao3ShipIndexScraper.cs`, `Tests/Ao3RestrictedWorkVisibilityTests.cs` (new),
+  `Tests/Fixtures.cs`, 4 fixtures, `Tests/Ao3Login{Page,Establisher}Tests.cs`
+- ran: `~Restricted` → 5 (**2 before**); `dotnet test` → 888 (885); build + lint clean.
+- commit: 7059218; ad26602 redacts username + CSRF from all four fixtures
+- next: **T10**, unblocked by T51. The shell has network now; `spec.md`'s "no network" line is stale.

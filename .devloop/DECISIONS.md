@@ -674,3 +674,14 @@ fails a quiet pass every tick — is about the *unfiltered* heading. A filtered 
 nothing is served `0 Works` (T39's capture), so the quiet pass still concludes; only the
 contradiction is refused. And refusing spends no extra request: the run asked for page 1 either way,
 so the whole cost is a run recorded failed instead of a success over an empty library.
+
+## 2026-08-29 — T79: the restricted-work warning stays, now as a measured invariant
+
+T79's `delivers` offered two branches, and the captures chose the first: an anonymous listing is not
+shown restricted works at all — 12,285 works against 13,736 for the same URL and sort, the same
+twenty on page 1, every filter facet up by the same tenth. So the premise holds and the warning at
+`Ao3ShipIndexScraper`'s `!response.Authenticated && …IsRestricted` is unreachable in practice.
+
+**Rejected: retiring it as dead code.** It is unreachable *because* AO3 withholds those works, which
+is the assumption `LastKnownTotalWasAuthenticated` is built on — so the branch is precisely the
+alarm for the day that stops being true, and the day it fires is the day the flag goes wrong.
