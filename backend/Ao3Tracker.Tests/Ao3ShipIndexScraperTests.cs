@@ -1356,13 +1356,18 @@ public class Ao3ShipIndexScraperTests : IDisposable
     }
 
     [Fact]
-    public async Task Reads_a_quiet_filtered_pass_with_a_populated_heading_as_nothing_new()
+    public async Task Reads_a_quiet_filtered_pass_whose_heading_counts_zero_as_nothing_new()
     {
-        // A filtered listing's heading counts the filter's result set, not the tag — which is why
-        // RecordTotal ignores it — so it cannot be held against the blurbs to detect a parse
-        // failure. Were it, every quiet incremental pass on a tag whose heading still prints a
-        // count would be recorded as an error, on every tick.
-        _host.Http.Responds = Pages(Page(1, [], total: 4317));
+        // The situation the rule about filtered headings exists to leave alone: a ship nobody has
+        // written for since the watermark. The request matched nothing, so the heading AO3 renders
+        // counts nothing (Ao3EmptyListingTests pins that against the capture) and it agrees with
+        // the zero blurbs beside it. Recording an error here would file every scheduled run on
+        // every quiet ship as a failure, on every tick.
+        //
+        // This fixture used to be `total: 4317` — a heading counting 4,317 matches over zero
+        // blurbs served, which is not a quiet pass at all but the contradiction the test below
+        // now refuses. It stood in for the quiet case only because page 1 concluded either way.
+        _host.Http.Responds = Pages(Page(1, [], total: 0));
 
         var shipId = await FollowAsync();
         await SetWatermarkAsync(shipId, Jan(5));
@@ -1371,6 +1376,32 @@ public class Ao3ShipIndexScraperTests : IDisposable
 
         Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
         Assert.Null(outcome.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task Refuses_a_filtered_first_page_whose_heading_counts_more_than_the_run_was_served()
+    {
+        // The same contradiction as the page 2 case below, one page earlier, where `page == 1`
+        // short-circuited it out of reach: the request says 4,317 works have been revised since
+        // Jan 5 and not one of them was served. That is a page that could not be read, and taking
+        // it for the end of the listing is worse here than anywhere else in the walk — page 1 is
+        // the whole of an incremental pass's evidence, so the run ingests nothing and is recorded
+        // a clean success, every tick, for as long as the listing stays broken.
+        //
+        // It costs no extra request to refuse. The run asked for page 1 either way; what changes
+        // is that the run history now names the page instead of reporting a success over an empty
+        // library.
+        _host.Http.Responds = Pages(Page(1, [], total: 4317));
+
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(5));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        Assert.Contains("4317", outcome.ErrorMessage);
+        Assert.Contains("served 0", outcome.ErrorMessage);
+        Assert.Equal(Jan(5), (await ReloadAsync(shipId)).IncrementalWatermarkUtc);
     }
 
     [Fact]

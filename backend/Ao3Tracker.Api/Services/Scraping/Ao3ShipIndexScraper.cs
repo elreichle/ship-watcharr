@@ -961,10 +961,14 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// <see cref="ScrapeRunMode.Incremental"/>), so nothing the waiver reaches is a walk that could
     /// conclude <see cref="ShipBackfillState.Complete"/>.</item>
     /// <item>A Next link: the page says itself that there is more after it.</item>
-    /// <item>A heading counting works the blurbs do not contain. Only on an unfiltered listing: a
-    /// <c>revised_at</c>-filtered request's heading counts the filter's result set, not the tag
-    /// (see <see cref="RecordTotal"/>), so a quiet incremental pass reading zero blurbs under a
-    /// heading is the healthy case and holding it against the page would fail every tick.</item>
+    /// <item>A heading counting works the page cannot account for, against whichever denominator
+    /// that heading is comparable with (see
+    /// <see cref="HeadingCountsMoreThanTheRunWasServed"/>). An unfiltered heading counts the tag,
+    /// so any positive count over zero readable blurbs is the contradiction. A
+    /// <c>revised_at</c>-filtered request's heading counts the filter's result set instead (see
+    /// <see cref="RecordTotal"/>), so it is compared against this run's own tally of blurbs — and
+    /// a quiet incremental pass, whose request matched nothing, is served a heading counting zero
+    /// and stays the healthy case it has always been.</item>
     /// </list>
     ///
     /// None of the four: an empty tag, as far as anything on the page can say, and the walk
@@ -975,7 +979,35 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         listing.HasListing
         && (page == 1 || (listingWasFiltered && FilteredHeadingSaysThisIsAll(listing, blurbsRead)))
         && !listing.HasNextPage
-        && !(listing.TotalWorks > 0 && !listingWasFiltered);
+        && !HeadingCountsMoreThanTheRunWasServed(listing, listingWasFiltered, blurbsRead);
+
+    /// <summary>
+    /// Whether the heading counts works this run has not been served, which is the listing itself
+    /// saying the walk did not end here.
+    ///
+    /// The denominator is what the heading is counting, and the two cases differ. An unfiltered
+    /// heading counts the tag, and one page's blurbs are never the whole of it, so the comparison
+    /// is against zero: a positive count over a page that parsed to nothing is a parse failure
+    /// wearing the end of the listing's clothes. A filtered heading counts the filter's result set,
+    /// which a run that starts at page 1 and walks forward has been served all of — so the
+    /// comparable number is <paramref name="blurbsRead"/>, this run's own tally.
+    ///
+    /// The filtered comparison used to be skipped entirely rather than re-based, which left the
+    /// heading unread on a filtered page 1: the container, no Next link, no blurbs and a heading
+    /// counting 4,317 matches concluded <see cref="ScrapeStopReason.LastPage"/> with no error
+    /// message at all. An incremental pass is page 1 and little else, so the ship ingested nothing
+    /// and filed a clean success, every tick, for as long as the listing stayed that way. Refusing
+    /// costs no extra request — the run asked for page 1 either way — and buys a run history that
+    /// names the page instead of a library that is empty for no stated reason.
+    ///
+    /// A heading that did not parse counts nothing here, deliberately and in the opposite direction
+    /// to <see cref="FilteredHeadingSaysThisIsAll"/>: no evidence is not permission *and* not a
+    /// contradiction. Whether an absent heading should stop a page 1 concluding at all is a
+    /// separate rule about the short-circuit above, not about this one.
+    /// </summary>
+    private static bool HeadingCountsMoreThanTheRunWasServed(
+        Ao3ListingPage listing, bool listingWasFiltered, int blurbsRead) =>
+        listing.TotalWorks is { } counted && counted > (listingWasFiltered ? blurbsRead : 0);
 
     /// <summary>
     /// Whether a filtered listing's heading says the run has been served the whole result set.
@@ -1011,22 +1043,24 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     {
         if (!listing.HasListing) return "the response carried no listing at all, so it is not a results page";
         if (listing.HasNextPage) return "the page still offers a next one";
-        if (listing.TotalWorks > 0 && !listingWasFiltered)
-            return $"the heading counts {listing.TotalWorks.Value.ToString(CultureInfo.InvariantCulture)} works in the tag";
-
-        if (listingWasFiltered && page > 1 && !FilteredHeadingSaysThisIsAll(listing, blurbsRead))
-            return listing.TotalWorks is { } matched
-                ? $"the heading counts {matched.ToString(CultureInfo.InvariantCulture)} works "
-                    + $"matching this run's date filter and the run has been served "
-                    + $"{blurbsRead.ToString(CultureInfo.InvariantCulture)}"
-                : $"page {page.ToString(CultureInfo.InvariantCulture)} was only reached because an earlier "
+        if (!HeadingCountsMoreThanTheRunWasServed(listing, listingWasFiltered, blurbsRead))
+            return listingWasFiltered && page > 1 && listing.TotalWorks is null
+                ? $"page {page.ToString(CultureInfo.InvariantCulture)} was only reached because an earlier "
                     + "page offered a next one, and it carries no heading to say the date filter's results "
-                    + "ended here";
+                    + "ended here"
+                // The unfiltered walk's remaining evidence. A filtered page 1 that gets this far
+                // carries no heading either, but it does not reach here at all: with nothing to
+                // contradict it, PlausiblyTheEndOfTheListing concluded and the caller never asked.
+                : $"page {page.ToString(CultureInfo.InvariantCulture)} was only reached because an earlier page offered a next one";
 
-        // The unfiltered walk's remaining evidence. A filtered page past the first is answered by
-        // the branch above whether it carries a heading or not, and a filtered page 1 waives this
-        // condition outright — so nothing filtered reaches here.
-        return $"page {page.ToString(CultureInfo.InvariantCulture)} was only reached because an earlier page offered a next one";
+        // The heading, named against the denominator it was actually compared with — an operator
+        // reading "counts 4317 and the run has been served 0" over a filtered page can tell it
+        // from the tag's own size, which is a different number and not what refused this page.
+        return listingWasFiltered
+            ? $"the heading counts {listing.TotalWorks!.Value.ToString(CultureInfo.InvariantCulture)} works "
+                + $"matching this run's date filter and the run has been served "
+                + $"{blurbsRead.ToString(CultureInfo.InvariantCulture)}"
+            : $"the heading counts {listing.TotalWorks!.Value.ToString(CultureInfo.InvariantCulture)} works in the tag";
     }
 
     // ---- URLs --------------------------------------------------------------------------------
