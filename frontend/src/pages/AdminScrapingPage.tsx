@@ -19,6 +19,7 @@ export function AdminScrapingPage() {
   const [credential, setCredential] = useState<InstanceAo3Credential | null>(null);
   const [ao3Username, setAo3Username] = useState('');
   const [ao3Password, setAo3Password] = useState('');
+  const [credentialError, setCredentialError] = useState<string | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginSaved, setLoginSaved] = useState<string | null>(null);
   const [savingLogin, setSavingLogin] = useState(false);
@@ -29,17 +30,30 @@ export function AdminScrapingPage() {
       setContact(next.isOverridden ? (next.operatorContact ?? '') : '');
     });
 
-  const loadCredential = () => api.getInstanceAo3Credential().then(setCredential);
+  // A failed read is its own state, kept apart from `loginError` (which belongs to the form
+  // below): `credential` stays null either way, so without it a rejected fetch is indistinguishable
+  // from one still in flight and the block says "Loading…" forever.
+  const loadCredential = () =>
+    api.getInstanceAo3Credential().then((next) => {
+      setCredential(next);
+      setCredentialError(null);
+    });
+
+  const retryCredential = () => {
+    setCredentialError(null);
+    loadCredential().catch(() => setCredentialError('Failed to load the AO3 login.'));
+  };
 
   useEffect(() => {
     load().catch(() => setError('Failed to load scraping settings.'));
-    loadCredential().catch(() => setLoginError('Failed to load the AO3 login.'));
+    loadCredential().catch(() => setCredentialError('Failed to load the AO3 login.'));
   }, []);
 
   // Saving or clearing the login changes what the gate says, so the identity block above it is
   // re-read too rather than left showing the state from before the change.
   const applyCredential = async (next: InstanceAo3Credential, message: string) => {
     setCredential(next);
+    setCredentialError(null);
     setLoginSaved(message);
     await load().catch(() => undefined);
   };
@@ -213,7 +227,14 @@ export function AdminScrapingPage() {
         and nothing else — this app never posts, kudos, bookmarks or subscribes.
       </p>
 
-      {credential === null ? (
+      {credentialError !== null ? (
+        <p className="error">
+          {credentialError}{' '}
+          <button type="button" className="link" onClick={retryCredential}>
+            Try again
+          </button>
+        </p>
+      ) : credential === null ? (
         <p>Loading…</p>
       ) : credential.hasCredential ? (
         <table className="identity-table">
