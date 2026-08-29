@@ -15,11 +15,14 @@ end-to-end — scheduling, budgets, rate limiting, persistence — and the AO3 s
 under it in three passes: an incremental one bounded by the ship's watermark, a resumable backfill
 into the back catalogue, and a monthly full sweep, the only pass allowed to conclude a work has
 *left* a tag. Over that sit reading status, half-star ratings and private notes, per-work detail
-pages, queued downloads, in-app notifications and per-ship statistics. `docker compose up --build`
-has been run and works — see [Running via Docker Compose](#running-via-docker-compose).
+pages fetched from the work's own page, queued downloads, in-app notifications and per-ship
+statistics. `docker compose up --build` has been run and works — see
+[Running via Docker Compose](#running-via-docker-compose).
 
-Known gap: the sweep *marks* a work that has left a ship's listing, but the works list, the saved
-filters and the statistics do not yet read that mark, so a removed work still appears in them.
+A work the sweep finds has left every tag you follow drops out of your feed, your saved filters'
+counts and your statistics — and stays open, writable and downloadable by id, so a sweep that
+marks one wrongly never costs you a rating, a note or a file. Anything you have marked stays
+listed either way, badged with the tag that let go.
 
 ## What this is for
 
@@ -47,23 +50,20 @@ reach about it.
 
 **What it does today.** Follow and unfollow relationship tags, with each one verified against AO3
 after the fact and synonyms folded into their canonical tag. Browse a paginated, sortable library
-of everything scraped for the ships you follow, and open any work's own page. Mark a work To read
-/ Reading / Read / Dropped, rate it in half-stars, and keep a private note on it — none of which a
+of everything scraped for the ships you follow, and open any work's own page — including the
+publication date and complete tag list a listing blurb does not carry, fetched from the archive
+once and stored. Mark a work To read / Reading / Read / Dropped, rate it in half-stars, and keep
+a private note on it — none of which a
 re-scrape can overwrite. Save named filter sets — AO3's filter sidebar, kept and reusable,
 including criteria over your own reading status and rating — and mark one as the default. Request
 a work as EPUB/MOBI/PDF/HTML and have the server queue and fetch it, serving a copy it already
 holds at the current version without touching AO3. Get in-app notifications when a followed ship
 gains a work. Read statistics over a ship's corpus with your own reading laid over it. See the
-scrape schedule behind each ship.
+scrape schedule behind each ship, and what each one's periodic full re-read of its listing is
+doing.
 
 **Planned.** In no particular order:
 
-- **Per-work detail fetches** — the data a blurb doesn't carry, such as publication date and the
-  complete tag list, fetched from the work's own page and tracked by `Work.DetailFetchedAt` /
-  `Work.PublishedAt`. The work detail page exists; today it shows what the listing blurb carried.
-- **Reading the removal mark.** The full sweep records that a work has left a ship's listing
-  (`ShipWork.MissingSinceAt`), and only the Ships page's work count consults it — the feed, the
-  filter counts and the statistics still include it.
 - **A second source beyond AO3.** The seams are already per-site rather than AO3-shaped; see
   [Key seams for future work](#key-seams-for-future-work).
 
@@ -241,7 +241,7 @@ The Dashboard views are one story told in several places:
 | **Works** | Paginated, sortable list of everything scraped for the ships you follow, each row carrying your own state; a row opens a per-work detail page | `GET /api/works`, `GET /api/works/{id}`, `GET`/`PUT /api/works/{id}/state` |
 | **Notifications** | What your followed ships have gained, marked read per row or all at once | `GET /api/notifications`, `GET /api/notifications/unread-count`, `POST /api/notifications/mark-read`, `POST /api/notifications/mark-all-read` |
 | **Filters** | Named, reusable sets of criteria — AO3's filter sidebar, saved | `GET`/`POST`/`PUT`/`DELETE /api/saved-filters` |
-| **Ships** | Follow and unfollow relationship tags | `GET`/`POST`/`DELETE /api/ships` |
+| **Ships** | Follow and unfollow relationship tags, and what each one's scrape is doing — the back-catalogue walk, and the periodic full re-read that finds works which have left the tag | `GET`/`POST`/`DELETE /api/ships` |
 | **Downloads** | Files you have asked the server to fetch, what became of each request, and the file itself once it lands | `GET /api/downloads`, `POST /api/works/{id}/downloads`, `GET /api/downloads/{id}/file`, `DELETE /api/downloads/{id}` |
 | **Statistics** | A ship's corpus with your own reading laid over it, computed by query and stored nowhere | `GET /api/stats` |
 | **Schedules** | Read-only view of the scrape schedule behind each ship | `GET /api/scrape-jobs` |

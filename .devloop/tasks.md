@@ -2129,3 +2129,18 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   nothing on the Ships or Schedules page saying why; `ScrapeRun.Mode` on the Schedules page is the
   only place the sweep is visible at all. `ShipsController` already projects `BackfillNextPage` and
   the Ships page already renders a backfill state, so this is the same shape one field over.
+
+## T87 — The README describes an app two tasks behind
+- status: in_progress
+- attempts: 0
+- blocked-by: none
+- delivers: A README whose status line, "what it does today" and "planned" list describe the tree
+  as it stands, so the definition of done's last clause holds.
+- verification: `grep` the file for each claim it makes about the removal mark and detail fetches,
+  and check them against the code — plus `npm run build` if any link or anchor moves.
+- notes: The finish check found it. Three claims are false as of T84: the "Known gap" paragraph
+  under the status line, the **Reading the removal mark** bullet under "Planned", and the
+  **Per-work detail fetches** bullet, which `Program.cs`'s `WorkDetailWorker` registration has
+  contradicted for some time. The docker note is already corrected. T86's sweep line on the Ships
+  page is new and worth a mention where the Ships view is described.
+
