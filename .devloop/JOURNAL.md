@@ -290,3 +290,17 @@ Append-only. One entry per iteration, newest last.
 - commit: ffb5b96
 - next: **T82.** Review's one finding is the same hole on the *non-empty* route (`:637` takes
   `LastPage` off a missing Next link alone) → BACKLOG; the doc overclaim it caught is in the amend.
+
+## 2026-08-29 — T82 A page nothing ever read cannot be held — done
+
+- did: The hold's streak now keys on `LastPageFetched` being *null* and reports page 0, so a tag AO3
+  404s is held before the first request. New `ScrapeStopReason.NotFound` is what makes that safe —
+  the archive answering, not failing — and the hold became one rule at the top of the walk.
+- files: `Api/Services/Scraping/{Ao3ShipIndexScraper,ScrapeBudget}.cs`, `Api/Models/ScrapeRun.cs`,
+  `Tests/Ao3ShipIndexScraperTests.cs`
+- ran: `~Held` → 12 (4 mutations, each red on its own test); `dotnet test` → 979; build clean;
+  lint → 2 known.
+- commit: 1717ace
+- next: **T83** — and its notes are now half-answered: review found a denied ship is also pinned in
+  whatever pass it was in, since the `Denied` return sits above `FinishAsync`. All 5 findings were
+  outside this diff → BACKLOG.

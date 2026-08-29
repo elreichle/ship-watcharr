@@ -72,3 +72,25 @@ A human promotes an item into `tasks.md` between runs; the loop only adds here.
   — so a pagination markup change files a 60,000-work tag as fully backfilled off page 1's twenty
   blurbs, with `TotalWorks` sitting there saying 60,000. Same shape as T80, the non-empty route;
   `HeadingCountsMoreThanTheRunWasServed` is already the predicate for it. (T80's review.)
+  T82's review adds the *incremental* consequence off the same unguarded stop: that run has
+  `firstPage == 1` and stops `LastPage`, so `FinishAsync` moves the watermark to page 1's newest and
+  everything behind it is out of reach of every later pass — filed `Succeeded`. One fix site, two
+  losses.
+- A ship denied *after* it started a pass is pinned in that pass for ever: `ExecuteAsync`'s
+  `NotFoundOnAo3` return sits above `FinishAsync`, so `BackfillStalledRuns` never moves and
+  `FullSweepNextPage` is never cleared — and `FullSweepIsDue` returns true unconditionally on a
+  non-null sweep cursor. No requests, but a `Failed` run every interval with no exit. T83 gives the
+  operator a route back; this is the half that would still be stuck without one. (T82's review.)
+- A sweep whose page 1 reads "0 Works" concludes `LastPage` and marks the ship's whole library
+  missing on a `Succeeded` run: `RecordTotal` overwrites `LastKnownTotalWorks = 0` from that same
+  page, so both of `ConcludeSweepAsync`'s guards pass by construction and the *previously stored*
+  total is never consulted. Recovery waits for the next sweep, since `WorkIngestor` clears
+  `MissingSinceAt` only for works re-ingested. Untested in `Ao3ShipIndexFullSweepTests`. (T82's
+  review.)
+- `MaxPagesPerRun` (200) is below `MaxRequestsPerRun` (500), so every backfill run of a tag deeper
+  than 200 pages hits the page ceiling first — logging a warning documented as bounding "a
+  pagination *bug*" and recording `StopReason = "cap"` with `HitRequestCap` and `HitTimeCap` both
+  false. Routine noise, and a stop reason no flag corroborates. (T82's review.)
+- `ScrapeBudget.CanContinue` returns on the breaker before evaluating the cap checks, which are what
+  set `HitRequestCap`/`HitTimeCap`. A run that spent its allowance on the iteration the breaker
+  opened reports `Breaker` with both flags false. (T82's review.)
