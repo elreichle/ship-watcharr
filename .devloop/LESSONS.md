@@ -28,3 +28,4 @@ A journal `next:` is for *this* handoff; a lesson is what would have saved a pas
 - A cache hit costs the budget nothing, so a guard that turns one into a real request must re-ask `CanContinue` itself.
 - Checking each link on a fetched page against a fixed origin is half the rule: the page's own final origin must be checked too, or a substituted page still picks which file gets stored.
 - A merge migration that repoints one child table is not finished: every FK onto the merged table needs it, and a cascading one loses rows silently rather than failing.
+- A column that overrides an operator's choice needs the override to survive a run that reads nothing, or the *next* restart silently discards it.

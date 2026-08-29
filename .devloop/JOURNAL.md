@@ -266,3 +266,16 @@ Append-only. One entry per iteration, newest last.
 - commit: 0131913
 - next: **T78.** Editing in place is safe by T35's test, re-checked: this branch only, and it ran
   against an empty `Ao3Pseuds`.
+
+## 2026-08-29 — T78 A restart resumes where the walk read to — done
+
+- did: `Ship.BackfillResumePage` — raised by every backfill page read, never by the halving retreat,
+  replaced by a page an admin names, cleared when a backfill begins. Restart and the Ships prefill
+  default to it; the status line names it beside the cursor when they differ.
+- files: `Api/{Models/Ship,Dtos/ShipDtos,Controllers/{Admin,}ShipsController,Services/Scraping/Ao3ShipIndexScraper}.cs`,
+  two `*_BackfillResumePage` migrations, `Tests/{Ao3ShipIndexScraper,BackfillRestart}Tests.cs`,
+  `frontend/src/{api/types.ts,pages/ShipsPage.tsx}`
+- ran: `~Backfill` → 48 (4 red first); `dotnet test` → 974; build clean; lint → 2 known.
+- commit: 12afd3f
+- next: **T80** (T39 removed its blocker). Review's two findings fixed in the amend — which is why
+  the column is `ResumePage`, not `DeepestPageRead`.

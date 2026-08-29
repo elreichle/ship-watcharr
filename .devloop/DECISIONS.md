@@ -442,3 +442,18 @@ page came off the wire (`ScrapeHttpResponse.FetchedAt`). Rejected: remembering t
 of which is already stored, and misses the first download after a revision entirely. Also rejected:
 bypassing the cache on every download fetch, which costs a rate-gated request per format for the
 common case the cache exists for.
+
+## 2026-08-29 — T78: a column, not a MAX over the run history
+
+Where a restart resumes is `Ship.BackfillResumePage`, a nullable column on both providers, raised
+beside the cursor once a page's works are committed and cleared when a backfill begins. Rejected:
+`MAX(ScrapeRun.LastPageFetched)` over this ship's runs since `BackfillStartedAt`, the no-schema
+variant T78's notes weighed — the run history is prunable, so the number would vanish exactly on the
+long-stalled ships this exists for, and a MAX has nowhere to put the half of this that no run
+fetched. The restart resumes *on* that page rather than after it, spending one re-read for the page
+whose next link points into unwalked listing. **Named "ResumePage", not "DeepestPageRead"**: a page
+an admin names replaces it in either direction, because a restarted walk that stalls again without
+reading anything must not have the *next* restart discard the admin's choice — deeper, that is the
+pages between the two re-requested at the shared gate, which is the cost this task removes. Not
+conditioned on the page differing from the default: the Ships page pre-fills that default and posts
+it, so the one-click path arrives as an explicit page and writes back what was already there.

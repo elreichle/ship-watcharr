@@ -1890,7 +1890,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   grows past what one iteration can verify, stop, mark what is green, and leave the rest `todo`.
 
 ## T78 — A restart should resume where the walk read to, not where it retreated to
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A ship written off after reading forty pages restarts at page forty, not at page one, so

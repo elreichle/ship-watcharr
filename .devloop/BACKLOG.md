@@ -65,3 +65,5 @@ A human promotes an item into `tasks.md` between runs; the loop only adds here.
 - No PostgreSQL server has executed any migration on this branch: the Postgres twins are verified
   by `diff` against the SQLite text and by reading, never by running. A container running the two
   migration-merge cases would close it.
+- `frontend/src/pages/ShipsPage.tsx`: `describeStatus`'s doc block is orphaned above
+  `canRestartBackfill`'s — pre-existing, noticed by T78's review; a one-line move.
