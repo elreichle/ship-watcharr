@@ -165,6 +165,125 @@ public class WorkIngestorPseudTests : IDisposable
         Assert.Equal(2, part.Part);
     }
 
+    [Fact]
+    public async Task Tags_a_detail_fetch_added_survive_the_next_listing_pass()
+    {
+        // The rule this pins is WorkIngestor.ApplyTags's: a listing blurb does not carry a work's
+        // whole tag list (spec, user story 11), so once the work's own page has been read the blurb
+        // is no longer entitled to delete. Without it every detail fetch is undone by the next
+        // incremental pass over the same ship, silently, on a run recorded as a success.
+        var shipId = await FollowAsync();
+
+        await _host.IngestAsync(shipId, Page(Blurb(1, freeforms: ["Fluff"])));
+        await DetailFetchAsync(1, "Slow Burn");
+
+        await _host.IngestAsync(shipId, Page(Blurb(1, freeforms: ["Fluff"])));
+
+        Assert.Equal(["Fluff", "Slow Burn"], await FreeformsAsync(1));
+    }
+
+    [Fact]
+    public async Task A_detail_fetched_work_still_gains_a_tag_the_listing_has_started_showing()
+    {
+        // The blurb stops being allowed to delete, not to observe. A tag it shows is a tag AO3 is
+        // rendering on the work right now, and waiting for the next detail fetch to record it would
+        // make the cheap pass useless for the half of the job it can still do honestly.
+        var shipId = await FollowAsync();
+
+        await _host.IngestAsync(shipId, Page(Blurb(1, freeforms: ["Fluff"])));
+        await DetailFetchAsync(1, "Slow Burn");
+
+        await _host.IngestAsync(shipId, Page(Blurb(1, freeforms: ["Fluff", "Angst"])));
+
+        Assert.Equal(["Angst", "Fluff", "Slow Burn"], await FreeformsAsync(1));
+    }
+
+    [Fact]
+    public async Task A_work_no_detail_fetch_has_read_still_drops_a_tag_the_author_removed()
+    {
+        // The other side of it, and the reason the guard is keyed on DetailFetchedAt rather than
+        // switched off wholesale: while the blurb is the only thing that has ever seen this work,
+        // its list really is the whole list, and an add-only ingest would present a work's entire
+        // tag history as current.
+        var shipId = await FollowAsync();
+
+        await _host.IngestAsync(shipId, Page(Blurb(1, freeforms: ["Fluff", "Angst"])));
+        await _host.IngestAsync(shipId, Page(Blurb(1, freeforms: ["Fluff"])));
+
+        Assert.Equal(["Fluff"], await FreeformsAsync(1));
+    }
+
+    [Fact]
+    public async Task A_detail_fetched_work_keeps_a_tag_the_listing_has_stopped_showing()
+    {
+        // The accepted cost of the rule, stated as a test so that narrowing the guard later cannot
+        // quietly change it: on a detail-fetched work a blurb that stops carrying a tag is evidence
+        // of nothing, because it was never carrying the whole list. The tag goes when the work's
+        // own page is read again and says so, not before.
+        var shipId = await FollowAsync();
+
+        await _host.IngestAsync(shipId, Page(Blurb(1, freeforms: ["Fluff", "Angst"])));
+        await DetailFetchAsync(1, "Fluff", "Angst", "Slow Burn");
+
+        await _host.IngestAsync(shipId, Page(Blurb(1, freeforms: ["Fluff"])));
+
+        Assert.Equal(["Angst", "Fluff", "Slow Burn"], await FreeformsAsync(1));
+    }
+
+    /// <summary>
+    /// What T10's detail fetch will do to a work: record tags the listing blurb never carried, and
+    /// stamp <see cref="Work.DetailFetchedAt"/>. Written here rather than through that scraper
+    /// because the rule under test is the ingestor's and holds whatever wrote the column.
+    /// </summary>
+    private async Task DetailFetchAsync(long workId, params string[] freeforms)
+    {
+        await using var db = _host.NewContext();
+        var work = await db.Works.SingleAsync(w => w.Id == workId);
+        work.DetailFetchedAt = new DateTime(2023, 2, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        foreach (var name in freeforms)
+        {
+            // Get-or-create on both rows, not create: the two sources overlap in the ordinary case
+            // — a detail page carries every tag the blurb showed and more — and both Tags
+            // ((Type, NameNormalized)) and WorkTags ((WorkId, TagId)) are uniquely keyed, so bare
+            // inserts would fail the save on a tag the listing pass already recorded rather than
+            // exercising the rule under test.
+            var normalized = name.ToUpperInvariant();
+            var tag = await db.Tags.FirstOrDefaultAsync(
+                t => t.Type == Ao3TagType.Freeform && t.NameNormalized == normalized);
+
+            if (tag is null)
+            {
+                tag = new Tag
+                {
+                    Type = Ao3TagType.Freeform,
+                    Name = name,
+                    NameNormalized = normalized,
+                    FirstSeenAt = work.DetailFetchedAt.Value,
+                };
+            }
+            else if (await db.WorkTags.AnyAsync(wt => wt.WorkId == workId && wt.TagId == tag.Id))
+            {
+                continue;
+            }
+
+            db.WorkTags.Add(new WorkTag { WorkId = workId, Tag = tag });
+        }
+
+        await db.SaveChangesAsync();
+    }
+
+    private async Task<List<string>> FreeformsAsync(long workId)
+    {
+        await using var db = _host.NewContext();
+
+        return await db.WorkTags
+            .Where(wt => wt.WorkId == workId && wt.Tag.Type == Ao3TagType.Freeform)
+            .Select(wt => wt.Tag.Name)
+            .OrderBy(name => name)
+            .ToListAsync();
+    }
+
     private async Task<int> FollowAsync()
     {
         var result = await _host.Ships(_host.SeedUser()).WatchShip(new(Lexa), default);

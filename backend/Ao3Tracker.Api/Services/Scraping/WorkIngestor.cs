@@ -302,6 +302,39 @@ public sealed class WorkIngestor : IWorkIngestor
 
     // ---- joins -------------------------------------------------------------------------------
 
+    /// <summary>
+    /// Brings a work's tags in line with the blurb — adding what it shows, and removing what it
+    /// does not <b>only while the blurb is the whole of what anyone has observed</b>.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The rule, which T10's detail fetch writes through:</b> a source may delete only
+    /// within a scope it observed completely. A listing blurb is not a complete observation of a
+    /// work's tags — the spec's user story 11 says so outright, and it is the entire reason a
+    /// per-work detail fetch exists. So the blurb is authoritative until the work's own page has
+    /// been read, and from then on it may add but never delete. The moment a work has a
+    /// <see cref="Work.DetailFetchedAt"/>, the reconcile below would otherwise erase every tag only
+    /// that page carried, on the next incremental pass over the ship, silently, on a run recorded
+    /// as a success.</para>
+    /// <para>Keyed on the column rather than on who is calling, because the ingestor is handed a
+    /// page and cannot see which pass produced it — and because the fact that matters is about the
+    /// work, not the caller.</para>
+    /// <para><b>Two alternatives were weighed and rejected.</b> Reconciling only within the tag
+    /// types a blurb is authoritative for needs an answer to which types those are, which is a
+    /// markup question nobody has captured; and it still deletes wrongly if a blurb is short
+    /// <i>within</i> a type. A provenance column per <see cref="WorkTag"/> would let a listing pass
+    /// reconcile its own rows precisely, at the cost of a migration on both providers — and it is
+    /// still wrong for a tag both sources saw, which the listing would then delete out from under
+    /// the detail page. Neither buys anything over deferring to the fuller observation.</para>
+    /// <para><b>The accepted cost is a stale tag, never a lost one.</b> A tag the author has since
+    /// removed survives on a detail-fetched work until the next detail fetch — and AO3's revision
+    /// timestamp tracks content, so a tag-only edit may not schedule one. That is the right side to
+    /// err on: this direction shows a reader a tag too many, the other loses tags nobody can get
+    /// back without re-fetching every work.</para>
+    /// <para><see cref="ApplyAuthors"/> and <see cref="ApplySeries"/> share the reconcile and are
+    /// deliberately left with it: a blurb carries a work's whole byline and whole series list, so
+    /// its observation of those really is complete. Should anything ever write them from a second
+    /// source, this rule applies to them too.</para>
+    /// </remarks>
     private void ApplyTags(Work work, Ao3WorkBlurb blurb, Dictionary<(Ao3TagType, string), Tag> tagsByKey)
     {
         var desired = blurb.Tags
@@ -310,7 +343,15 @@ public sealed class WorkIngestor : IWorkIngestor
             .Select(t => t!.Id)
             .ToHashSet();
 
-        Reconcile(work.Tags, desired, wt => wt.TagId, id => new WorkTag { WorkId = work.Id, TagId = id }, _db.WorkTags);
+        WorkTag Create(int id) => new() { WorkId = work.Id, TagId = id };
+
+        if (work.DetailFetchedAt is not null)
+        {
+            AddMissing(work.Tags, desired, wt => wt.TagId, Create);
+            return;
+        }
+
+        Reconcile(work.Tags, desired, wt => wt.TagId, Create, _db.WorkTags);
     }
 
     private void ApplyAuthors(Work work, Ao3WorkBlurb blurb, Dictionary<(string, string), Ao3Pseud> pseudsByKey)
@@ -379,6 +420,19 @@ public sealed class WorkIngestor : IWorkIngestor
             set.Remove(stale);
         }
 
+        AddMissing(current, desired, keyOf, create);
+    }
+
+    /// <summary>
+    /// The non-destructive half of <see cref="Reconcile"/>, on its own: what a source that observed
+    /// something real but not everything is entitled to do. See <see cref="ApplyTags"/>.
+    /// </summary>
+    private static void AddMissing<TJoin, TKey>(
+        ICollection<TJoin> current,
+        HashSet<TKey> desired,
+        Func<TJoin, TKey> keyOf,
+        Func<TKey, TJoin> create)
+    {
         var held = current.Select(keyOf).ToHashSet();
         foreach (var key in desired.Where(k => !held.Contains(k)))
             current.Add(create(key));
