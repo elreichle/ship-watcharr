@@ -236,6 +236,41 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                     b.ToTable("Downloads");
                 });
 
+            modelBuilder.Entity("Ao3Tracker.Api.Models.Notification", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReadAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ShipId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("WorkId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ShipId");
+
+                    b.HasIndex("WorkId");
+
+                    b.HasIndex("UserId", "Id");
+
+                    b.HasIndex("UserId", "ReadAt");
+
+                    b.ToTable("Notifications");
+                });
+
             modelBuilder.Entity("Ao3Tracker.Api.Models.SavedWorkFilter", b =>
                 {
                     b.Property<int>("Id")
@@ -1116,6 +1151,33 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                     b.Navigation("Work");
                 });
 
+            modelBuilder.Entity("Ao3Tracker.Api.Models.Notification", b =>
+                {
+                    b.HasOne("Ao3Tracker.Api.Models.Ship", "Ship")
+                        .WithMany()
+                        .HasForeignKey("ShipId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ao3Tracker.Api.Models.ApplicationUser", "User")
+                        .WithMany("Notifications")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ao3Tracker.Api.Models.Work", "Work")
+                        .WithMany()
+                        .HasForeignKey("WorkId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Ship");
+
+                    b.Navigation("User");
+
+                    b.Navigation("Work");
+                });
+
             modelBuilder.Entity("Ao3Tracker.Api.Models.SavedWorkFilter", b =>
                 {
                     b.HasOne("Ao3Tracker.Api.Models.Ship", "Ship")
@@ -1393,6 +1455,8 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
             modelBuilder.Entity("Ao3Tracker.Api.Models.ApplicationUser", b =>
                 {
                     b.Navigation("Downloads");
+
+                    b.Navigation("Notifications");
 
                     b.Navigation("SavedWorkFilters");
 

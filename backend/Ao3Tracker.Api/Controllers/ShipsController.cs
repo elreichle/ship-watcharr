@@ -169,6 +169,22 @@ public class ShipsController : ControllerBase
             .FirstOrDefaultAsync(w => w.UserId == userId && w.ShipId == shipId, ct);
         if (watch is null) return NotFound();
 
+        // Their notifications about this ship go with the subscription. Unlike reading state, which
+        // survives an unfollow because it is about the *work*, a notification is about the tag: it
+        // says this ship gained something, and a reader who has stopped following it has stopped
+        // being told. Leaving them would keep an unread count ticking for a ship no longer on the
+        // page, with nothing to click through to.
+        //
+        // Before the save rather than after it. There is no ordering that survives a failure
+        // between the two, so the choice is which half to be left holding: a delete that lands
+        // without the unfollow costs this reader notifications the next pass will send again, where
+        // an unfollow that lands without the delete leaves rows nothing can ever clear — the state
+        // the paragraph above says must not exist. `ct` is the request's abort token, so a client
+        // that disconnects mid-call is the ordinary way into that window, not an exotic one.
+        await _db.Notifications
+            .Where(n => n.UserId == userId && n.ShipId == shipId)
+            .ExecuteDeleteAsync(ct);
+
         _db.WatchedShips.Remove(watch);
         await _db.SaveChangesAsync(ct);
 

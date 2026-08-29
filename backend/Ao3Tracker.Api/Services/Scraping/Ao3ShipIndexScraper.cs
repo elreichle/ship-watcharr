@@ -548,7 +548,14 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
             if (toIngest.Count > 0)
             {
-                var result = await _ingestor.IngestAsync(ship, toIngest, ct);
+                // Whether a work this page adds to the ship is news, which is the caller's half of
+                // the rule WorkIngestor.AnnounceAsync states: only the incremental pass, and only
+                // once the ship has a watermark to have been newer than. `watermark` is the reading
+                // taken before the walk started, so a run that moves it cannot retroactively make
+                // its own first page an arrival.
+                var announce = incremental && watermark is not null;
+
+                var result = await _ingestor.IngestAsync(ship, toIngest, announce, ct);
                 worksSeen += result.WorksSeen;
                 worksAdded += result.WorksAdded;
                 worksUpdated += result.WorksUpdated;

@@ -335,7 +335,7 @@ internal sealed class LibraryTestHost : IDisposable
     /// re-reading a work does to its rows, which the scraper's own stopping rules would otherwise
     /// prevent it from ever reaching twice.
     /// </summary>
-    public async Task<IngestResult> IngestAsync(int shipId, string html)
+    public async Task<IngestResult> IngestAsync(int shipId, string html, bool announceToWatchers = false)
     {
         using var scope = _provider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -343,7 +343,8 @@ internal sealed class LibraryTestHost : IDisposable
         var ship = await db.Ships.FirstAsync(s => s.Id == shipId);
         var page = Ao3BlurbParser.ParseListing(html);
 
-        return await scope.ServiceProvider.GetRequiredService<IWorkIngestor>().IngestAsync(ship, page.Works);
+        return await scope.ServiceProvider.GetRequiredService<IWorkIngestor>()
+            .IngestAsync(ship, page.Works, announceToWatchers);
     }
 
     /// <summary>
@@ -445,6 +446,23 @@ internal sealed class LibraryTestHost : IDisposable
 
         return Build(
             new StatsController(scope.ServiceProvider.GetRequiredService<AppDbContext>()),
+            user,
+            scope.ServiceProvider);
+    }
+
+    /// <summary>
+    /// A notifications controller on a scope of its own, for the reason
+    /// <see cref="NewWorksRequest"/> gives: these tests produce rows through an ingest or a scrape
+    /// and then ask a later "request" to count them, and a shared context would answer out of a
+    /// change tracker that request never warmed.
+    /// </summary>
+    public NotificationsController Notifications(ApplicationUser user)
+    {
+        var scope = _provider.CreateScope();
+        _perRequestScopes.Add(scope);
+
+        return Build(
+            new NotificationsController(scope.ServiceProvider.GetRequiredService<AppDbContext>()),
             user,
             scope.ServiceProvider);
     }

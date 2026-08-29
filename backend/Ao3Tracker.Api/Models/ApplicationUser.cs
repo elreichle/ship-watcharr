@@ -16,6 +16,9 @@ public class ApplicationUser : IdentityUser
 
     public ICollection<Download> Downloads { get; set; } = new List<Download>();
 
+    /// <summary>Unread and read alike — see <see cref="Notification"/> for what bounds them.</summary>
+    public ICollection<Notification> Notifications { get; set; } = new List<Notification>();
+
     /// <summary>Named sets of library filter criteria, one of which may be the user's default.</summary>
     public ICollection<SavedWorkFilter> SavedWorkFilters { get; set; } = new List<SavedWorkFilter>();
 }

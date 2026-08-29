@@ -13,7 +13,17 @@ public interface IWorkIngestor
     /// <summary>
     /// Writes one page of parsed blurbs, and the ship's claim on them, in a single save.
     /// </summary>
-    Task<IngestResult> IngestAsync(Ship ship, IReadOnlyList<Ao3WorkBlurb> blurbs, CancellationToken ct = default);
+    /// <param name="announceToWatchers">
+    /// Whether a work this page adds to the ship is news. Only the caller knows: the same method
+    /// writes a backfill's thousand-work back catalogue and an incremental pass's one new work, and
+    /// the rows are identical. See <see cref="WorkIngestor.AnnounceAsync"/> for the rule the
+    /// scraper applies before passing true.
+    /// </param>
+    Task<IngestResult> IngestAsync(
+        Ship ship,
+        IReadOnlyList<Ao3WorkBlurb> blurbs,
+        bool announceToWatchers = false,
+        CancellationToken ct = default);
 }
 
 /// <summary>
@@ -41,7 +51,10 @@ public sealed class WorkIngestor : IWorkIngestor
     }
 
     public async Task<IngestResult> IngestAsync(
-        Ship ship, IReadOnlyList<Ao3WorkBlurb> blurbs, CancellationToken ct = default)
+        Ship ship,
+        IReadOnlyList<Ao3WorkBlurb> blurbs,
+        bool announceToWatchers = false,
+        CancellationToken ct = default)
     {
         if (blurbs.Count == 0) return new IngestResult(0, 0, 0);
 
@@ -67,6 +80,11 @@ public sealed class WorkIngestor : IWorkIngestor
         var added = 0;
         var updated = 0;
 
+        // Works this ship did not have before this page. Collected here rather than re-derived
+        // afterwards because this loop is the only place the distinction exists: once the links are
+        // saved, a work the ship gained a second ago and one it has had for a year are the same row.
+        var newToTheShip = new List<long>();
+
         foreach (var blurb in unique)
         {
             if (existingWorks.TryGetValue(blurb.WorkId, out var work))
@@ -85,10 +103,20 @@ public sealed class WorkIngestor : IWorkIngestor
             ApplyTags(work, blurb, tagsByKey);
             ApplyAuthors(work, blurb, pseudsByKey);
             ApplySeries(work, blurb, seriesById, now);
-            ApplyShipLink(ship, work, existingLinks, now);
+
+            if (ApplyShipLink(ship, work, existingLinks, now)) newToTheShip.Add(work.Id);
         }
 
+        var notified = announceToWatchers && newToTheShip.Count > 0
+            ? await AnnounceAsync(ship, newToTheShip, now, ct)
+            : [];
+
         await _db.SaveChangesAsync(ct);
+
+        // After the save, not in it: a crash between the two costs one reader an over-long list,
+        // where folding it in would risk the page.
+        if (notified.Count > 0) await CapNotificationsAsync(notified, ct);
+
         return new IngestResult(unique.Count, added, updated);
     }
 
@@ -151,20 +179,125 @@ public sealed class WorkIngestor : IWorkIngestor
         work.LastScrapedAt = now;
     }
 
-    private void ApplyShipLink(Ship ship, Work work, Dictionary<long, ShipWork> existing, DateTime now)
+    /// <returns>True where the ship did not have this work before — see <see cref="AnnounceAsync"/>.</returns>
+    private bool ApplyShipLink(Ship ship, Work work, Dictionary<long, ShipWork> existing, DateTime now)
     {
-        if (!existing.TryGetValue(work.Id, out var link))
+        var isNew = !existing.TryGetValue(work.Id, out var link);
+
+        if (isNew)
         {
             link = new ShipWork { ShipId = ship.Id, WorkId = work.Id, FirstSeenAt = now };
             _db.ShipWorks.Add(link);
             existing[work.Id] = link;
         }
 
-        link.LastSeenAt = now;
+        link!.LastSeenAt = now;
 
         // Reappearing clears the mark. Only a completed full sweep may set it in the first place,
         // so this is the one direction that is safe on a partial pass.
         link.MissingSinceAt = null;
+
+        return isNew;
+    }
+
+    // ---- telling the watchers ------------------------------------------------------------------
+
+    /// <summary>
+    /// One <see cref="Notification"/> per watcher per work the ship has just gained.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The rule for what counts as news</b>, which is three conditions and needs to be all
+    /// three:</para>
+    /// <list type="number">
+    /// <item><description>
+    /// The work is <b>new to this ship</b>, not new to the instance. A work already in the library
+    /// under another followed tag is still news to someone who follows this one, and the same work
+    /// re-read by a later pass is not news to anyone.
+    /// </description></item>
+    /// <item><description>
+    /// The pass is <b>incremental</b>. A backfill walking backwards into a tag's history and a full
+    /// sweep re-walking all of it both create links in bulk for works that are years old — four
+    /// thousand of them on a large tag — and none of it is new. Only the watermark-bounded pass
+    /// looks at the end of the listing where new works appear.
+    /// </description></item>
+    /// <item><description>
+    /// The ship <b>already had a watermark</b> when the run started. The first incremental pass over
+    /// a newly followed tag has nothing to stop at, so its idea of "newer than the watermark" is
+    /// every work in the tag — which is exactly the back catalogue nobody asked to be told about.
+    /// </description></item>
+    /// </list>
+    /// <para>The first is decided here; the other two are the caller's, since this method is handed
+    /// one page and cannot see which pass produced it. See <c>Ao3ShipIndexScraper</c>.</para>
+    /// <para>A reader who follows a tag someone else already follows is told about its next new
+    /// work straight away, and that is right: the ship has a watermark, so the pass really is
+    /// reporting an arrival rather than a history.</para>
+    /// </remarks>
+    /// <returns>The users given at least one row, for <see cref="CapNotificationsAsync"/>.</returns>
+    private async Task<List<string>> AnnounceAsync(
+        Ship ship, List<long> workIds, DateTime now, CancellationToken ct)
+    {
+        // The existing per-user switch, and the only thing that reads it. Off means the reader still
+        // follows the ship and still gets its works in their library — they have just said they do
+        // not want to be told.
+        var watchers = await _db.WatchedShips
+            .Where(w => w.ShipId == ship.Id && w.NotificationsEnabled)
+            .Select(w => w.UserId)
+            .ToListAsync(ct);
+
+        foreach (var userId in watchers)
+        {
+            foreach (var workId in workIds)
+            {
+                _db.Notifications.Add(new Notification
+                {
+                    UserId = userId,
+                    ShipId = ship.Id,
+                    WorkId = workId,
+                    CreatedAt = now,
+                });
+            }
+        }
+
+        return watchers;
+    }
+
+    /// <summary>
+    /// Drops everything past <see cref="Notification.MaxPerUser"/> for the readers just notified,
+    /// so the table cannot grow without bound on an instance nobody reads.
+    /// </summary>
+    /// <remarks>
+    /// Only those readers: a sweep of every account on every page would be a query for a table that
+    /// is almost always already inside its bound. Ordered by id rather than
+    /// <see cref="Notification.CreatedAt"/> because a page ingested in one save stamps every row
+    /// with the same instant, and a cap that cannot break that tie deterministically would pick
+    /// arbitrarily among the newest rows.
+    /// </remarks>
+    /// <remarks>
+    /// A reader inside their bound costs one index-only seek that returns nothing, and no delete —
+    /// which is what makes running this once per page affordable. Per page rather than once per
+    /// run because this class's unit is the page and it has no notion of the run around it; an
+    /// announcing pass is one or two pages, since a pass with more than that to say is one whose
+    /// ship had no watermark and therefore announced nothing at all.
+    /// </remarks>
+    private async Task CapNotificationsAsync(List<string> userIds, CancellationToken ct)
+    {
+        foreach (var userId in userIds)
+        {
+            // The id of the oldest row this reader is allowed to keep. Zero means they have fewer
+            // than the cap allows, since no row's id is zero — and that is the ordinary answer.
+            var oldestKept = await _db.Notifications
+                .Where(n => n.UserId == userId)
+                .OrderByDescending(n => n.Id)
+                .Skip(Notification.MaxPerUser - 1)
+                .Select(n => n.Id)
+                .FirstOrDefaultAsync(ct);
+
+            if (oldestKept == 0) continue;
+
+            await _db.Notifications
+                .Where(n => n.UserId == userId && n.Id < oldestKept)
+                .ExecuteDeleteAsync(ct);
+        }
     }
 
     // ---- joins -------------------------------------------------------------------------------
