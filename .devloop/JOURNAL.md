@@ -253,3 +253,16 @@ Append-only. One entry per iteration, newest last.
 - ran: `dotnet test` → 963 passed; `npm run build` clean; `npm run lint` → the 2 known warnings
 - commit: 8d8a61a
 - next: **T76.**
+
+## 2026-08-29 — T76 The pseud merge cascade-deletes a saved filter's author criterion — done
+
+- did: `NormalizedPseudIdentity` thins and repoints `SavedWorkFilterAuthors` before deleting the
+  losing pseuds, so a criterion moves onto the survivor instead of cascading away with it. Thinned
+  in `(Exclude, PseudId)` order: an include beats an exclude, being what kept the filter narrow.
+- files: `Api/Data/Migrations/{Sqlite/20260822182752,Postgres/20260822182800}_NormalizedPseudIdentity.cs`,
+  `Tests/PseudMigrationTests.cs`
+- ran: `~PseudMigration` → 9 (5 red first, criteria **empty**); `dotnet test` → 968; `npm run build`
+  clean; lint → 2 known warnings. Review: no defects, and it reds all 5 with the new SQL deleted.
+- commit: 0131913
+- next: **T78.** Editing in place is safe by T35's test, re-checked: this branch only, and it ran
+  against an empty `Ao3Pseuds`.

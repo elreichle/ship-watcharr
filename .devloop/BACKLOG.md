@@ -61,3 +61,7 @@ A human promotes an item into `tasks.md` between runs; the loop only adds here.
 - `Ao3DownloadLinks.Parse` returns an empty menu with no signal when `BaseUrl` cannot be parsed,
   which reads to the caller as "AO3 offers no such format". A misconfigured *origin* is now named
   by DownloadFetcher's page check, but an unparsable one is still silent.
+
+- No PostgreSQL server has executed any migration on this branch: the Postgres twins are verified
+  by `diff` against the SQLite text and by reading, never by running. A container running the two
+  migration-merge cases would close it.

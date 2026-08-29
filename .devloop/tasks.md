@@ -1838,7 +1838,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   about different instants.
 
 ## T76 — The pseud merge cascade-deletes a saved filter's author criterion
-- status: in_progress
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A saved filter that names a creator under a losing capitalisation still names that
