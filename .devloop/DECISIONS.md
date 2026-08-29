@@ -2,118 +2,7 @@
 
 Plan changes only — tasks added, split, re-scoped, or dropped, each with its reason.
 
-> The 60 entries before this point live in [`DECISIONS-archive.md`](DECISIONS-archive.md) (2026-08-22 — initial plan → 2026-08-26 — T77: the download-path pass is filed rather than observed a sixth time). Do not read it end to end; `grep` it for a task id when a live entry points into it.
-
-## 2026-08-27 — T36: the gate grew a field rather than the page growing a parser
-
-T36's notes offered two fixes and called the second smaller: render only the identity blocker in
-"What AO3 currently sees", *or* drop the `identityConfigured &&` guard on the login callout. Its
-`delivers` needs both — dropping the guard alone leaves the identity section still printing "No AO3
-login is stored for this instance" under a heading about the User-Agent, and the section is half the
-task. Both were done.
-
-Rendering only the identity blocker needed a value the frontend did not have. `ScrapingGateState`
-carried `Blockers` (a list the page never saw) and `Problem` (all of them joined by `\n\n`), so the
-page's options were to split `Problem` on the separator and take the first entry, or to be handed
-the identity blocker on its own. **The gate grew `IdentityProblem`.** Splitting the joined string
-would put knowledge of the join order and separator in the page, which is exactly the drift
-`ScrapingGate`'s class doc exists to prevent — one place answers what is blocking scraping, and the
-worker and the admin screen both read that answer rather than each deriving one. `Problem` is
-unchanged and still says everything at once, which is what the worker's log wants.
-
-The frontend's `problem` field is now read by nothing. Left in place: it is the honest "every
-reason" view of the endpoint, and removing it from the DTO to match one consumer's current needs
-would be the tail wagging the dog.
-
-## 2026-08-27 — T36's review: nothing in the diff, and the one new-looking finding was already ruled on
-
-`/code-review high` ran to completion this time (the previous two died on the spend limit) and read
-the whole branch rather than only T36's diff. It found **nothing in T36's changes**, and stated the
-invariant the change turns on in its own words: `IdentityProblem` is non-null exactly when
-`IdentityConfigured` is false, it stays `Blockers[0]`, and `ScrapingGateState` has one construction
-site. Four findings elsewhere, and **no new task came out of them**:
-
-- **`RecordBackfillProgress` counts an unreadable page 1 as a stalled-cursor run** — this is **T40**,
-  whose defect is `firstPage ??= page` running before the `if (unreadable) break`. The consequence is
-  new and worse than T40 was filed with, and is now written into T40's notes: no retreat can run for
-  this shape, so the halving that justifies the 12-run bound never converges, and twelve intervals of
-  a markup change fail every in-progress backfill permanently.
-- **The feed's note editor drops text typed while a save is in flight** — **T57**, and the reviewer
-  found the guard already written in `WorkDetailPage`. Added to T57's notes, because "copy the twin"
-  is most of that task.
-- **Two workers can each perform the same AO3 login** — **T63**, now derived by six consecutive
-  reviews. Absorbed by **T77**.
-- **T35 rewrote a migration that has already been applied** — **not filed, and the reason is on the
-  record.** The reviewer argued from "already at the merge base", which is checkable and false:
-  `git log --diff-filter=A` puts the migration's introducing commit `78940c9` on
-  `devloop/dashboard-completion` and nowhere else. More to the point it argues past T35's actual
-  reasoning, which was never "it is a dev branch". The old SQL either produced the right answer or
-  violated `PK_WorkAuthors` and rolled the migration back unrecorded — enumerate the cases and there
-  is no third one — so no database can be holding the un-merged state a repair migration would have
-  to find, and any database that failed re-runs the corrected SQL. **The property is what makes an
-  in-place rewrite safe, not the branch name**; T35's entry says so, and a reader who checks only
-  the branch will keep re-filing this.
-
-Three of the four are tasks a review has now found more than once. The list is doing its job; what
-it costs is that each review spends its budget re-deriving it, which is what T77 exists to stop.
-
-## 2026-08-27 — T38: the recovery path is T38's; the counting half went to T40 on the evidence
-
-T38's notes carried an instruction from T44's review: "Decide both halves here: narrow the increment
-to `askedStaleCursor` to match the documented intent, *and* ship the recovery path." Only the second
-half was built, and the reason is a fact the note could not have known.
-
-Narrowing `RecordBackfillProgress`'s guard from `if (!askedStaleCursor && firstPage is null) return;`
-to `askedStaleCursor` alone **removes the bound entirely for a ship sitting at page 1**. Trace
-`Gives_up_on_a_backfill_that_spends_run_after_run_on_a_cursor_nothing_answers`: the cursor halves its
-way 10 → 5 → 2 → 1, and at page 1 `CursorMayBeStale` is false by construction (`page > 1`), so no
-retreat runs and `askedStaleCursor` is false from that run onward. Under the narrowing the counter
-freezes at 3 and the ship re-requests an unanswerable page once a run for ever. That test's own
-comment states the current behaviour as intended — "the cursor halves its way down to page 1 on the
-way and **goes on counting there**, so a ship that has run out of listing to retreat into is written
-off rather than left asking" — so the narrowing is not a small correction, it is re-deciding a rule a
-test was written to hold.
-
-Meanwhile T36's review moved the whole argument onto **T40**: `firstPage ??= page` runs above the
-`if (unreadable) break`, and moving those four lines below it — T40's entire diff — *is* the
-narrowing, made at its root rather than by editing the guard. One task owns the line. Two tasks
-editing the same three lines while disagreeing about the page-1 bound is how a run produces a
-conflict it then has to unpick.
-
-So T38 is its `delivers` line: the way out. Consistent with the convention T36's entry recorded —
-**`delivers` is the contract, the notes are one reader's guess at the implementation** — which cut
-the other way there (the notes offered less than `delivers`) and cuts this way here.
-
-## 2026-08-27 — T38: only a `Failed` backfill may be restarted, and a restart does not make the ship due
-
-Two scope decisions in the endpoint, both about what it costs AO3 rather than what it costs us.
-
-**`Failed` only.** `POST /api/admin/ships/{id}/backfill/restart` returns 409 for a Complete,
-InProgress or NotStarted backfill. Re-arming a Complete one would walk a back catalogue already read,
-at 5-8 seconds a page, off one mis-click; re-arming an InProgress one would move the cursor out from
-under a walk that is working. Neither is what "an outage should not cost a back catalogue" asks for,
-and a narrower endpoint can be widened later on a real request.
-
-**The schedule is left alone.** The obvious alternative — `NextRunAt = null` plus a `ScrapeWake`
-signal, which is what following a new tag does — would put a walk that has been failing for days at
-the front of the queue the moment somebody pressed a button. A back catalogue that has waited twelve
-intervals can wait one more, and the decision about request spacing stays in the scheduler rather
-than being made twice. The button says so, so nothing looks broken while nothing happens.
-
-Two writes beyond the state and the cursor. `BackfillStalledRuns = 0` is not a nicety: both of the
-scraper's own reset sites sit on paths a `Failed` ship no longer reaches and giving up does not clear
-it either, so a restart that left the counter at twelve would hand back a ship that fails again on
-its very next stalled run — indistinguishable, from outside, from a restart that did nothing. Three
-reviews (T26's, T30's, T8's) had each derived that independently. And `BackfillMinUpdatedAtSeen` is
-cleared **when the cursor moves backwards only**: the floor is the oldest work a contiguous walk has
-reached, and `TrackBackfillFloor` reports anything newer as the listing shifting underneath, so
-carried into a walk restarting nearer the top it makes every page of the redo warn about a listing
-that never moved. A restart at the ship's own cursor is the same walk, so it keeps its floor.
-
-`BeginBackfill` also zeroes the counter now, which is the fix T26's, T30's and T8's reviews reported.
-Nothing on today's paths sets a `NotStarted` ship's counter above zero, so it is defence rather than
-a live bug — asserted through a run that *stalls*, because a run that got anywhere clears the counter
-on its own and the test would pass with the reset deleted.
+> The 64 entries before this point live in [`DECISIONS-archive.md`](DECISIONS-archive.md) (2026-08-22 — initial plan → 2026-08-27 — T38: only a `Failed` backfill may be restarted, and a restart does not make the ship due). Do not read it end to end; `grep` it for a task id when a live entry points into it.
 
 ## 2026-08-27 — T38's review: three defects in its own diff, and the cursor is not what it looked like
 
@@ -753,3 +642,22 @@ iteration's own mutation run**, whose restore order put the mutated file back. I
 the line was assigned and never read — and it is gone. The lesson is the review's rather than the
 code's: a mutation script that restores by rewriting whole files must restore in the order it
 mutated, and the diff must be re-read before it is reviewed.
+
+## 2026-08-28 — T16: what counts as news is three conditions, and two of them are the caller's
+
+T16's notes asked for the rule to be decided and stated: new to the ship, new to the instance, or
+only from the incremental pass. **All three of those, taken alone, are wrong.** New-to-the-instance
+would silence a work already held under another followed tag, which is news to this ship's watchers.
+New-to-the-ship alone lets a backfill announce four thousand works. Incremental-only alone still
+announces the whole back catalogue, because the first incremental pass over a newly followed tag has
+no watermark and so reads every work in it as fresh — the case the notes name and the one the
+obvious rule misses. The rule shipped is the conjunction: **new to the ship, incremental, and the
+ship already had a watermark when the run started.**
+
+**Rejected: passing the run mode down.** `IngestAsync` took a bool, not a `ScrapeRunMode`. The
+ingestor has no other use for the mode and would then hold a copy of the rule that the scraper also
+holds; the bool makes the split explicit — one condition is the page's, two are the pass's.
+
+**Rejected: a unique index on (user, ship, work).** Nothing can produce a duplicate, and the
+constraint's failure mode is losing a whole ingested page to one row — the same trade the truncation
+rules in this file already decided the other way. The per-user cap bounds the table regardless.

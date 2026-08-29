@@ -10,3 +10,4 @@ A journal `next:` is for *this* handoff; a lesson is what would have saved a pas
 - Mutation scripts that restore whole files must restore in reverse order, or re-read the diff before review.
 - `/usr/bin/dotnet` is runtime-only: non-interactive shells need `PATH="$HOME/.dotnet:$PATH"`.
 - Never `pkill` on `Ao3Tracker.Api.dll` — it matches the systemd dev instance on :5110; kill by PID.
+- `dotnet ef database update` ignores your connection string: the design-time factory sends it to `design-time.db` in the API directory, never `appdata/`.

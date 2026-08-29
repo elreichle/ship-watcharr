@@ -553,3 +553,16 @@ Append-only. One entry per iteration, newest last.
   `StoreFileAsync`. Deleting it changed nothing in 849 tests. It is defensive and its failure mode is
   a stale recorded size rather than a lost file, but it is the one branch in this diff no mutation
   reds.
+
+## 2026-08-28 — T16 Notifications when a followed ship gains works — done
+
+- did: A per-user `Notification` per watcher per work a followed ship gains, written where works are
+  ingested under three conditions together — new to the ship, incremental pass, ship already had a
+  watermark — plus list / unread-count / mark-read, a per-user cap, and deletion on unwatch.
+- files: `Api/Models/Notification.cs`, `Api/Controllers/{Notifications,Ships}Controller.cs`,
+  `Api/{Dtos,Data}/**`, `Api/Services/Scraping/{WorkIngestor,Ao3ShipIndexScraper}.cs`, `Tests/*`
+- ran: `~Notification` → 26 (**0 before**); `dotnet test` → 875 (849); build + lint clean. 14
+  mutations, all red — one only once its test was rewritten: a second scrape stops at the watermark,
+  never reaching the ingestor.
+- commit: f4efe9c
+- next: **T17, the UI**, its only blocker. 4 review fixes in; 3 BACKLOG lines.

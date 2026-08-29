@@ -351,7 +351,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   already shipped and every test in the suite proving only that direction.
 
 ## T16 — Notifications when a followed ship gains works
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: T15
 - delivers: A `Notification` entity (migration on both providers), rows produced per watcher when a
