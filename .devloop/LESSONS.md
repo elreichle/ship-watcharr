@@ -24,3 +24,4 @@ A journal `next:` is for *this* handoff; a lesson is what would have saved a pas
 - No task entry carries a `verify: live` line, so UI work is verified by `npm run build` + `lint`: don't rebuild the browser harness (past scratchpads are gone anyway).
 - A "did this field change" guard misses an editor closed and reopened mid-write; one counter bumped by every touch of it covers both, erring toward keeping text.
 - A substring assertion on a query parameter's *name* can pass on the sort column's value — pin the whole URL.
+- A "no usable file" answer folds two causes — stale version, and bytes gone — so any reference carried across on the strength of that answer must be re-checked on disk.

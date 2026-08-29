@@ -16,3 +16,13 @@ A human promotes an item into `tasks.md` between runs; the loop only adds here.
 - `DownloadFetcher` / `Ao3WorkDetailScraper` — a download already fetches the work's own page for its links, and throws the rest of it away. Handing that markup to `IngestDetailAsync` would fill in a requested work's published date and full tag list for no extra request, ahead of the backlog's own turn. (source: T10 iteration)
 - `WorkIngestor.Apply:236` — the guard's else arm sets `UpdatedAtIsApproximate = true` on every unreadable date, including a work whose date an earlier pass read exactly: the timestamp is preserved but the row stops claiming the second precision it has, until a pass that can read a date resets it. Gating that write on `work.UpdatedAt == DateTime.MinValue` would keep both columns and leave the first-seen case as it is. Pinned as current behaviour by `WorkIngestorTimestampTests`. (source: T54 iteration)
 - `DownloadsPage.tsx:25` and `ShipsPage.tsx:197` — the same defect T55 fixed on the AO3-login block: the fetch's only "not loaded" signal is `list === null`, which a rejected load never clears, so a failed page load renders its error *and* a permanent "Loading…" below it, with nothing to retry. `WorksPage`/`FiltersPage`/`NotificationsPage` already guard theirs with `!error &&`. (source: T55 iteration)
+- `TryArmAsync`'s `WHERE Status != Downloading` does not stop a re-arm landing on a row a worker has
+  just *finished*: Complete passes the guard, so the controller can reset a completed request to
+  Pending and null the file the fetch had recorded (recovered on the next drain, off disk). T77 chose
+  that guard over a concurrency token; this is the interleaving it does not cover. Found by T59's
+  review, not introduced by it.
+- SQLite `Migrate()` at startup has no crash-safety story for a migration EF implements as a table
+  rebuild: `PreviousDownloadCopy` drops and renames `Downloads` outside a transaction (EF warns), so a
+  container killed in that window leaves the database needing hand repair. It is the first such
+  migration here — worth a general answer (back up before migrating, or a rebuild-free rule) rather
+  than a per-migration one.

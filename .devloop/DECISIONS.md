@@ -747,3 +747,25 @@ second request's write between the controller's read and its own. All four colli
 pinned, and `WasRaced` makes a fragment that matches nothing a failure instead of a green vacuum.
 Rejected: leaving the clear path alone. Re-inserting after a lost update means a losing clear can
 now find a row where it assumed absence, so it retries too rather than reporting a false absence.
+
+
+## 2026-08-29 — T59: the request's answer and the reader's copy are two columns, not one
+
+T11's rule stands — a row saying Complete may never name bytes of a version the work has moved past
+— but it was enforced by nulling `WorkDownloadFileId` on a re-arm, which also let go of a file still
+sitting on disk. Split instead: `WorkDownloadFileId` remains the request's own answer, still refused
+by `GET /downloads/{id}/file` for anything but Complete (T14's
+`Will_not_serve_a_request_that_is_queued_while_still_naming_a_copy` is unchanged and still passes);
+`PreviousWorkDownloadFileId` is the copy the reader is holding, served while the request is queued or
+failed, cleared by `CompleteAsync` the moment a replacement lands. **Rejected: keeping one column and
+gating serving on Failed only** — no migration, but the reader would then be locked out of their own
+file for the whole time the request sat in the queue, which a held breaker or a missing login can make
+indefinite. Both download views label it "Save earlier copy"; a non-Complete row with a held copy
+reports its size as `previousSizeBytes` rather than reading as having nothing. The reference is
+written only for bytes checked to be on disk at that moment — `UsableFileAsync` answers null for a
+vanished file as well as for a stale version, so an unchecked carry-over offered a download link over
+a file just established to be gone. **Kept, not dodged: the SQLite migration is the first here EF
+implements as a table rebuild** (verified: it drops and renames `Downloads` outside a transaction).
+Dropping the constraint on SQLite alone would avoid that, and was rejected — it would leave the
+migrated schema differing from the one `EnsureCreated` builds for the tests, which is the drift the
+two-context arrangement exists to prevent. In BACKLOG as a general question about startup `Migrate()`.

@@ -193,3 +193,16 @@ Append-only. One entry per iteration, newest last.
 - commit: f0993da
 - next: **T59.** `listingWasFiltered` is now true of the request; the total logic was left alone
   deliberately — see DECISIONS.
+
+## 2026-08-29 — T59 A refetch must not cost a reader the copy they already have — done
+
+- did: split the request's answer from the reader's copy — `WorkDownloadFileId` still refused unless
+  Complete, new `PreviousWorkDownloadFileId` holds the bytes they already had, served while queued or
+  failed, cleared when a replacement lands. Written only for a file checked on disk.
+- files: `Api/{Models/Download,Dtos/DownloadDtos,Controllers/DownloadsController,
+  Data/Configurations/UserDataConfigurations,Services/Downloads/DownloadFetcher}.cs`, 2 migrations,
+  `Tests/Download{sController,Worker}Tests.cs`, `frontend/src/{api/types,pages/DownloadsPage,
+  components/WorkDownloads}`
+- ran: `dotnet test` → 943 (935 before); build + lint clean. Mutation: drop the carry-over → 5 red.
+- commit: cf78fd6
+- next: **T60.** Two findings the review raised are pre-existing — in BACKLOG.

@@ -1512,7 +1512,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   builder emits, and record in `DECISIONS.md` that the semantics rest on the captured filter form.
 
 ## T59 — A refetch must not cost a reader the copy they already have
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: Re-requesting a work whose version has moved on keeps the reader pointed at the copy
