@@ -477,13 +477,20 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
             blurbsRead += listing.Works.Count;
 
-            // A restricted work is documented as invisible to a logged-out request, so one arriving
-            // on a response the client says it did not authenticate means one of those two beliefs
-            // is wrong. Reported, never acted on: letting the page overrule the transport about what
-            // this run sent would write the flag `true` over a total demonstrably fetched without a
-            // session — the exact claim the field exists to make trustworthy — on the strength of a
-            // markup premise nothing in this repo has verified. That premise is T79's business, and
-            // this line is how it would first announce itself.
+            // A restricted work is invisible to a logged-out request, so one arriving on a response
+            // the client says it did not authenticate means one of those two beliefs is wrong.
+            // Reported, never acted on: letting the page overrule the transport about what this run
+            // sent would write the flag `true` over a total demonstrably fetched without a session,
+            // which is the exact claim the field exists to make trustworthy.
+            //
+            // The premise is now measured rather than assumed — see
+            // `Ao3RestrictedWorkVisibilityTests`, which walks one tag captured twice at one moment,
+            // with and without a session: 12,285 works anonymously against 13,736 with one, the same
+            // twenty works on page 1, and every filter facet up by the same tenth. Restricted works
+            // are withheld from the anonymous listing outright, not shown with a marker. So this
+            // branch is unreachable in practice, and kept for that reason rather than in spite of
+            // it: it is the check that fires if AO3 ever stops withholding them, and the flag below
+            // is what would then be quietly wrong.
             //
             // Read over every work on the page rather than the ones handed to the ingestor: the two
             // sets are equal on an unfiltered pass today, but only as an accident of where the

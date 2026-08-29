@@ -22,6 +22,17 @@ internal static class Fixtures
     /// <summary>A works index with no results, also captured while logged in.</summary>
     public const string EmptyListing = "ao3-empty-listing.html";
 
+    /// <summary>
+    /// One page of <c>/tags/Clarke Griffin*s*Lexa/works</c>, captured **logged out** on
+    /// 2026-08-29. Its pair is <see cref="AuthenticatedListing"/>: the same URL, the same sort and
+    /// the same moment, captured with a session. They are only useful together — see
+    /// <c>Ao3RestrictedWorkVisibilityTests</c>, which is the whole reason both exist.
+    /// </summary>
+    public const string AnonymousListing = "ao3-anonymous-listing.html";
+
+    /// <summary>The logged-in half of the pair above. Identity and CSRF token redacted.</summary>
+    public const string AuthenticatedListing = "ao3-authenticated-listing.html";
+
     public static string Load(string name)
     {
         var path = Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
