@@ -13,6 +13,13 @@ namespace Ao3Tracker.Tests;
 /// </summary>
 public class Ao3DownloadLinksTests
 {
+    /// <summary>The archive this deployment is configured for — what every link is measured against.</summary>
+    private const string ArchiveUrl = "https://archiveofourown.org";
+
+    /// <summary>
+    /// Where the page was served from. The base a relative href resolves against, and nothing more:
+    /// the work page is fetched with redirects followed, so this is AO3's to decide.
+    /// </summary>
     private const string WorkPageUrl = "https://archiveofourown.org/works/70441196";
 
     /// <summary>
@@ -34,7 +41,7 @@ public class Ao3DownloadLinksTests
         "https://archiveofourown.org/downloads/70441196/we_chose_to_wait.azw3?updated_at=1767140797")]
     public void Reads_the_address_the_captured_page_offers_for(Ao3DownloadFormat format, string url)
     {
-        var links = Ao3DownloadLinks.Parse(Fixtures.Load(Fixtures.WorkPage), WorkPageUrl);
+        var links = Ao3DownloadLinks.Parse(Fixtures.Load(Fixtures.WorkPage), WorkPageUrl, ArchiveUrl);
 
         Assert.Equal(url, links[format]);
     }
@@ -45,7 +52,7 @@ public class Ao3DownloadLinksTests
         // The capture offers all five, so "every format" is a claim about the archive and not only
         // about the parser. It is also the guard on the enum: a sixth member added without a
         // re-captured page fails here rather than silently becoming a format no work ever offers.
-        var links = Ao3DownloadLinks.Parse(Fixtures.Load(Fixtures.WorkPage), WorkPageUrl);
+        var links = Ao3DownloadLinks.Parse(Fixtures.Load(Fixtures.WorkPage), WorkPageUrl, ArchiveUrl);
 
         Assert.Equal(Enum.GetValues<Ao3DownloadFormat>().Order(), links.Keys.Order());
     }
@@ -56,7 +63,7 @@ public class Ao3DownloadLinksTests
         // The point of the seam, stated as an assertion: neither half of the path after the id is
         // derivable from anything the library stores. A parser that quietly fell back to building
         // "/downloads/70441196/70441196.epub" would pass the test above's shape and fail here.
-        var links = Ao3DownloadLinks.Parse(Fixtures.Load(Fixtures.WorkPage), WorkPageUrl);
+        var links = Ao3DownloadLinks.Parse(Fixtures.Load(Fixtures.WorkPage), WorkPageUrl, ArchiveUrl);
 
         Assert.Contains("we_chose_to_wait", links[Ao3DownloadFormat.Epub]);
         Assert.Contains("updated_at=1767140797", links[Ao3DownloadFormat.Epub]);
@@ -68,7 +75,8 @@ public class Ao3DownloadLinksTests
         // A restricted work, an error page, or markup AO3 has moved on from. Empty rather than a
         // throw: the caller turns "no link" into one failed request with a message, and a throw
         // would turn it into an unhandled fetch instead.
-        Assert.Empty(Ao3DownloadLinks.Parse("<html><body><p>Nothing here.</p></body></html>", WorkPageUrl));
+        Assert.Empty(Ao3DownloadLinks.Parse(
+            "<html><body><p>Nothing here.</p></body></html>", WorkPageUrl, ArchiveUrl));
     }
 
     [Theory]
@@ -76,7 +84,7 @@ public class Ao3DownloadLinksTests
     [InlineData("")]
     [InlineData("   ")]
     public void Reads_nothing_from_an_absent_page(string? html) =>
-        Assert.Empty(Ao3DownloadLinks.Parse(html, WorkPageUrl));
+        Assert.Empty(Ao3DownloadLinks.Parse(html, WorkPageUrl, ArchiveUrl));
 
     [Fact]
     public void Resolves_a_relative_href_against_the_page_it_was_read_from()
@@ -86,7 +94,7 @@ public class Ao3DownloadLinksTests
         // reporting "this work offers no EPUB" the day that changed.
         var links = Ao3DownloadLinks.Parse(
             Menu("<li><a href=\"/downloads/70441196/we_chose_to_wait.epub?updated_at=1767140797\">EPUB</a></li>"),
-            WorkPageUrl);
+            WorkPageUrl, ArchiveUrl);
 
         Assert.Equal(
             "https://archiveofourown.org/downloads/70441196/we_chose_to_wait.epub?updated_at=1767140797",
@@ -99,7 +107,7 @@ public class Ao3DownloadLinksTests
         var links = Ao3DownloadLinks.Parse(
             Menu("<li><a href=\"https://archiveofourown.org/downloads/1/x.zip\">ZIP</a></li>"
                  + "<li><a href=\"https://archiveofourown.org/downloads/1/x.pdf\">PDF</a></li>"),
-            WorkPageUrl);
+            WorkPageUrl, ArchiveUrl);
 
         Assert.Equal(Ao3DownloadFormat.Pdf, Assert.Single(links).Key);
     }
@@ -110,7 +118,7 @@ public class Ao3DownloadLinksTests
         // Uri.TryCreate(..., UriKind.Absolute) succeeds on Linux for a bare path, yielding
         // file:///downloads/… — so "is this absolute" is not the question. The scheme is.
         var links = Ao3DownloadLinks.Parse(
-            Menu("<li><a href=\"javascript:alert('epub')\">EPUB</a></li>"), WorkPageUrl);
+            Menu("<li><a href=\"javascript:alert('epub')\">EPUB</a></li>"), WorkPageUrl, ArchiveUrl);
 
         Assert.Empty(links);
     }
@@ -123,9 +131,56 @@ public class Ao3DownloadLinksTests
         // that survived AO3's sanitiser inside the download menu would otherwise hand this
         // deployment's login to whoever wrote it.
         var links = Ao3DownloadLinks.Parse(
-            Menu("<li><a href=\"https://elsewhere.example/downloads/1/x.epub\">EPUB</a></li>"), WorkPageUrl);
+            Menu("<li><a href=\"https://elsewhere.example/downloads/1/x.epub\">EPUB</a></li>"),
+            WorkPageUrl, ArchiveUrl);
 
         Assert.Empty(links);
+    }
+
+    [Fact]
+    public void Ignores_a_link_on_the_origin_a_redirected_page_landed_on()
+    {
+        // The origin check's whole point, and the one measurement that cannot be the page's own.
+        // The work page is fetched with redirects followed, so where it was finally served from is
+        // decided by AO3's responses — and measured against *that*, a page redirected off-origin
+        // makes every link on the substituted page same-origin. The link would then be fetched with
+        // this deployment's AO3 session cookie attached. The configured archive is what decides it.
+        var links = Ao3DownloadLinks.Parse(
+            Menu("<li><a href=\"https://elsewhere.example/downloads/1/x.epub\">EPUB</a></li>"),
+            pageUrl: "https://elsewhere.example/works/70441196",
+            ArchiveUrl);
+
+        Assert.Empty(links);
+    }
+
+    [Fact]
+    public void Ignores_a_relative_link_on_a_page_that_landed_off_the_archive()
+    {
+        // The same substitution one step subtler: the href names no host at all, so it inherits the
+        // origin the page landed on. Resolving it against the page is still right — that is what a
+        // browser would do — but what comes out is off-archive, and it is refused for being so.
+        var links = Ao3DownloadLinks.Parse(
+            Menu("<li><a href=\"/downloads/1/x.epub\">EPUB</a></li>"),
+            pageUrl: "https://elsewhere.example/works/70441196",
+            ArchiveUrl);
+
+        Assert.Empty(links);
+    }
+
+    [Fact]
+    public void Reads_an_absolute_archive_link_off_a_page_that_landed_elsewhere()
+    {
+        // The other half of the rule, and the reason this seam is not the whole defence: the page's
+        // address is not evidence for or against a link, so a link that does address the configured
+        // archive reads no matter where the page carrying it was served from. What a substituted
+        // page must not get to do is *choose* the file, and that is the caller's to refuse — see
+        // DownloadWorkerTests.Fetches_nothing_off_a_redirected_page_even_where_its_links_address_the_archive.
+        var links = Ao3DownloadLinks.Parse(
+            Menu("<li><a href=\"https://archiveofourown.org/downloads/1/x.epub\">EPUB</a></li>"),
+            pageUrl: "https://elsewhere.example/works/70441196",
+            ArchiveUrl);
+
+        Assert.Equal("https://archiveofourown.org/downloads/1/x.epub", links[Ao3DownloadFormat.Epub]);
     }
 
     [Fact]
@@ -135,16 +190,44 @@ public class Ao3DownloadLinksTests
         // over the wire in the clear, and a host comparison alone says yes to that. AO3 serves its
         // work pages over HTTPS and its downloads from the same place.
         var links = Ao3DownloadLinks.Parse(
-            Menu("<li><a href=\"http://archiveofourown.org/downloads/1/x.epub\">EPUB</a></li>"), WorkPageUrl);
+            Menu("<li><a href=\"http://archiveofourown.org/downloads/1/x.epub\">EPUB</a></li>"),
+            WorkPageUrl, ArchiveUrl);
 
         Assert.Empty(links);
     }
 
-    [Fact]
-    public void Reads_nothing_when_there_is_no_page_address_to_check_a_link_against()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("not a url")]
+    [InlineData("file:///archive")]
+    public void Reads_nothing_when_there_is_no_archive_address_to_check_a_link_against(string? archiveUrl)
     {
-        // A link with nothing to compare its host to is not a link this app may fetch.
-        Assert.Empty(Ao3DownloadLinks.Parse(Fixtures.Load(Fixtures.WorkPage), "not a url"));
+        // A link with nothing to compare its origin to is not a link this app may fetch. Empty even
+        // though the capture's own links are the real archive's: a misconfigured instance gets no
+        // downloads rather than downloads nothing checked.
+        Assert.Empty(Ao3DownloadLinks.Parse(Fixtures.Load(Fixtures.WorkPage), WorkPageUrl, archiveUrl!));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("not a url")]
+    public void Reads_an_absolute_link_even_with_no_page_address_to_resolve_against(string? pageUrl)
+    {
+        // The page address only resolves relative hrefs now, so losing it costs those and nothing
+        // else: an href that already names the configured archive is still measurable against it.
+        var links = Ao3DownloadLinks.Parse(Fixtures.Load(Fixtures.WorkPage), pageUrl, ArchiveUrl);
+
+        Assert.Equal(Enum.GetValues<Ao3DownloadFormat>().Order(), links.Keys.Order());
+    }
+
+    [Fact]
+    public void Reads_nothing_relative_when_there_is_no_page_address_to_resolve_against()
+    {
+        var links = Ao3DownloadLinks.Parse(
+            Menu("<li><a href=\"/downloads/1/x.epub\">EPUB</a></li>"), pageUrl: null, ArchiveUrl);
+
+        Assert.Empty(links);
     }
 
     [Fact]
@@ -156,7 +239,7 @@ public class Ao3DownloadLinksTests
             + "<a href=\"https://archiveofourown.org/downloads/999/someone_else.epub?updated_at=1\">EPUB</a>"
             + "</body></html>";
 
-        Assert.Empty(Ao3DownloadLinks.Parse(html, WorkPageUrl));
+        Assert.Empty(Ao3DownloadLinks.Parse(html, WorkPageUrl, ArchiveUrl));
     }
 
     [Fact]
@@ -165,7 +248,7 @@ public class Ao3DownloadLinksTests
         var links = Ao3DownloadLinks.Parse(
             Menu("<li><a href=\"https://archiveofourown.org/downloads/1/first.epub\">EPUB</a></li>"
                  + "<li><a href=\"https://archiveofourown.org/downloads/1/second.epub\">EPUB</a></li>"),
-            WorkPageUrl);
+            WorkPageUrl, ArchiveUrl);
 
         Assert.Equal("https://archiveofourown.org/downloads/1/first.epub", links[Ao3DownloadFormat.Epub]);
     }

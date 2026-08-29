@@ -26,20 +26,37 @@ public static class Ao3DownloadLinks
     /// </summary>
     /// <param name="html">The work page's markup.</param>
     /// <param name="pageUrl">
-    /// Where the page was fetched from. It resolves a relative href, and it is also the authority on
-    /// which origin a link may name — see <see cref="Resolve"/>. Required, not optional: a link with
-    /// nothing to check it against is not a link this app may fetch.
+    /// Where the page was fetched from — the base a relative href resolves against, and nothing
+    /// else. It is not the authority on which origin a link may name: see <paramref name="archiveUrl"/>.
     /// </param>
-    public static IReadOnlyDictionary<Ao3DownloadFormat, string> Parse(string? html, string pageUrl)
+    /// <param name="archiveUrl">
+    /// The archive this deployment is configured for (<see cref="Ao3HttpClientOptions.BaseUrl"/>).
+    /// It is the authority on which origin a link may name — see <see cref="Resolve"/>. Required,
+    /// not optional: a link with nothing to check it against is not a link this app may fetch.
+    /// </param>
+    public static IReadOnlyDictionary<Ao3DownloadFormat, string> Parse(
+        string? html, string? pageUrl, string archiveUrl)
     {
         var links = new Dictionary<Ao3DownloadFormat, string>();
         if (string.IsNullOrWhiteSpace(html)) return links;
 
         var document = Parser.ParseDocument(html);
 
-        // No usable page address means nothing below can be checked against anything, so nothing is
-        // readable. Empty rather than "trust the markup".
-        if (!Uri.TryCreate(pageUrl, UriKind.Absolute, out var pageUri) || !IsWeb(pageUri)) return links;
+        // No usable archive address means nothing below can be checked against anything, so nothing
+        // is readable. Empty rather than "trust the markup".
+        if (!Uri.TryCreate(archiveUrl, UriKind.Absolute, out var archiveUri)
+            || !Ao3Origin.IsWeb(archiveUri))
+        {
+            return links;
+        }
+
+        // Best-effort, and deliberately only a base: a page fetched through a transport that follows
+        // redirects was last served from wherever those redirects ended up, so a page that landed
+        // off-origin resolves its own relative hrefs off-origin too — and Resolve then refuses them,
+        // which is the point. Without one, only absolute hrefs are readable.
+        var pageUri = Uri.TryCreate(pageUrl, UriKind.Absolute, out var parsed) && Ao3Origin.IsWeb(parsed)
+            ? parsed
+            : null;
 
         // Scoped to the menu rather than matched on extension across the page. A work's page links
         // to plenty this app must never fetch as "the download" — the series, related works, other
@@ -47,7 +64,7 @@ public static class Ao3DownloadLinks
         // it were this work.
         foreach (var anchor in document.QuerySelectorAll("li.download a[href]"))
         {
-            var url = Resolve(anchor.GetAttribute("href"), pageUri);
+            var url = Resolve(anchor.GetAttribute("href"), pageUri, archiveUri);
             if (url is null) continue;
 
             // The extension, not the link's text. The text is a label AO3 is free to translate or
@@ -63,52 +80,44 @@ public static class Ao3DownloadLinks
     }
 
     /// <summary>
-    /// An href as an absolute http(s) URL on the same origin as the page, or null where it is not.
+    /// An href as an absolute http(s) URL on the configured archive's own origin, or null where it
+    /// is not.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// The scheme check is not ceremony. <c>Uri.TryCreate("/downloads/1/x.epub", UriKind.Absolute, …)</c>
-    /// <em>succeeds</em> on Linux, yielding <c>file:///downloads/1/x.epub</c> — so a bare path read
-    /// off a page would be treated as absolute and then resolved against local disk. The login
-    /// establisher was found doing exactly that; this is the same trap on the same kind of input.
-    /// </para>
     /// <para>
     /// The origin check is the load-bearing one. Whatever comes back from here is fetched with the
     /// instance's AO3 session cookie attached and written to the instance's disk, and a work page
     /// renders author-supplied HTML. One <c>&lt;a href="https://elsewhere.example/x.epub"&gt;</c>
     /// that survived AO3's sanitiser inside the download menu would otherwise hand this
-    /// deployment's login to whoever wrote it. Same origin as the page it was read from, or it is
-    /// not a download — the whole origin, because a link that kept the host and dropped to
-    /// <c>http</c> would send that same cookie unencrypted.
+    /// deployment's login to whoever wrote it.
+    /// </para>
+    /// <para>
+    /// Measured against <paramref name="archiveUri"/> rather than against the page the link was read
+    /// from, which is the same rule <see cref="Ao3SessionEstablisher"/> applies to the address it
+    /// posts the login to. The work page is fetched with redirects followed, so where it was
+    /// finally served from is something AO3's own responses decide: measured against *that*, a work
+    /// page redirected off-origin would make every link on the substituted page same-origin, and
+    /// the check would agree with whoever moved the page. The configured archive is the one address
+    /// in this flow no page can influence.
+    /// </para>
+    /// <para>
+    /// <see cref="Ao3Origin"/> holds the comparison itself, and why it is the whole origin rather
+    /// than the host — a link that kept the name and dropped to <c>http</c> would send that same
+    /// cookie unencrypted.
     /// </para>
     /// </remarks>
-    private static string? Resolve(string? href, Uri pageUri)
+    private static string? Resolve(string? href, Uri? pageUri, Uri archiveUri)
     {
         if (string.IsNullOrWhiteSpace(href)) return null;
 
-        var resolved = Uri.TryCreate(href, UriKind.Absolute, out var absolute) && IsWeb(absolute)
+        var resolved = Uri.TryCreate(href, UriKind.Absolute, out var absolute) && Ao3Origin.IsWeb(absolute)
             ? absolute
-            : Uri.TryCreate(pageUri, href, out var relative) && IsWeb(relative)
-                ? relative
-                : null;
+            : pageUri is not null && Uri.TryCreate(pageUri, href, out var relative) ? relative : null;
 
         if (resolved is null) return null;
 
-        // The whole origin — scheme, host and port together — rather than the host alone. A link
-        // that keeps the name and drops to http:// would put the session cookie it is fetched with
-        // on the wire in the clear, and a host comparison says yes to that. Ordinal-ignore-case
-        // because that is how an origin is compared: AO3 is one archive and this is not the place
-        // to learn about anybody's subdomains.
-        return string.Equals(
-            resolved.GetLeftPart(UriPartial.Authority),
-            pageUri.GetLeftPart(UriPartial.Authority),
-            StringComparison.OrdinalIgnoreCase)
-            ? resolved.ToString()
-            : null;
+        return Ao3Origin.IsTheConfiguredArchive(resolved, archiveUri) ? resolved.ToString() : null;
     }
-
-    private static bool IsWeb(Uri uri) =>
-        uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp;
 
     /// <summary>
     /// The format a download URL's path names, or null for one this library does not fetch.

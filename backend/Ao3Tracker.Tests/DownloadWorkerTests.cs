@@ -193,6 +193,54 @@ public class DownloadWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task Fetches_nothing_from_a_work_page_that_redirected_off_the_configured_archive()
+    {
+        var emma = await ReaderWithAWorkAsync();
+
+        // The transport follows redirects, so a work page can be served from somewhere else
+        // entirely and say so in its final URL. Every link on that page is then that origin's, and
+        // fetching one would send this deployment's AO3 session cookie there. The archive the
+        // instance is configured for is what a link is measured against, not where the page landed.
+        _host.Http.Responds = _ => WorkPage("https://elsewhere.example/downloads/1/we_chose_to_wait.epub")
+            with { FinalUrl = "https://elsewhere.example/works/1" };
+
+        await QueueAsync(emma);
+
+        await DrainAsync();
+
+        var download = await DownloadAsync();
+        Assert.Equal(DownloadStatus.Failed, download.Status);
+
+        // Named for what it was: the page came from somewhere this instance is not configured for,
+        // which is a different diagnosis from AO3 declining to offer the format.
+        Assert.Contains("elsewhere.example", download.ErrorMessage);
+        Assert.Contains(LibraryTestHost.BaseUrl, download.ErrorMessage);
+
+        // The assertion that matters: nothing left this instance for that host.
+        Assert.Empty(_host.Http.FilesRequested);
+    }
+
+    [Fact]
+    public async Task Fetches_nothing_off_a_redirected_page_even_where_its_links_address_the_archive()
+    {
+        var emma = await ReaderWithAWorkAsync();
+
+        // The subtler half. A substituted page whose menu points back at the real archive passes a
+        // per-link origin check — and gets to choose which work's bytes this instance stores under
+        // this work's id, since a download address names a work the library never compares.
+        _host.Http.Responds = _ => WorkPage("https://ao3.test/downloads/999/someone_else.epub")
+            with { FinalUrl = "https://elsewhere.example/works/1" };
+
+        await QueueAsync(emma);
+
+        await DrainAsync();
+
+        Assert.Equal(DownloadStatus.Failed, (await DownloadAsync()).Status);
+        Assert.Empty(_host.Http.FilesRequested);
+        Assert.Empty(await FilesAsync());
+    }
+
+    [Fact]
     public async Task Fails_a_request_whose_file_AO3_will_not_serve_and_stores_nothing()
     {
         var emma = await ReaderWithAWorkAsync();

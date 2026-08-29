@@ -150,7 +150,27 @@ public sealed class DownloadFetcher : IDownloadFetcher
                 ct);
         }
 
-        var links = Ao3DownloadLinks.Parse(page.Content, page.FinalUrl ?? pageUrl);
+        // Markup is only this archive's word on the work when this archive served it. The transport
+        // follows redirects, so a work page can land somewhere else entirely and say so — and every
+        // link on a substituted page is that host's choice of what this instance should store,
+        // including one that does address AO3 but names somebody else's work. Refused whole rather
+        // than filtered link by link: the origin check below is what keeps the session cookie from
+        // leaving, and this is what keeps a stranger from choosing the file.
+        if (page.FinalUrl is { } servedFrom && !Ao3Origin.IsTheConfiguredArchive(servedFrom, _options.BaseUrl))
+        {
+            return await FailAsync(
+                download,
+                $"This work's page was served from {servedFrom}, which is not {_options.BaseUrl}. "
+                + "Nothing was fetched: this instance only reads downloads off the archive it is "
+                + "configured for.",
+                ct);
+        }
+
+        // The page's final URL is only a base for relative hrefs, and the configured archive is what
+        // every link is measured against — the one address in this flow no page can influence. It is
+        // still checked per link with the page origin agreeing: a link is refused for where it
+        // points regardless of how the page carrying it arrived.
+        var links = Ao3DownloadLinks.Parse(page.Content, page.FinalUrl ?? pageUrl, _options.BaseUrl);
         if (!links.TryGetValue(download.Format, out var fileUrl))
         {
             return await FailAsync(

@@ -235,16 +235,12 @@ public sealed class Ao3SessionEstablisher : IAo3SessionEstablisher
     /// <para>
     /// The whole origin and not merely the host: a password is what is being posted, so an action
     /// that kept the name and dropped to <c>http</c> would put it on the wire in the clear. AO3
-    /// serves its login form over HTTPS and posts it back to the same place.
+    /// serves its login form over HTTPS and posts it back to the same place. That comparison lives
+    /// in <see cref="Ao3Origin"/>, which is the same one the download links are measured by.
     /// </para>
     /// </remarks>
     private static bool IsTheConfiguredArchive(string action, string configured) =>
-        Uri.TryCreate(action, UriKind.Absolute, out var target)
-        && Uri.TryCreate(configured, UriKind.Absolute, out var archive)
-        && string.Equals(
-            target.GetLeftPart(UriPartial.Authority),
-            archive.GetLeftPart(UriPartial.Authority),
-            StringComparison.OrdinalIgnoreCase);
+        Ao3Origin.IsTheConfiguredArchive(action, configured);
 
     private static bool IsRedirect(HttpStatusCode status) =>
         (int)status is >= 300 and < 400;
