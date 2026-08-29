@@ -1384,16 +1384,65 @@ public class Ao3ShipIndexScraperTests : IDisposable
     [Fact]
     public async Task Still_treats_an_empty_first_page_as_an_empty_tag()
     {
-        // The other side of the rule. A tag with no works has one page, no heading count and no
-        // Next link, and a backfill of it really is complete — refusing to conclude here would
+        // The other side of the rule. A tag with no works has one page, no Next link and a heading
+        // counting zero, and a backfill of it really is complete — refusing to conclude here would
         // leave the ship re-requesting an empty listing on every scheduled run forever.
-        _host.Http.Responds = Pages(Page(1, []));
+        //
+        // The fixture used to be `Page(1, [])`, which emits no heading at all: it passed because
+        // page 1 short-circuited the heading branch, and so it asserted that a page saying nothing
+        // may conclude. The capture in Ao3EmptyListingTests says an empty tag renders
+        // "0 Works in <tag>", so the heading costs a genuinely empty tag nothing and the headingless
+        // page belongs to the test below.
+        _host.Http.Responds = Pages(Page(1, [], total: 0));
         var shipId = await FollowAsync();
 
         var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
 
         Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
         Assert.Equal(ShipBackfillState.Complete, (await ReloadAsync(shipId)).BackfillState);
+    }
+
+    [Fact]
+    public async Task Refuses_an_unfiltered_first_page_with_no_heading_to_end_the_Listing_on()
+    {
+        // The rest of T28's C7, and the one place in the walk still exempt from "no evidence is
+        // not permission". An unfiltered page 1 carrying the container, no blurbs, no Next link and
+        // no readable heading used to satisfy the whole rule through the `page == 1` short-circuit:
+        // LastPage, and for a backfill ShipBackfillState.Complete, which nothing later revisits. A
+        // tag of ten thousand works whose page 1 comes back with a broken heading was written off
+        // in a single request, on a run filed as a success.
+        //
+        // Requiring the heading is only affordable because an empty tag renders one — see the test
+        // above and the capture behind it. Page 1 cannot retreat (CursorMayBeStale needs page > 1),
+        // so the refusal stops the run, leaves the backfill unfinished, and the scheduler asks
+        // again at its own spacing.
+        _host.Http.Responds = Pages(Page(1, []));
+        var shipId = await FollowAsync();
+
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        Assert.Contains("page 1 carries no heading", outcome.ErrorMessage);
+        Assert.NotEqual(ShipBackfillState.Complete, (await ReloadAsync(shipId)).BackfillState);
+    }
+
+    [Fact]
+    public async Task Refuses_a_filtered_first_page_with_no_heading_to_end_the_Listing_on()
+    {
+        // The same short-circuit's other half. A quiet incremental pass is told it is quiet by the
+        // heading — "0 Works in <tag>" — and a page that does not say even that is a page the run
+        // could not read, not a ship nobody is writing for. Concluding here would move the
+        // watermark to whatever page 1 last held, so everything the listing was hiding would be
+        // older than the new watermark and skipped by every later pass, silently.
+        _host.Http.Responds = Pages(Page(1, []));
+
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(5));
+
+        var outcome = await _host.ScrapeAsync(shipId);
+
+        Assert.Equal(ScrapeStopReason.Error, outcome.StopReason);
+        Assert.Contains("page 1 carries no heading", outcome.ErrorMessage);
     }
 
     [Fact]
@@ -1421,14 +1470,13 @@ public class Ao3ShipIndexScraperTests : IDisposable
     [Fact]
     public async Task Concludes_a_backfill_on_AO3s_own_zero_result_Listing()
     {
-        // The unfiltered side. Note what this does *not* pin: page 1 short-circuits
-        // PlausiblyTheEndOfTheListing before any heading is read, so the conclusion here rests on
-        // the short-circuit alone and would be identical if the capture carried no heading at all —
-        // as Still_treats_an_empty_first_page_as_an_empty_tag, whose Page(1, []) emits none,
-        // demonstrates. What the capture adds is that a genuinely empty listing *does* carry a
-        // "0 Works in <tag>" heading, which is what makes requiring one on page 1 safe rather than
-        // a change that would strand every empty tag. Making that requirement is T80; until it
-        // lands, T28's C7 is open and this test is the happy half of it.
+        // The unfiltered side, and now over markup that carries its own permission: page 1 no
+        // longer short-circuits the heading branch, so the conclusion here rests on the capture's
+        // "0 Works in <tag>" rather than on the walk asking nothing. The headingless page it used
+        // to be indistinguishable from is refused two tests up
+        // (Refuses_an_unfiltered_first_page_with_no_heading_to_end_the_Listing_on), which is why
+        // this one is worth keeping: it is the evidence that the requirement costs a genuinely
+        // empty tag nothing.
         _host.Http.Responds = Pages(new FakePage(1, Fixtures.Load(Fixtures.EmptyListing)));
         var shipId = await FollowAsync();
 

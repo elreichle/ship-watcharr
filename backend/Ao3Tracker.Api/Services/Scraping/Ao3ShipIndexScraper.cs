@@ -957,7 +957,10 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// renders the container, so this tells the two apart rather than guessing from length.</item>
     /// <item><c>page > 1</c> — on an unfiltered listing. AO3 404s past the last page rather than
     /// serving an empty 200, so the walk only got above page 1 because a page advertised more — one
-    /// this run read, or one an earlier run read before leaving the cursor here.
+    /// this run read, or one an earlier run read before leaving the cursor here. Page 1 itself is
+    /// waived only where the page carries a readable heading (see
+    /// <see cref="HeadingWasReadable"/>): it is the one page no earlier page vouched for, so a page
+    /// 1 that says nothing at all says nothing about the end of the listing either.
     ///
     /// Under a date bound that argument does not hold: the Next link comes off a result
     /// count that can race the blurbs, so one work leaving the window between the two requests
@@ -1000,9 +1003,44 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     private static bool PlausiblyTheEndOfTheListing(
         Ao3ListingPage listing, int page, bool listingWasFiltered, int blurbsRead) =>
         listing.HasListing
-        && (page == 1 || (listingWasFiltered && FilteredHeadingSaysThisIsAll(listing, blurbsRead)))
+        && ((page == 1 && HeadingWasReadable(listing))
+            || (listingWasFiltered && FilteredHeadingSaysThisIsAll(listing, blurbsRead)))
         && !listing.HasNextPage
         && !HeadingCountsMoreThanTheRunWasServed(listing, listingWasFiltered, blurbsRead);
+
+    /// <summary>
+    /// Whether the page carries a heading the parser could read a count out of at all.
+    ///
+    /// The condition on page 1's waiver of <c>page > 1</c>, and the last branch of *this* rule to
+    /// get one. Every other branch here had already been made to insist on evidence rather than on
+    /// the absence of a contradiction; page 1 was still exempt, so a page carrying the container, no
+    /// blurbs, no Next link and no readable heading concluded
+    /// <see cref="ScrapeStopReason.LastPage"/> — for a backfill,
+    /// <see cref="ShipBackfillState.Complete"/>, which nothing later revisits. A tag of ten
+    /// thousand works whose page 1 came back with a broken heading was written off in one request,
+    /// on a run filed as a success.
+    ///
+    /// What the count *says* is still the fourth condition's business
+    /// (<see cref="HeadingCountsMoreThanTheRunWasServed"/>), so an empty tag — which AO3 answers
+    /// with "0 Works in &lt;tag&gt;", captured and pinned in <c>Ao3EmptyListingTests</c> — passes
+    /// both and concludes exactly as it always did. That capture is the whole of what makes this
+    /// requirement affordable: had a genuinely empty tag rendered no heading, insisting on one
+    /// would have stranded every empty tag in a run that never concludes.
+    ///
+    /// Page 1 cannot retreat (<see cref="CursorMayBeStale"/> needs <c>page > 1</c>), so refusing
+    /// stops the run with <see cref="ScrapeStopReason.Error"/> naming the page, leaves the backfill
+    /// unfinished, and the scheduler asks again at its own spacing.
+    ///
+    /// It closes nothing outside this rule, which the caller only asks at all for a page that
+    /// parsed to *no* works. A page that parsed to some, offering no Next link, still reaches
+    /// <see cref="ScrapeStopReason.LastPage"/> on the absence of that link alone, with the heading
+    /// beside it unread — so a pagination markup change answers a 60,000-work tag's page 1 with
+    /// twenty blurbs and a completed backfill. Same shape, different route, and not this
+    /// method's. That is the trade made
+    /// everywhere else in this file: a refusal costs requests, a wrong conclusion costs works
+    /// permanently and says nothing.
+    /// </summary>
+    private static bool HeadingWasReadable(Ao3ListingPage listing) => listing.TotalWorks is not null;
 
     /// <summary>
     /// Whether the heading counts works this run has not been served, which is the listing itself
@@ -1025,8 +1063,8 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     ///
     /// A heading that did not parse counts nothing here, deliberately and in the opposite direction
     /// to <see cref="FilteredHeadingSaysThisIsAll"/>: no evidence is not permission *and* not a
-    /// contradiction. Whether an absent heading should stop a page 1 concluding at all is a
-    /// separate rule about the short-circuit above, not about this one.
+    /// contradiction. That an absent heading stops a page 1 concluding is a separate rule about the
+    /// short-circuit above (see <see cref="HeadingWasReadable"/>), not about this one.
     /// </summary>
     private static bool HeadingCountsMoreThanTheRunWasServed(
         Ao3ListingPage listing, bool listingWasFiltered, int blurbsRead) =>
@@ -1067,14 +1105,23 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         if (!listing.HasListing) return "the response carried no listing at all, so it is not a results page";
         if (listing.HasNextPage) return "the page still offers a next one";
         if (!HeadingCountsMoreThanTheRunWasServed(listing, listingWasFiltered, blurbsRead))
-            return listingWasFiltered && page > 1 && listing.TotalWorks is null
+        {
+            // Page 1 is refused for the one reason nothing above it can be: no earlier page
+            // offered a next link to it, so the missing heading is the whole of what refused it.
+            // Saying "an earlier page offered a next one" over page 1 states the opposite of what
+            // happened, which is why this method is named after the evidence at all.
+            if (page == 1)
+                return listingWasFiltered
+                    ? "page 1 carries no heading to say the date filter's results ended here"
+                    : "page 1 carries no heading to say the tag is empty";
+
+            return listingWasFiltered && listing.TotalWorks is null
                 ? $"page {page.ToString(CultureInfo.InvariantCulture)} was only reached because an earlier "
                     + "page offered a next one, and it carries no heading to say the date filter's results "
                     + "ended here"
-                // The unfiltered walk's remaining evidence. A filtered page 1 that gets this far
-                // carries no heading either, but it does not reach here at all: with nothing to
-                // contradict it, PlausiblyTheEndOfTheListing concluded and the caller never asked.
+                // The unfiltered walk's remaining evidence.
                 : $"page {page.ToString(CultureInfo.InvariantCulture)} was only reached because an earlier page offered a next one";
+        }
 
         // The heading, named against the denominator it was actually compared with — an operator
         // reading "counts 4317 and the run has been served 0" over a filtered page can tell it
