@@ -295,6 +295,12 @@ public class ScrapeWorker : BackgroundService
     /// have given it. A backfill that was written off leaves no completion date, and that ship falls
     /// back to when it was first followed — which is the case the comment in
     /// <c>RecordBackfillProgress</c> means by "a full sweep is what can close the gap".
+    ///
+    /// That last fallback is the one date here outside the injected clock: <see cref="Ship.CreatedAt"/>
+    /// is stamped by the model as a row is added, so a fixture that sets its clock to a fixed past
+    /// date sees a never-swept ship as followed in the future and never due. Left rather than
+    /// clock-injected at follow time because it would put the clock through every writer of a Ship
+    /// row for one fallback; a test of this arm sets one of the two dates above instead.
     /// </summary>
     internal static bool FullSweepIsDue(Ship ship, DateTime now)
     {
@@ -387,6 +393,13 @@ public class ScrapeWorker : BackgroundService
             ScrapeJobId = job.Id,
             Status = ScrapeRunStatus.Running,
             Mode = mode,
+
+            // Both dates from this clock, overriding the model's own default for StartedAt. It is
+            // what the run history and "last run" order by, so leaving it on the wall clock while
+            // its heartbeat and completion came from here would give one row two clocks — and a
+            // fixture that moved time would file runs 90 days apart within a millisecond of each
+            // other, or complete one before it started.
+            StartedAt = UtcNow,
             HeartbeatAt = UtcNow,
         };
         db.ScrapeRuns.Add(run);

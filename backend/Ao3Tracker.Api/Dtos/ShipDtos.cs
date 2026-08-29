@@ -66,14 +66,10 @@ public record WatchedShipDto(
 /// The ships list, wrapped so it can carry one instance-wide fact alongside them.
 /// </summary>
 /// <param name="VerificationEnabled">
-/// False when this instance has no operator contact, which is what makes it unable to talk to AO3
-/// at all. Without it a page full of ships stuck on "Checking…" has no visible explanation, and the
-/// setting that fixes it is admin-only — so the flag is reported to everyone even though the
-/// underlying configuration is not.
-/// </param>
-/// <param name="VerificationEnabled">
-/// Whether this instance may check tags against AO3 at all — the operator-contact gate. Tag
-/// verification needs nothing else.
+/// Whether this instance may check tags against AO3 at all — the operator-contact gate, and
+/// nothing else. False leaves a page full of ships stuck on "Checking…" with no visible
+/// explanation, and the setting that fixes it is admin-only, so the flag is reported to every user
+/// even though the configuration behind it is not.
 /// </param>
 /// <param name="Ao3LoginConfigured">
 /// Whether the deployment's AO3 login is stored. Readable by every user, not just admins: a

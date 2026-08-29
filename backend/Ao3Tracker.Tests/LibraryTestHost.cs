@@ -255,7 +255,11 @@ internal sealed class LibraryTestHost : IDisposable
         _provider.GetRequiredService<ILogger<ScrapeWorker>>(),
         _provider.GetRequiredService<IOptions<Ao3HttpClientOptions>>(),
         ScrapeWake,
-        Clock);
+
+        // Resolved, not the Clock field: a test substituting its own TimeProvider through the
+        // configure overload would otherwise give the scrapers one clock and the worker another,
+        // which is the exact bug the worker reading this clock exists to rule out.
+        _provider.GetRequiredService<TimeProvider>());
 
     /// <summary>
     /// One poll of the download worker, without a host or a timer — the same call its loop makes.

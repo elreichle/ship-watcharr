@@ -2657,9 +2657,8 @@ public class Ao3ShipIndexScraperTests : IDisposable
     /// The sweep matters here because the worker chooses between the two — a ship whose listing was
     /// last walked in full longer ago than <see cref="ScrapeWorker.FullSweepInterval"/> spends its
     /// tick sweeping rather than reading the newest end — and <see cref="Jan"/> is three years in
-    /// the past, so a backfill settled at it is owed one immediately. The sweep is dated to now
-    /// rather than to the fixture's clock because that is what <c>ScrapeWorker.FullSweepIsDue</c>
-    /// compares against.
+    /// the past, so a backfill settled at it is owed one immediately. The sweep is dated from the
+    /// fixture's clock because that is what <c>ScrapeWorker.FullSweepIsDue</c> compares against.
     /// </summary>
     private async Task SettleBackfillAsync(int shipId)
     {
