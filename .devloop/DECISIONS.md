@@ -4,6 +4,36 @@ Plan changes only — tasks added, split, re-scoped, or dropped, each with its r
 
 > The 64 entries before this point live in [`DECISIONS-archive.md`](DECISIONS-archive.md) (2026-08-22 — initial plan → 2026-08-27 — T38: only a `Failed` backfill may be restarted, and a restart does not make the ship due). Do not read it end to end; `grep` it for a task id when a live entry points into it.
 
+## 2026-08-29 — T58: the date bound is the listing's own filter parameter, read off the capture
+
+**The tag listing filters on `work_search[date_from]`, and that is the only evidence this rests
+on.** `ao3-empty-listing.html`'s `form#work-filters` offers `work_search[date_from]` and
+`work_search[date_to]` under the heading "Date Updated" — the same `revised_at` the pass sorts by —
+and has no `revised_at` field anywhere. The capture is a date-bounded request in its own right: its
+`date_from` carries a future date and its heading reads `0 Works in`, over a tag that plainly holds
+more than none. So the parameter is applied, and a filtered heading counts the filter's result set
+rather than the tag — which is what `RecordTotal`'s skip and
+`HeadingCountsMoreThanTheRunWasServed`'s denominator have always assumed and can now assume for a
+reason. What went out before was `work_search[revised_at]={"> date"}`, the advanced search's syntax
+at `/works/search`; Rails discards the unknown nested key here without a word.
+
+**No test can prove AO3 honours it, so the tests pin the URL and nothing more.** A substring
+assertion on `revised_at` passed for the whole life of the bug — the sort column carries that name
+too — so the incremental URL is now asserted whole, and the unfiltered first pass beside it.
+
+**The inclusive bound keeps its day of slack rather than being tightened by one.** `date_from`
+includes the day it names where `> date` excluded it, so the same `AddDays(-1)` now asks for a day
+more. Left as it is: this bound decides no boundary — the cut is made client-side against the
+watermark — and wider is the only direction it is allowed to be wrong in.
+
+**`listingWasFiltered` was true while every incremental listing was unfiltered, and the two errors
+cancelled.** The flag meant "we sent a bound"; the bound was discarded; so a heading counting the
+whole tag was compared against the run's own blurbs. `RecordTotal` refused figures it could have
+trusted (T30, T44) and `PlausiblyTheEndOfTheListing` refused pages — both conservative, neither
+wrong in a way that lost works, which is why nothing ever failed over it. With the parameter
+applied the flag is true of the request it sits beside, and the logic under it is unchanged
+because it was written for the case that now actually happens.
+
 ## 2026-08-27 — T38's review: three defects in its own diff, and the cursor is not what it looked like
 
 `/code-review high` ran to completion (the third in a row to survive) and read the working tree

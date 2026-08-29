@@ -1473,7 +1473,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   the race reachable by ordinary typing rather than by a fast second click.
 
 ## T58 — The incremental pass sends a filter AO3 discards
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: `BuildUrl`'s date bound expressed in a parameter the tag-listing endpoint actually

@@ -23,3 +23,4 @@ A journal `next:` is for *this* handoff; a lesson is what would have saved a pas
 - To sit between a controller's read and its write, arm `LibraryTestHost`'s interceptor on the *write* command text — armed on the read it fires too early and the test passes vacuously.
 - No task entry carries a `verify: live` line, so UI work is verified by `npm run build` + `lint`: don't rebuild the browser harness (past scratchpads are gone anyway).
 - A "did this field change" guard misses an editor closed and reopened mid-write; one counter bumped by every touch of it covers both, erring toward keeping text.
+- A substring assertion on a query parameter's *name* can pass on the sort column's value — pin the whole URL.
