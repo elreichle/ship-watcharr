@@ -2068,7 +2068,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   is about.
 
 ## T84 — A work that left a tag is marked, and the library still lists it
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A decided, implemented rule for what `ShipWork.MissingSinceAt` means to a reader — the

@@ -317,3 +317,16 @@ Append-only. One entry per iteration, newest last.
 - commit: 5f01443
 - next: **T84**. Review's stale-advice finding fixed here; its first — a follow schedules any
   unverified ship — is by design → BACKLOG.
+
+## 2026-08-29 — T84 A work that left a tag is marked, and the library still lists it — done
+
+- did: `WorkQueries` splits — `Reachable` (membership, missing or not) scopes the detail page,
+  state write and download; `Library` drops works whose every watched membership a sweep marked
+  missing **unless this reader has a state row**, and scopes the feed, filter counts, stats and
+  vocabularies. The row and the detail page name the tags that let go.
+- files: `Api/Data/{WorkQueries,StatsQueries}.cs`, `Api/Controllers/{Works,Downloads}Controller.cs`,
+  `Api/Dtos/WorkDtos.cs`, `Tests/LibraryMissingWorkTests.cs`, 4 in `frontend/`
+- ran: `~Library` → 21; `dotnet test` → 1002; build clean; lint → 2 known; review → 3, 2 fixed
+  (`PerShip` counted a work under a tag it left; a tooltip's reason was false), 1 → BACKLOG.
+- commit: 484033f
+- next: **T85**.

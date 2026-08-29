@@ -465,3 +465,20 @@ option — waiving it for filtered page 1 only — would have left a filtered pa
 evidence one line after T50 refused exactly that on the evidence it had. Requiring the heading of
 both costs the filtered path nothing: a quiet pass is served `0 Works in <tag>`, which T50's own
 fixtures already carry, so both its pinned tests stay green and neither became vacuous.
+
+## 2026-08-29 — T84: what a missing mark means to a reader
+
+**A departed work leaves the listings and stays reachable, and a work the reader marked stays
+everywhere.** `WorkQueries` splits: `Reachable` (membership, missing or not) scopes the detail page,
+the state write and the download request; `Library` — `Reachable` minus works whose every watched
+membership is marked missing — scopes the feed, saved-filter counts, statistics and vocabularies. A
+`UserWorkState` row keeps the work, since an emptied state is stored as no row, so a sweep's wrong
+mark can only ever drop works nobody here touched.
+
+**Rejected: the saved-filter criterion and the feed toggle.** A criterion costs two migrations and
+leaves the default wrong; a toggle desynchronises a saved set's match count from the list it links
+to, which is the one thing `WorkQueries` exists to prevent. The retention clause needs neither.
+
+**`StatsQueries.PerShip` restates the rule per ship** (review finding): counting a work under a tag
+it left contradicted that tag's own feed. Applied to the flattened rows — inside the `SelectMany` a
+correlated EXISTS makes the query need SQL APPLY, which SQLite does not have.

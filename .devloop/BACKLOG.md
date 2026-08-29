@@ -99,3 +99,4 @@ A human promotes an item into `tasks.md` between runs; the loop only adds here.
   is walked before AO3 answers, and after T83 a rechecked one is too. Accept-on-trust as designed;
   keying on `== Verified` would change what following an unknown tag does, so it is a decision, not a
   fix. (T83's review.)
+- The Ships page's per-ship work count is instance-wide and excludes works a sweep marked missing, while T84 keeps such a work in the reader's feed and ship stats row once they have marked it — the two numbers describe different questions and say so nowhere.
