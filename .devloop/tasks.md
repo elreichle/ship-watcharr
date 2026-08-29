@@ -2131,7 +2131,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   the Ships page already renders a backfill state, so this is the same shape one field over.
 
 ## T87 — The README describes an app two tasks behind
-- status: in_progress
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: A README whose status line, "what it does today" and "planned" list describe the tree

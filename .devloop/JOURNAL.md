@@ -355,3 +355,15 @@ Append-only. One entry per iteration, newest last.
 - ran: review → 3 findings, 1 fixed (a duplicated `<param>`), 2 pre-existing → BACKLOG.
 - commit: 81dd904
 - next: the finish check — definition of done, README included.
+
+## 2026-08-29 — T87 The README describes an app two tasks behind — done
+
+- did: Corrected the status line's "known gap" and the two stale "Planned" bullets — the removal
+  mark (T84) and per-work detail fetches (shipped long since) — and said what the Ships view now
+  reports about the sweep. Found by the finish check, which is what it is for.
+- files: `README.md`
+- ran: `dotnet test` → 1005; `npm run build` clean; `npm run lint` → 2 known. Definition of done:
+  `docker compose up --build` on a spare port built, booted, took an admin, an instance credential
+  and a follow, and kept all three across `down` + `up`.
+- commit: 1cf7724
+- next: the list is finished.
