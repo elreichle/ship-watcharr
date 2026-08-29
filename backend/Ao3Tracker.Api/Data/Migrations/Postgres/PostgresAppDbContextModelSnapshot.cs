@@ -217,6 +217,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.Property<byte>("Format")
                         .HasColumnType("smallint");
 
+                    b.Property<int?>("PreviousWorkDownloadFileId")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("RequestedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -234,6 +237,8 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                         .HasColumnType("bigint");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("PreviousWorkDownloadFileId");
 
                     b.HasIndex("WorkDownloadFileId");
 
@@ -1158,6 +1163,11 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
 
             modelBuilder.Entity("Ao3Tracker.Api.Models.Download", b =>
                 {
+                    b.HasOne("Ao3Tracker.Api.Models.WorkDownloadFile", "PreviousFile")
+                        .WithMany()
+                        .HasForeignKey("PreviousWorkDownloadFileId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Ao3Tracker.Api.Models.ApplicationUser", "User")
                         .WithMany("Downloads")
                         .HasForeignKey("UserId")
@@ -1176,6 +1186,8 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                         .IsRequired();
 
                     b.Navigation("File");
+
+                    b.Navigation("PreviousFile");
 
                     b.Navigation("User");
 

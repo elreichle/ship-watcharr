@@ -457,6 +457,13 @@ export interface Download {
   status: DownloadStatus;
   /** The stored file's size, or null while no file stands behind the request. */
   sizeBytes: number | null;
+  /**
+   * The size of the copy the reader still holds from before this request was re-armed onto a newer
+   * version of the work — null where there is none. On a queued or failed request it is the
+   * difference between having nothing and still having what you had, so it is what says whether an
+   * earlier copy can be offered. Always null once the request is `Complete`.
+   */
+  previousSizeBytes: number | null;
   /** Why the fetch failed, naming which half of it did. Null unless `status` is `Failed`. */
   errorMessage: string | null;
   requestedAt: string;

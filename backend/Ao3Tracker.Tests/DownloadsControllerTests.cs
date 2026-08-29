@@ -267,7 +267,7 @@ public class DownloadsControllerTests : IDisposable
     {
         var emma = _host.SeedUser();
         await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
-        await SeedFileAsync(1, Ao3DownloadFormat.Epub, FirstVersion, sizeBytes: 4096);
+        var fileId = await SeedFileAsync(1, Ao3DownloadFormat.Epub, FirstVersion, sizeBytes: 4096);
 
         var complete = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
         Assert.Equal(nameof(DownloadStatus.Complete), complete.Status);
@@ -281,9 +281,69 @@ public class DownloadsControllerTests : IDisposable
         Assert.Null(requeued.SizeBytes);
         Assert.Null(requeued.CompletedAt);
 
-        // The stale bytes are let go of, not served as though they were the new version.
+        // The stale bytes stop being what this request reports — they are not the version it is
+        // now out fetching — but they are not let go of either: they are still on disk and still
+        // the only copy this reader has. Which of the two columns holds them is the whole of the
+        // difference between "Complete beside the wrong version" and "you still have what you had".
+        Assert.Equal(4096, requeued.PreviousSizeBytes);
+
         await using var db = _host.NewContext();
-        Assert.Null(await db.Downloads.Select(d => d.WorkDownloadFileId).SingleAsync());
+        var row = await db.Downloads.SingleAsync();
+
+        Assert.Null(row.WorkDownloadFileId);
+        Assert.Equal(fileId, row.PreviousWorkDownloadFileId);
+    }
+
+    [Fact]
+    public async Task Lets_go_of_the_earlier_copy_once_the_replacement_is_on_disk()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+        await SeedFileAsync(1, Ao3DownloadFormat.Epub, FirstVersion, sizeBytes: 4096);
+
+        Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+
+        // The work moves on and someone else's fetch lands the new version before this reader asks
+        // again — which is the one event that makes the copy they were holding worth nothing.
+        var newVersion = FirstVersion.AddDays(7);
+        await MoveWorkOnAsync(1, newVersion);
+        var replacement = await SeedFileAsync(1, Ao3DownloadFormat.Epub, newVersion, sizeBytes: 5120);
+
+        var again = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+
+        Assert.Equal(nameof(DownloadStatus.Complete), again.Status);
+        Assert.Equal(5120, again.SizeBytes);
+        Assert.Null(again.PreviousSizeBytes);
+
+        await using var db = _host.NewContext();
+        var row = await db.Downloads.SingleAsync();
+
+        Assert.Equal(replacement, row.WorkDownloadFileId);
+        Assert.Null(row.PreviousWorkDownloadFileId);
+    }
+
+    [Fact]
+    public async Task Keeps_holding_the_same_earlier_copy_across_a_second_failed_ask()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+        var fileId = await SeedFileAsync(1, Ao3DownloadFormat.Epub, FirstVersion, sizeBytes: 4096);
+
+        var complete = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+        await MoveWorkOnAsync(1, FirstVersion.AddDays(7));
+
+        await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default);
+        await FailAsync(complete.Id, "AO3 answered 503.");
+
+        // Asking a second time re-arms a row that is now reporting no file at all. What it must not
+        // do is conclude from that that the reader is holding nothing.
+        var second = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+
+        Assert.Equal(nameof(DownloadStatus.Pending), second.Status);
+        Assert.Equal(4096, second.PreviousSizeBytes);
+
+        await using var db = _host.NewContext();
+        Assert.Equal(fileId, await db.Downloads.Select(d => d.PreviousWorkDownloadFileId).SingleAsync());
     }
 
     [Fact]
@@ -377,6 +437,42 @@ public class DownloadsControllerTests : IDisposable
         Assert.Equal(complete.Id, again.Id);
         Assert.Equal(nameof(DownloadStatus.Pending), again.Status);
         Assert.True(await _host.DownloadWake.WaitAsync(TimeSpan.Zero));
+
+        // And it is not recorded as a copy this reader is still holding. The bytes are the reason
+        // this request was re-armed at all — a reference to them would put "Save earlier copy" on
+        // the queue over a file that has just been established to be gone.
+        Assert.Null(again.PreviousSizeBytes);
+
+        await using var db = _host.NewContext();
+        Assert.Null(await db.Downloads.Select(d => d.PreviousWorkDownloadFileId).SingleAsync());
+    }
+
+    [Fact]
+    public async Task Stops_holding_an_earlier_copy_that_has_itself_left_the_disk()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+
+        var path = await SeedFileOnDiskAsync(1, Ao3DownloadFormat.Epub, FirstVersion, [1, 2, 3]);
+
+        Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+        await MoveWorkOnAsync(1, FirstVersion.AddDays(7));
+
+        var requeued = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+        Assert.Equal(3, requeued.PreviousSizeBytes);
+
+        // The reader's copy is taken by something outside this app — a pruned volume, an operator
+        // clearing space — while the re-fetch sits in the queue. Asking again re-reads the disk,
+        // which is the point at which a reference that has stopped being true is dropped.
+        File.Delete(path);
+
+        var again = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+
+        Assert.Equal(nameof(DownloadStatus.Pending), again.Status);
+        Assert.Null(again.PreviousSizeBytes);
+
+        await using var db = _host.NewContext();
+        Assert.Null(await db.Downloads.Select(d => d.PreviousWorkDownloadFileId).SingleAsync());
     }
 
     [Fact]
@@ -635,16 +731,94 @@ public class DownloadsControllerTests : IDisposable
 
         var complete = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
 
-        // Constructed rather than reached: `Arm` nulls the file reference when it re-queues a
-        // request, so nothing in the app writes this state today. T59 is the open question of
-        // whether it should keep it — a reader whose refetch fails currently loses the copy still
-        // on disk — and if the answer is yes, a queued request starts naming the previous version's
-        // bytes. This endpoint must not hand those over as the answer to the request being retried.
+        // Constructed rather than reached: `Arm` moves the reference to PreviousWorkDownloadFileId
+        // when it re-queues a request (T59), so nothing in the app leaves a queued row naming a
+        // file through WorkDownloadFileId. That column is the request's own answer, and the answer
+        // to a request still being fetched is not a file — whatever the row happens to name.
         await RequeueKeepingFileAsync(complete.Id);
 
         var refused = Assert.IsType<ObjectResult>(
             await _host.NewDownloadsRequest(emma).GetDownloadFile(complete.Id, default));
 
+        Assert.Equal(StatusCodes.Status409Conflict, refused.StatusCode);
+    }
+
+    [Fact]
+    public async Task Serves_the_copy_a_reader_already_had_while_the_refetch_is_queued()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+
+        var bytes = "the version they already have"u8.ToArray();
+        var path = await SeedFileOnDiskAsync(1, Ao3DownloadFormat.Epub, FirstVersion, bytes);
+
+        var complete = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+        await MoveWorkOnAsync(1, FirstVersion.AddDays(7));
+
+        var requeued = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+        Assert.Equal(nameof(DownloadStatus.Pending), requeued.Status);
+
+        var served = Assert.IsType<PhysicalFileResult>(
+            await _host.NewDownloadsRequest(emma).GetDownloadFile(complete.Id, default));
+
+        // The old bytes, because they are the ones this reader has. Asking for a newer version is
+        // not a reason to be locked out of the copy already in hand while the queue drains.
+        Assert.Equal(path, served.FileName);
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(served.FileName));
+
+        // And the queue says so, which is how the Downloads page knows to offer it: a queued row
+        // reporting a size for the copy behind it, rather than one that looks like it has nothing.
+        var listed = Assert.Single(Downloads(await _host.NewDownloadsRequest(emma).GetDownloads(default)));
+
+        Assert.Null(listed.SizeBytes);
+        Assert.Equal(bytes.Length, listed.PreviousSizeBytes);
+    }
+
+    [Fact]
+    public async Task Serves_the_copy_a_reader_already_had_when_the_refetch_failed()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+
+        var bytes = "the version they already have"u8.ToArray();
+        var path = await SeedFileOnDiskAsync(1, Ao3DownloadFormat.Epub, FirstVersion, bytes);
+
+        var complete = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+        await MoveWorkOnAsync(1, FirstVersion.AddDays(7));
+        await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default);
+
+        // AO3 has taken the work down, or was simply not up. Whatever the reason, the fetch that
+        // was going to replace this reader's copy is not going to happen.
+        await FailAsync(complete.Id, "AO3 answered 404 for this work's page.");
+
+        var served = Assert.IsType<PhysicalFileResult>(
+            await _host.NewDownloadsRequest(emma).GetDownloadFile(complete.Id, default));
+
+        Assert.Equal(path, served.FileName);
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(served.FileName));
+    }
+
+    [Fact]
+    public async Task Reports_a_failed_refetch_whose_earlier_copy_has_also_gone_as_having_no_file()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+
+        var path = await SeedFileOnDiskAsync(1, Ao3DownloadFormat.Epub, FirstVersion, [1, 2, 3]);
+
+        var complete = Download(await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default));
+        await MoveWorkOnAsync(1, FirstVersion.AddDays(7));
+        await _host.NewDownloadsRequest(emma).RequestDownload(1, new("Epub"), default);
+        await FailAsync(complete.Id, "AO3 answered 503.");
+
+        // Something outside this app took the older bytes while the request was queued.
+        File.Delete(path);
+
+        var refused = Assert.IsType<ObjectResult>(
+            await _host.NewDownloadsRequest(emma).GetDownloadFile(complete.Id, default));
+
+        // 409 rather than the 410 a Complete request gets: this row never claimed to have a file,
+        // so nothing about it is out of date with the disk. It failed, and now it has nothing.
         Assert.Equal(StatusCodes.Status409Conflict, refused.StatusCode);
     }
 

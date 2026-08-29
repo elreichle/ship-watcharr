@@ -357,6 +357,11 @@ public sealed class DownloadFetcher : IDownloadFetcher
         download.CompletedAt = _time.GetUtcNow().UtcDateTime;
         download.ErrorMessage = null;
 
+        // The replacement is on disk, which is the one thing that supersedes the copy the reader
+        // was holding through this fetch. Kept any longer it would be a second file offered beside
+        // the current one, for a version nobody asked for.
+        download.PreviousWorkDownloadFileId = null;
+
         await _db.SaveChangesAsync(ct);
         return DownloadFetchOutcome.Completed;
     }
@@ -371,9 +376,10 @@ public sealed class DownloadFetcher : IDownloadFetcher
         download.ErrorMessage = message;
         download.CompletedAt = _time.GetUtcNow().UtcDateTime;
 
-        // WorkDownloadFileId is left exactly as it was found, which for a request the controller
-        // re-armed means null — see T59 in .devloop/tasks.md, which owns whether re-arming should
-        // hold on to the reader's previous copy until a replacement exists.
+        // Both file references are left exactly as they were found. For a request the controller
+        // re-armed that means WorkDownloadFileId is null — this fetch was the thing that would have
+        // filled it — while PreviousWorkDownloadFileId still names the copy the reader had before
+        // they asked for a newer one. Failing to fetch is not a reason to take that away.
 
         await _db.SaveChangesAsync(ct);
         return DownloadFetchOutcome.Failed;

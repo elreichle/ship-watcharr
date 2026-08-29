@@ -78,6 +78,7 @@ public class DownloadsController : ControllerBase
                 d.Format.ToString(),
                 d.Status.ToString(),
                 d.File == null ? null : d.File.SizeBytes,
+                d.PreviousFile == null ? null : d.PreviousFile.SizeBytes,
                 d.ErrorMessage,
                 d.RequestedAt,
                 d.CompletedAt))
@@ -149,18 +150,38 @@ public class DownloadsController : ControllerBase
 
             if (existing.Status == DownloadStatus.Downloading || holdsThisVersion)
             {
-                return Ok(ToDto(existing, work.Title, holdsThisVersion ? onDisk!.SizeBytes : null));
+                return Ok(ToDto(
+                    existing,
+                    work.Title,
+                    holdsThisVersion ? onDisk!.SizeBytes : null,
+                    await StoredSizeAsync(existing.PreviousWorkDownloadFileId, ct)));
             }
+
+            // What this reader is left holding, established on disk before it is written down. One
+            // of the reasons control reaches here is that the bytes this row already names have
+            // gone — UsableFileAsync answers null for a file that has left the disk exactly as it
+            // does for a version the work has moved past — and a reference carried across on the
+            // strength of the row alone would have the queue offering a copy that is not there.
+            var held = await HeldFileAsync(
+                existing.WorkDownloadFileId ?? existing.PreviousWorkDownloadFileId, ct);
 
             // A request still queued falls through to here rather than being left alone: re-arming
             // it changes nothing unless the bytes have appeared on disk since it was made, in which
             // case it stops being a fetch anyone has to perform.
-            Arm(existing, onDisk);
+            Arm(existing, onDisk, held);
 
             if (await TryArmAsync(existing, ct))
             {
                 WakeTheWorker(existing);
-                return Ok(ToDto(existing, work.Title, onDisk?.SizeBytes));
+
+                // Whether the held copy survives this re-arm is Arm's decision, so the size
+                // reported follows the row it wrote rather than the lookup it was made from: a
+                // request that has just completed off a replacement is holding nothing.
+                return Ok(ToDto(
+                    existing,
+                    work.Title,
+                    onDisk?.SizeBytes,
+                    existing.PreviousWorkDownloadFileId is null ? null : held?.SizeBytes));
             }
 
             // The guard above is a read, and a worker can claim the row between it and the write —
@@ -175,7 +196,11 @@ public class DownloadsController : ControllerBase
                 long? size = current.WorkDownloadFileId is not null
                     && current.WorkDownloadFileId == onDisk?.Id ? onDisk.SizeBytes : null;
 
-                return Ok(ToDto(current, work.Title, size));
+                return Ok(ToDto(
+                    current,
+                    work.Title,
+                    size,
+                    await StoredSizeAsync(current.PreviousWorkDownloadFileId, ct)));
             }
         }
 
@@ -187,7 +212,9 @@ public class DownloadsController : ControllerBase
             RequestedAt = DateTime.UtcNow,
         };
 
-        Arm(download, onDisk);
+        // A row that does not exist yet has never reported a file, so there is nothing for it to
+        // be holding.
+        Arm(download, onDisk, held: null);
         _db.Downloads.Add(download);
 
         try
@@ -211,11 +238,19 @@ public class DownloadsController : ControllerBase
             if (winner is null) throw;
 
             WakeTheWorker(winner);
-            return Ok(ToDto(winner, work.Title, onDisk?.SizeBytes));
+
+            return Ok(ToDto(
+                winner,
+                work.Title,
+                onDisk?.SizeBytes,
+                await StoredSizeAsync(winner.PreviousWorkDownloadFileId, ct)));
         }
 
         WakeTheWorker(download);
-        return Ok(ToDto(download, work.Title, onDisk?.SizeBytes));
+
+        // A row this request just created has never reported a file, so there is no earlier copy
+        // for it to be holding.
+        return Ok(ToDto(download, work.Title, onDisk?.SizeBytes, previousSizeBytes: null));
     }
 
     /// <summary>
@@ -228,9 +263,17 @@ public class DownloadsController : ControllerBase
     /// Three answers, and they mean different things. A request that is not this reader's — or that
     /// never existed — is a bare 404 alike, the same rule <see cref="DeleteDownload"/> follows, so
     /// that no id can be probed for whose it is. The other two are about the caller's own row and
-    /// therefore say what is wrong with it: a request still queued or failed is a 409, and one
-    /// whose file has left the disk under it is a 410 rather than the unhandled exception that
+    /// therefore say what is wrong with it: a request with nothing behind it at all is a 409, and
+    /// one whose file has left the disk under it is a 410 rather than the unhandled exception that
     /// opening a missing path would otherwise be.
+    ///
+    /// A request that is not Complete is still served where the reader is holding a copy from
+    /// before it was re-armed (<see cref="Download.PreviousWorkDownloadFileId"/>): those bytes were
+    /// theirs to read a moment ago and asking for a newer version is not a reason to take them
+    /// away. That is a different column from the one the request reports, which is what keeps
+    /// "a request never answers with bytes of a version it claims to have moved past" true — the
+    /// file a non-Complete request <i>names</i> is still refused, and the Downloads page labels
+    /// what it offers here as the earlier copy rather than as the fetch that has not happened.
     /// </remarks>
     [HttpGet("downloads/{id:int}/file")]
     public async Task<IActionResult> GetDownloadFile(int id, CancellationToken ct)
@@ -246,12 +289,18 @@ public class DownloadsController : ControllerBase
                 d.Status,
                 WorkTitle = d.Work.Title,
                 RelativePath = d.File == null ? null : d.File.RelativePath,
+                PreviousRelativePath = d.PreviousFile == null ? null : d.PreviousFile.RelativePath,
             })
             .FirstOrDefaultAsync(ct);
 
         if (request is null) return NotFound();
 
-        if (request.Status != DownloadStatus.Complete || request.RelativePath is null)
+        // Complete is the only status whose own file is an answer; anything else falls back to the
+        // copy the reader was already holding, and to nothing when there is none.
+        var reportsItsOwnFile = request.Status == DownloadStatus.Complete && request.RelativePath is not null;
+        var relativePath = reportsItsOwnFile ? request.RelativePath : request.PreviousRelativePath;
+
+        if (relativePath is null)
         {
             return Problem(
                 statusCode: StatusCodes.Status409Conflict,
@@ -261,7 +310,7 @@ public class DownloadsController : ControllerBase
         // Resolved through DownloadPaths rather than treated as a path: what is stored is relative
         // to the data directory precisely so the volume can be mounted somewhere else tomorrow.
         var dataDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(_paths.DataDirectory));
-        var absolutePath = Path.GetFullPath(DownloadPaths.Absolute(dataDirectory, request.RelativePath));
+        var absolutePath = Path.GetFullPath(DownloadPaths.Absolute(dataDirectory, relativePath));
 
         // Nothing writes a RelativePath today but DownloadPaths.Relative, which builds it out of a
         // work id and an enum and can no more escape the data directory than it can misspell it. It
@@ -273,7 +322,7 @@ public class DownloadsController : ControllerBase
         {
             _logger.LogError(
                 "Download {DownloadId} names {RelativePath}, which is not inside the data directory. "
-                + "Nothing was served.", id, request.RelativePath);
+                + "Nothing was served.", id, relativePath);
 
             return Problem(
                 statusCode: StatusCodes.Status500InternalServerError,
@@ -283,10 +332,18 @@ public class DownloadsController : ControllerBase
 
         if (!System.IO.File.Exists(absolutePath))
         {
-            return Problem(
-                statusCode: StatusCodes.Status410Gone,
-                detail: "The stored copy of this file is no longer on disk. Ask for it again to "
-                    + "have it fetched.");
+            // 410 only for a request that says it has this file: that row is wrong about the world
+            // and re-asking is what repairs it. A queued or failed request whose earlier copy has
+            // also gone is not wrong about anything — it has no file, which is what it already
+            // says — so it answers as the request it is.
+            return reportsItsOwnFile
+                ? Problem(
+                    statusCode: StatusCodes.Status410Gone,
+                    detail: "The stored copy of this file is no longer on disk. Ask for it again to "
+                        + "have it fetched.")
+                : Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    detail: "This download has no file yet. It is still queued, or the fetch failed.");
         }
 
         // Private, because the file is served against this reader's request row and a shared cache
@@ -357,6 +414,7 @@ public class DownloadsController : ControllerBase
                 set => set
                     .SetProperty(d => d.Status, armed.Status)
                     .SetProperty(d => d.WorkDownloadFileId, armed.WorkDownloadFileId)
+                    .SetProperty(d => d.PreviousWorkDownloadFileId, armed.PreviousWorkDownloadFileId)
                     .SetProperty(d => d.CompletedAt, armed.CompletedAt)
                     .SetProperty(d => d.ErrorMessage, armed.ErrorMessage),
                 ct) > 0;
@@ -409,13 +467,21 @@ public class DownloadsController : ControllerBase
     /// none. The one place a request becomes complete without a fetch.
     /// </summary>
     /// <remarks>
-    /// A request re-armed onto no file loses the reference to the copy it previously held, which is
-    /// deliberate — a row reporting Complete beside bytes of a different version is worse than one
-    /// reporting Pending — but it does mean a reader whose refetch then fails is left with neither.
-    /// T59 owns that trade.
+    /// A request re-armed onto no file stops <i>reporting</i> the copy it previously held — a row
+    /// saying Complete beside bytes of a version the work has moved past is worse than one saying
+    /// Pending — but it does not let go of it: the bytes are still on disk and the reader still has
+    /// them, so the reference moves to <see cref="Download.PreviousWorkDownloadFileId"/> and a
+    /// re-fetch that fails leaves them with the old file rather than with nothing. It is dropped
+    /// only where a replacement has landed, which is the one thing that supersedes it.
     /// </remarks>
-    private static void Arm(Download download, WorkDownloadFile? onDisk)
+    /// <param name="held">The copy this reader still has, already checked to be on disk — see
+    /// <see cref="HeldFileAsync"/>. Null where they have none, which is also every brand-new
+    /// request.</param>
+    private static void Arm(Download download, WorkDownloadFile? onDisk, WorkDownloadFile? held)
     {
+        // Nothing to hold once a replacement is on disk: that copy supersedes it.
+        download.PreviousWorkDownloadFileId = onDisk is null ? held?.Id : null;
+
         // The foreign key rather than the navigation: File is not loaded on this path, and
         // assigning it would have EF treat "not loaded" as "no file" on the row that wins.
         download.WorkDownloadFileId = onDisk?.Id;
@@ -517,14 +583,54 @@ public class DownloadsController : ControllerBase
     /// <param name="sizeBytes">The size of the file this request now points at, or null where it
     /// points at none. Passed in rather than read off <c>download.File</c>, which is not loaded on
     /// these paths and would report every request as fileless.</param>
-    private static DownloadDto ToDto(Download download, string workTitle, long? sizeBytes) => new(
+    /// <param name="previousSizeBytes">The size of the copy the reader is still holding, on the
+    /// same terms and for the same reason.</param>
+    private static DownloadDto ToDto(
+        Download download, string workTitle, long? sizeBytes, long? previousSizeBytes) => new(
         download.Id,
         download.WorkId,
         workTitle,
         download.Format.ToString(),
         download.Status.ToString(),
         sizeBytes,
+        previousSizeBytes,
         download.ErrorMessage,
         download.RequestedAt,
         download.CompletedAt);
+
+    /// <summary>
+    /// The stored file a request would go on holding, where its bytes are still there to hold.
+    /// </summary>
+    /// <remarks>
+    /// By id and with no version in the lookup, which is what makes it a different question from
+    /// <see cref="UsableFileAsync"/>: this file is deliberately <i>not</i> the work's current
+    /// version. The disk check is the same one, and for the same reason — a reference is a claim
+    /// that the reader has these bytes, and writing one for bytes that have gone puts a download
+    /// link on the queue that cannot answer.
+    /// </remarks>
+    private async Task<WorkDownloadFile?> HeldFileAsync(int? fileId, CancellationToken ct)
+    {
+        if (fileId is null) return null;
+
+        var file = await _db.WorkDownloadFiles.AsNoTracking()
+            .FirstOrDefaultAsync(f => f.Id == fileId, ct);
+
+        if (file is null) return null;
+
+        return System.IO.File.Exists(DownloadPaths.Absolute(_paths.DataDirectory, file.RelativePath))
+            ? file
+            : null;
+    }
+
+    /// <summary>
+    /// The size of one stored file, by id. For the copy a request is holding rather than reporting:
+    /// unlike the file it reports, that one was never looked up on the way in.
+    /// </summary>
+    private async Task<long?> StoredSizeAsync(int? fileId, CancellationToken ct) =>
+        fileId is null
+            ? null
+            : await _db.WorkDownloadFiles.AsNoTracking()
+                .Where(f => f.Id == fileId)
+                .Select(f => (long?)f.SizeBytes)
+                .FirstOrDefaultAsync(ct);
 }

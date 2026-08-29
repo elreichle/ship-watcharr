@@ -17,6 +17,11 @@ namespace Ao3Tracker.Api.Dtos;
 /// "Complete" or "Failed".</param>
 /// <param name="SizeBytes">The stored file's size, or null while no file stands behind this
 /// request — which is every status but Complete.</param>
+/// <param name="PreviousSizeBytes">The size of the copy this reader is still holding from before
+/// the request was re-armed onto a newer version of the work. Non-null only where there is one —
+/// so on a Pending or Failed request it is the difference between "you have nothing" and "you
+/// still have the copy you had", which is what lets the queue offer that copy rather than a dead
+/// row. Always null on a Complete request, whose own file has superseded it.</param>
 /// <param name="ErrorMessage">Why the fetch failed, for a Failed request. Null otherwise.</param>
 public record DownloadDto(
     int Id,
@@ -25,6 +30,7 @@ public record DownloadDto(
     string Format,
     string Status,
     long? SizeBytes,
+    long? PreviousSizeBytes,
     string? ErrorMessage,
     DateTime RequestedAt,
     DateTime? CompletedAt);

@@ -55,7 +55,19 @@ export function DownloadsPage() {
                     <span className="download-error">{download.errorMessage}</span>
                   )}
                 </td>
-                <td>{formatSize(download.sizeBytes)}</td>
+                <td>
+                  {download.previousSizeBytes === null ? (
+                    formatSize(download.sizeBytes)
+                  ) : (
+                    // A request that is out fetching a newer version reports no size of its own,
+                    // which read as an em dash beside "Failed" as though the reader had nothing.
+                    // What they have is the copy from before they asked.
+                    <>
+                      {formatSize(download.previousSizeBytes)}{' '}
+                      <span className="hint">earlier copy</span>
+                    </>
+                  )}
+                </td>
                 <td>{formatDate(download.requestedAt)}</td>
                 <td>{formatDate(download.completedAt)}</td>
                 <td className="download-actions">
@@ -66,6 +78,15 @@ export function DownloadsPage() {
                     // ignored on a cross-origin response and the header is not.
                     <a href={api.downloadFileUrl(download.id)} download>
                       Save
+                    </a>
+                  )}
+                  {/* The copy this reader had before they asked for a newer version. Offered
+                      under a name that says which it is: the request itself has not finished, and
+                      the point of keeping the reference is that a fetch that fails — or has simply
+                      not happened yet — must not be what takes their file away. */}
+                  {download.status !== 'Complete' && download.previousSizeBytes !== null && (
+                    <a href={api.downloadFileUrl(download.id)} download>
+                      Save earlier copy
                     </a>
                   )}
                   {download.status === 'Failed' && (

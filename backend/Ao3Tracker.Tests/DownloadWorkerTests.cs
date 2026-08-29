@@ -574,6 +574,55 @@ public class DownloadWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task Leaves_the_reader_holding_their_old_copy_when_the_refetch_fails()
+    {
+        // The trade T59 settled: a re-fetch that fails must not be what costs a reader the file
+        // they already had. The fetcher does that by leaving both file references as it found
+        // them — the request reports nothing, and still holds what the controller handed it.
+        var emma = await ReaderWithAWorkAsync();
+        _host.Http.Responds = _ => WorkPage(EpubUrl);
+        await QueueAsync(emma);
+        await DrainAsync();
+
+        var held = (await DownloadAsync()).WorkDownloadFileId;
+        Assert.NotNull(held);
+
+        await MoveWorkOnAsync(1, FirstVersion.AddDays(1));
+        await QueueAsync(emma);
+
+        _host.Http.Responds = url => new ScrapeHttpResponse("Not found", HttpStatusCode.NotFound, false, url);
+        await DrainAsync();
+
+        var download = await DownloadAsync();
+
+        Assert.Equal(DownloadStatus.Failed, download.Status);
+        Assert.Null(download.WorkDownloadFileId);
+        Assert.Equal(held, download.PreviousWorkDownloadFileId);
+    }
+
+    [Fact]
+    public async Task Lets_go_of_the_old_copy_once_the_new_version_is_fetched()
+    {
+        var emma = await ReaderWithAWorkAsync();
+        _host.Http.Responds = _ => WorkPage(EpubUrl);
+        await QueueAsync(emma);
+        await DrainAsync();
+
+        var first = (await DownloadAsync()).WorkDownloadFileId;
+
+        await MoveWorkOnAsync(1, FirstVersion.AddDays(1));
+        await QueueAsync(emma);
+        await DrainAsync();
+
+        var download = await DownloadAsync();
+
+        // The replacement is on disk, which is the whole of what the held copy was waiting on.
+        Assert.Equal(DownloadStatus.Complete, download.Status);
+        Assert.NotEqual(first, download.WorkDownloadFileId);
+        Assert.Null(download.PreviousWorkDownloadFileId);
+    }
+
+    [Fact]
     public async Task Leaves_a_request_queued_when_the_budget_runs_out_between_its_two_halves()
     {
         // The address is read and then the file is fetched, so a drain can legitimately run out

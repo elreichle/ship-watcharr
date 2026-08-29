@@ -77,8 +77,17 @@ public class DownloadConfiguration : IEntityTypeConfiguration<Download>
             .HasForeignKey(d => d.WorkDownloadFileId)
             .OnDelete(DeleteBehavior.SetNull);
 
+        // The copy the reader still holds while a re-fetch is outstanding. SetNull for the same
+        // reason, and it is the same file table: what distinguishes the two references is which
+        // version of the work the request is reporting, not where the bytes live.
+        entity.HasOne(d => d.PreviousFile)
+            .WithMany()
+            .HasForeignKey(d => d.PreviousWorkDownloadFileId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         entity.HasIndex(d => new { d.UserId, d.WorkId, d.Format }).IsUnique();
         entity.HasIndex(d => d.WorkDownloadFileId);
+        entity.HasIndex(d => d.PreviousWorkDownloadFileId);
     }
 }
 

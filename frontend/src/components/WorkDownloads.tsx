@@ -63,6 +63,17 @@ export function WorkDownloads({ workId }: { workId: number }) {
                   </a>
                 </>
               )}
+              {/* Asking again for a work AO3 has updated re-queues the request, and until the new
+                  version lands the reader still has the one they already fetched. Offered here
+                  under a name that says which of the two it is. */}
+              {download.status !== 'Complete' && download.previousSizeBytes !== null && (
+                <>
+                  <span className="hint">{formatSize(download.previousSizeBytes)}</span>
+                  <a href={api.downloadFileUrl(download.id)} download>
+                    Save earlier copy
+                  </a>
+                </>
+              )}
               <button type="button" className="link" onClick={() => void remove(download.id)}>
                 Remove
               </button>
