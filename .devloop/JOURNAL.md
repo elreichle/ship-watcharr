@@ -605,3 +605,17 @@ Append-only. One entry per iteration, newest last.
 - commit: 58cf917
 - next: **T49.** The task's own `~Author` filter does not match the tests it added — the byline
   tests are named for the heading, not the author; `~Ao3BlurbParser` is the filter that covers them.
+
+## 2026-08-29 — T49 The stale-cursor retreat's warning throws instead of retreating — done
+
+- did: Reworded the retreat's template so both page numbers are named once each — seven
+  placeholders over six args, so any provider rendering it threw the retreat away — and gave
+  `CapturingLoggerProvider` opt-in rendering, which `Ao3ShipIndexScraperTests` now uses.
+- files: `Api/Services/Scraping/Ao3ShipIndexScraper.cs`,
+  `Tests/{Ao3ShipIndexScraperTests,CapturingLoggerProvider}.cs`
+- ran: `~Backfill` → 39 (**38 before**, not 13); `dotnet test` → 880 (879); build → no CA2017;
+  `npm run build` + lint → clean.
+- commit: 0d2c011
+- next: **T50.** The old template reds **five** tests here, not just the new one — class-wide
+  rendering is the seam. No other API template reuses a name, so "check the rest of the file" is
+  closed; `Ao3ShipIndexFullSweepTests` renders nothing yet.

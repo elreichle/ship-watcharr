@@ -1233,7 +1233,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   signal — and the answer here is the same heading, four people's names and a title.
 
 ## T49 — The stale-cursor retreat's warning throws instead of retreating
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: `RetreatFromStaleCursor`'s log message names both page numbers it means, and the build
