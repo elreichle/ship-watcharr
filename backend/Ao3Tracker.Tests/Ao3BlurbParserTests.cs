@@ -207,6 +207,36 @@ public class Ao3BlurbParserTests
     }
 
     [Theory]
+    [InlineData("Anonymous")]
+    [InlineData("Anonymous Was A Woman")]
+    [InlineData("Death by Anonymous Chocolate")]
+    public void Does_not_read_a_title_as_a_byline_when_the_heading_has_no_links_left(string title)
+    {
+        // The reshaped heading T26 exists to defend against, taken to its end: AO3 drops
+        // rel="author", and with it the link around the title. Every heading then arrives here
+        // crediting nobody, and a title carrying the word "Anonymous" — before its own "by", or
+        // after it — would speak for the work's authorship and delete its creators. The title is
+        // somebody else's words whether or not it happens to be a link.
+        var page = Ao3BlurbParser.ParseListing(Page(Blurb(
+            title: title, linkedTitle: false, byline: """<span class="byline">somepseud</span>""")));
+
+        Assert.Null(Assert.Single(page.Works).IsAnonymous);
+    }
+
+    [Fact]
+    public void Reads_an_anonymous_byline_when_the_heading_has_no_links_left()
+    {
+        // The other half of it: the same reshaped heading must not cost a real anonymous work its
+        // "Anonymous", which is the only thing that tells it apart from a byline we failed to read.
+        var page = Ao3BlurbParser.ParseListing(Page(Blurb(
+            title: "Death by Chocolate", linkedTitle: false, byline: "Anonymous")));
+
+        var work = Assert.Single(page.Works);
+        Assert.True(work.IsAnonymous);
+        Assert.Empty(work.Authors);
+    }
+
+    [Theory]
     [InlineData("""<span class="byline">somepseud</span> for Anonymous""")]
     [InlineData("""<span class="byline">somepseud</span> for <a href="/users/Anonymous">Anonymous</a>""")]
     public void Does_not_read_a_gift_to_Anonymous_as_a_work_with_no_author(string byline)
@@ -521,6 +551,7 @@ public class Ao3BlurbParserTests
         string warnings = "No Archive Warnings Apply",
         string isWip = "Complete Work",
         string chapters = "5/5",
+        bool linkedTitle = true,
         string byline = """<a rel="author" href="/users/someuser/pseuds/somepseud">somepseud</a>""",
         string? updatedAtComment = "1703529000",
         string datetime = "25 Dec 2023",
@@ -528,7 +559,7 @@ public class Ao3BlurbParserTests
         <li id="work_12345678" class="work blurb group">
           <div class="header module">
             <h4 class="heading">
-              <a href="/works/12345678">{title}</a>
+              {(linkedTitle ? $"""<a href="/works/12345678">{title}</a>""" : title)}
               {(restricted ? """<img class="symbol non-image" title="Restricted" src="/lock.png">""" : "")}
               by {byline}
             </h4>

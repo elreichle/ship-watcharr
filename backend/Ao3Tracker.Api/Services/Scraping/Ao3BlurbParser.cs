@@ -305,7 +305,8 @@ public static class Ao3BlurbParser
     /// <summary>
     /// Whether the heading says "Anonymous" where the creators would go — and only there. Everything
     /// this reads has to be the byline itself, because the word carries the authority to conclude a
-    /// work has no creators, and the heading holds other people's names too.
+    /// work has no creators, and the heading holds other people's names too — four of them, and a
+    /// title that is nobody's name at all.
     /// </summary>
     private static bool SaysAnonymous(IElement heading)
     {
@@ -322,17 +323,31 @@ public static class Ao3BlurbParser
     }
 
     /// <summary>
-    /// The heading's words in order, minus the ones that belong to somebody other than the byline:
-    /// the work's own title (a work called "Anonymous" must not erase its own author), and the text
-    /// of any link that is not a creator — recipients, series, collections. Anchors carrying
-    /// <c>rel="author"</c> are kept, so the word counts whether AO3 renders it as plain text or as a
-    /// link. Punctuation is trimmed so that "Anonymous," reads as the word it is.
+    /// The byline's words in order: everything after the "by" that separates a heading's title from
+    /// its creators, minus the text of any link that is not a creator — recipients, series,
+    /// collections. Anchors carrying <c>rel="author"</c> are kept, so the word counts whether AO3
+    /// renders it as plain text or as a link. Punctuation is trimmed so that "Anonymous," reads as
+    /// the word it is.
+    ///
+    /// The separator is what makes the title somebody else's words (a work called "Anonymous" must
+    /// not erase its own author), and it has to be the separator rather than the title's link:
+    /// under exactly the reshaping this guards against, no anchor in the heading survives, and a
+    /// title would then be read as the byline it sits next to. The <em>last</em> "by" is the
+    /// separator, because the one word that can appear on both sides of it is "by" itself, and only
+    /// a title can hold the spare one. A heading with no separator yields no byline words at all:
+    /// nothing in it carries the authority to conclude a work has no creators.
     /// </summary>
-    private static IEnumerable<string> BylineWords(IElement heading) =>
-        heading.Descendants<IText>()
+    private static IEnumerable<string> BylineWords(IElement heading)
+    {
+        var words = heading.Descendants<IText>()
             .Where(IsBylineText)
             .SelectMany(text => text.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
-            .Select(word => word.Trim(BylinePunctuation));
+            .Select(word => word.Trim(BylinePunctuation))
+            .ToList();
+
+        var separator = words.FindLastIndex(word => word.Equals("by", StringComparison.OrdinalIgnoreCase));
+        return separator < 0 ? [] : words.Skip(separator + 1);
+    }
 
     private static bool IsBylineText(IText text)
     {
