@@ -1,0 +1,32 @@
+# The build context is only ever `backend/` and `frontend/` sources. Without this file the
+# context also carries a running instance's appdata/ (its SQLite database and Data Protection
+# key ring) and the host's build output — hundreds of megabytes, and `COPY backend/ ./backend/`
+# would bake a real database and stale obj/ restore state into the image.
+
+# Build output and dependencies — restored and built inside the image.
+**/bin/
+**/obj/
+**/node_modules/
+frontend/dist/
+# Produced by the frontend-build stage; a host copy would linger under the fresh one.
+backend/Ao3Tracker.Api/wwwroot/
+
+# Instance state. Never belongs in an image.
+backend/Ao3Tracker.Api/appdata/
+.env
+.env.*
+!.env.example
+
+# Repository and working files with no bearing on the build.
+.git/
+.gitignore
+.dockerignore
+.devloop/
+.scratch/
+.claude/
+README.md
+docker-compose*.yml
+**/.vs/
+**/.vscode/
+**/.idea/
+**/*.user
