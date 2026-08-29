@@ -3,17 +3,27 @@ using Microsoft.Extensions.Logging;
 namespace Ao3Tracker.Tests;
 
 /// <summary>
-/// A logger provider that keeps every record as its structured values, and never formats one.
+/// A logger provider that keeps every record as its structured values, and formats one only when
+/// asked to.
 ///
-/// Formatting is what a provider normally does, and this one declines on purpose. A template whose
-/// placeholders outnumber its arguments throws when it is rendered, so a fixture that formatted
-/// every message would fail tests over defects in lines they say nothing about. Reading the named
-/// values is also the more exact assertion: "the warning names page 2" is a claim about what
+/// Formatting is what a provider normally does, and by default this one declines. Reading the named
+/// values is the more exact assertion: "the warning names page 2" is a claim about what
 /// <c>{Page}</c> was bound to, not about where a number lands in a rendered sentence.
+///
+/// <c>renderMessages</c> turns rendering on, and it is not a convenience — it is the
+/// only way a test can see a broken template at all. A template whose placeholders outnumber its
+/// arguments is rewritten by <c>LogValuesFormatter</c> into a <c>string.Format</c> call with too
+/// few values, so it throws the moment any provider renders it, and <c>Logger.Log</c> rethrows that
+/// as an <see cref="AggregateException"/> through whatever line emitted it. Under a provider that
+/// never renders, that defect is invisible: the app throws in production and every test passes. So
+/// a class that renders is asserting something about every template its code under test emits, not
+/// only the ones it names — which is why the flag belongs to the fixture and not to a single test.
 /// </summary>
-internal sealed class CapturingLoggerProvider : ILoggerProvider
+internal sealed class CapturingLoggerProvider(bool renderMessages = false) : ILoggerProvider
 {
     private readonly List<LogRecord> _records = [];
+
+    private bool RenderMessages { get; } = renderMessages;
 
     public IReadOnlyList<LogRecord> Records
     {
@@ -42,9 +52,11 @@ internal sealed class CapturingLoggerProvider : ILoggerProvider
             Exception? exception,
             Func<TState, Exception?, string> formatter)
         {
-            // formatter is deliberately not called — see the remarks on the provider.
+            // Called first, and never guarded: a template that cannot render is a defect this
+            // fixture exists to surface, so it must reach the test as the failure it is.
+            var message = provider.RenderMessages ? formatter(state, exception) : null;
             var values = state as IReadOnlyList<KeyValuePair<string, object?>> ?? [];
-            provider.Add(new LogRecord(category, logLevel, values, exception));
+            provider.Add(new LogRecord(category, logLevel, values, exception, message));
         }
     }
 }
@@ -56,7 +68,8 @@ internal sealed record LogRecord(
     string Category,
     LogLevel Level,
     IReadOnlyList<KeyValuePair<string, object?>> Values,
-    Exception? Exception)
+    Exception? Exception,
+    string? Message = null)
 {
     /// <summary>The message template, as the logging framework records it under <c>{OriginalFormat}</c>.</summary>
     public string Template => Value("{OriginalFormat}")?.ToString() ?? "";

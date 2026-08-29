@@ -22,11 +22,16 @@ namespace Ao3Tracker.Tests;
 public class Ao3ShipIndexScraperTests : IDisposable
 {
     /// <summary>
-    /// Every line the scraper logged during a test, kept as structured values. A warning is the
-    /// only output some of these stopping rules produce, so it is the only thing a test can assert
-    /// on — see <see cref="CapturingLoggerProvider"/> for why it is never rendered to a string.
+    /// Every line the scraper logged during a test, kept as structured values and also rendered to
+    /// a string. A warning is the only output some of these stopping rules produce, so it is the
+    /// only thing a test can assert on.
+    ///
+    /// Rendering is on for this class in particular because a template that cannot be rendered
+    /// throws out of the run that emitted it — see <see cref="CapturingLoggerProvider"/> — and the
+    /// walk logs on every one of its stopping rules. So every test here now also says that the line
+    /// its run logged is a line an operator could actually be shown.
     /// </summary>
-    private readonly CapturingLoggerProvider _logs = new();
+    private readonly CapturingLoggerProvider _logs = new(renderMessages: true);
 
     private readonly LibraryTestHost _host;
 
@@ -754,6 +759,37 @@ public class Ao3ShipIndexScraperTests : IDisposable
         var ship = await ReloadAsync(shipId);
         Assert.Equal(ShipBackfillState.Complete, ship.BackfillState);
         Assert.Equal(0, ship.BackfillStalledRuns);
+    }
+
+    [Fact]
+    public async Task Renders_the_warning_a_stale_backfill_cursor_logs_naming_both_of_its_pages()
+    {
+        // The retreat's warning is the operator's only account of why a run went backwards, and it
+        // is two page numbers or it is nothing: the page the cursor pointed at, and the page being
+        // re-read to settle whether that one should exist. Naming one of them twice and the other
+        // not at all is not a wording defect — a template with more placeholders than arguments
+        // throws when a provider renders it, and the throw unwinds out of ScrapeAsync before the
+        // cursor is stepped back, so the retreat this line describes never happens and the ship
+        // re-sends the same failing request every scheduled run for ever. Which is why this asserts
+        // on the rendered string rather than on the bound values: the values were always right.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1)], nextPage: true),
+            Page(2, [Blurb(2)]));
+
+        var shipId = await FollowAsync();
+        await ResumeBackfillAtAsync(shipId, page: 3);
+
+        await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        var retreat = Assert.Single(
+            _logs.Records, r => r.Template.Contains("points at page {Page}"));
+
+        Assert.Contains("points at page 3", retreat.Message);
+        Assert.Contains("page 2", retreat.Message);
+        Assert.DoesNotContain("{", retreat.Message);
+
+        // And the retreat it describes actually ran.
+        Assert.Equal(ShipBackfillState.Complete, (await ReloadAsync(shipId)).BackfillState);
     }
 
     [Fact]

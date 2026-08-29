@@ -733,7 +733,8 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     {
         _logger.LogWarning(
             "The {Mode} cursor for ship {ShipId} ({Tag}) points at page {Page}, but {Because}. Re-reading "
-            + "page {Previous} to let the listing say whether page {Page} should exist.",
+            + "the page before it, page {Previous}, to let the listing say whether the cursor's page "
+            + "should exist.",
             mode, ship.Id, ship.CanonicalTagName, page, because, page - 1);
 
         SetCursor(ship, mode, page - 1);
