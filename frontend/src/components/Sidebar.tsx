@@ -1,8 +1,9 @@
 import { useNavigate } from 'react-router-dom';
 import { APP_NAME } from '../appInfo';
 import { useAuth } from '../auth/AuthContext';
+import { useNotifications } from '../hooks/useNotifications';
 import { Icon } from './Icon';
-import { NavGroup, NavLeaf } from './NavItem';
+import { NavGroup, NavLeaf, type NavBadges } from './NavItem';
 import { NAV_SECTIONS } from './navigation';
 
 interface SidebarProps {
@@ -15,7 +16,12 @@ interface SidebarProps {
 
 export function Sidebar({ railed, onToggleRail, onNavigate }: SidebarProps) {
   const { user, logout } = useAuth();
+  const { unread } = useNotifications();
   const navigate = useNavigate();
+
+  // Keyed by route rather than handed to one named item, so the nav tree stays a plain list of
+  // links and nothing in it has to know what a notification is.
+  const badges: NavBadges = { '/notifications': unread ?? 0 };
 
   const onLogout = async () => {
     await logout();
@@ -47,6 +53,7 @@ export function Sidebar({ railed, onToggleRail, onNavigate }: SidebarProps) {
               items={section.children}
               railed={railed}
               onNavigate={onNavigate}
+              badges={badges}
             />
           ) : (
             <NavLeaf

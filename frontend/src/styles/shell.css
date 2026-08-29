@@ -131,10 +131,32 @@
     color: var(--icon-color-active);
   }
 
+  /* The unread count, at the far end of the item. Reads the accent the rest of the shell uses for
+     "this is the thing to look at" rather than inventing a colour a theme cannot reach. */
+  .nav-badge {
+    margin-left: auto;
+    min-width: 1.25rem;
+    padding: 0 var(--size-2-2);
+    border-radius: var(--radius-s);
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+    font-size: var(--font-ui-smaller);
+    font-weight: var(--font-semibold);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.5;
+    text-align: center;
+  }
+
   .nav-collapse-icon {
     margin-left: auto;
     color: var(--nav-collapse-icon-color);
     transition: transform 0.15s ease;
+  }
+
+  /* Two `margin-left: auto` in one row would split the free space between them and leave the badge
+     stranded in the middle. The badge has already claimed it, so the chevron stops asking. */
+  .nav-badge + .nav-collapse-icon {
+    margin-left: var(--size-2-2);
   }
 
   .nav-group-header[aria-expanded='true'] .nav-collapse-icon {
@@ -171,6 +193,15 @@
      back out of the two rules above — otherwise it renders as an empty box. */
   .app-shell[data-railed] .nav-children .nav-item-title {
     display: inline;
+  }
+
+  /* Railed there is no label for the count to sit after, so it rides the icon's top-right corner
+     instead of claiming a row of its own — the whole point of the rail is that it is 48px wide. */
+  .app-shell[data-railed] .nav-sections > .nav-section > .nav-item > .nav-badge {
+    position: absolute;
+    top: 0;
+    right: var(--size-2-1);
+    margin-left: 0;
   }
 
   .app-shell[data-railed] .nav-children .nav-item {

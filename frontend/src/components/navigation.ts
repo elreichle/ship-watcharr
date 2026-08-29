@@ -25,6 +25,7 @@ export const NAV_SECTIONS: NavSection[] = [
     icon: 'layout-dashboard',
     children: [
       { label: 'Works', to: '/works' },
+      { label: 'Notifications', to: '/notifications' },
       { label: 'Filters', to: '/filters' },
       { label: 'Ships', to: '/ships' },
       { label: 'Downloads', to: '/downloads' },

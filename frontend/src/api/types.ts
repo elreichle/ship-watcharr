@@ -464,6 +464,35 @@ export interface Download {
 }
 
 /**
+ * One "a ship you follow gained a work" row.
+ *
+ * Named for the ship rather than called `Notification`, which is a DOM global: a module-scoped
+ * interface of that name would shadow it, and a later `new Notification(...)` would then be a
+ * type error nothing in the file explains.
+ *
+ * The ship and work names are joined at read time by the server, so a work AO3 has since retitled
+ * is named here by its current title.
+ */
+export interface ShipNotification {
+  id: number;
+  shipId: number;
+  shipName: string;
+  workId: number;
+  workTitle: string;
+  createdAt: string;
+  /** Null while unread — the same fact the unread count counts. */
+  readAt: string | null;
+}
+
+/**
+ * The count the sidebar shows. Every mark-read call answers with one too, so the number that lands
+ * after a write is the server's own rather than one the page decremented for itself.
+ */
+export interface UnreadNotifications {
+  unread: number;
+}
+
+/**
  * The body of `GET /api/stats`: two lenses over the caller's library, and a table where they meet.
  *
  * Nothing here is stored — every figure is an aggregate the server computed over exactly the works

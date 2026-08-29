@@ -4,6 +4,7 @@ import { APP_NAME } from '../appInfo';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Icon } from './Icon';
+import { NotificationsProvider } from './NotificationsProvider';
 import { Sidebar } from './Sidebar';
 
 const SIDEBAR_KEY = 'shipwatcharr.sidebar';
@@ -82,35 +83,44 @@ export function AppLayout() {
   }, [drawerOpen]);
 
   return (
-    <div className="app-shell" data-railed={railed || undefined} data-drawer-open={drawerOpen || undefined}>
-      <Sidebar railed={railed} onToggleRail={onToggleRail} onNavigate={closeDrawer} />
+    // The provider wraps the whole shell rather than the sidebar alone: the badge and the
+    // notifications page under `Outlet` read the same count, and marking a row read on the page is
+    // what has to drop it in the sidebar.
+    <NotificationsProvider>
+      <div
+        className="app-shell"
+        data-railed={railed || undefined}
+        data-drawer-open={drawerOpen || undefined}
+      >
+        <Sidebar railed={railed} onToggleRail={onToggleRail} onNavigate={closeDrawer} />
 
-      {/* Scrim only exists in drawer mode; CSS hides the shell's mobile topbar above 700px. */}
-      <div className="app-scrim" onClick={closeDrawer} aria-hidden="true" />
+        {/* Scrim only exists in drawer mode; CSS hides the shell's mobile topbar above 700px. */}
+        <div className="app-scrim" onClick={closeDrawer} aria-hidden="true" />
 
-      <div className="app-body">
-        <header className="app-topbar">
-          <button
-            type="button"
-            className="clickable-icon"
-            onClick={onToggleRail}
-            aria-label="Open navigation"
-            aria-expanded={drawerOpen}
-          >
-            <Icon name="menu" size="m" />
-          </button>
-          <span className="app-topbar-title">{APP_NAME}</span>
-        </header>
+        <div className="app-body">
+          <header className="app-topbar">
+            <button
+              type="button"
+              className="clickable-icon"
+              onClick={onToggleRail}
+              aria-label="Open navigation"
+              aria-expanded={drawerOpen}
+            >
+              <Icon name="menu" size="m" />
+            </button>
+            <span className="app-topbar-title">{APP_NAME}</span>
+          </header>
 
-        <main className="app-main">
-          {/* Keyed by path so navigating away clears a tripped boundary: a boundary holds its
-              error until it remounts, and without this one broken page would keep showing its
-              error no matter where the sidebar took you. */}
-          <ErrorBoundary scope="page" key={location.pathname}>
-            <Outlet />
-          </ErrorBoundary>
-        </main>
+          <main className="app-main">
+            {/* Keyed by path so navigating away clears a tripped boundary: a boundary holds its
+                error until it remounts, and without this one broken page would keep showing its
+                error no matter where the sidebar took you. */}
+            <ErrorBoundary scope="page" key={location.pathname}>
+              <Outlet />
+            </ErrorBoundary>
+          </main>
+        </div>
       </div>
-    </div>
+    </NotificationsProvider>
   );
 }

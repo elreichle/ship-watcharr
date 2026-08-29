@@ -17,7 +17,9 @@ import type {
   ScrapeRun,
   ScrapingIdentity,
   SetWorkStateInput,
+  ShipNotification,
   Stats,
+  UnreadNotifications,
   WatchedShip,
   WatchedShipsResponse,
   WorkDetail,
@@ -244,6 +246,42 @@ export const api = {
    * buffer a whole PDF in the page to hand it straight back.
    */
   downloadFileUrl: (id: number) => `/api/downloads/${id}/file`,
+
+  /**
+   * The caller's notifications, newest first. `unreadOnly` narrows to what has not been marked
+   * read, which is the list a reader opening this page from a lit badge actually wants.
+   */
+  getNotifications: (
+    { unreadOnly, page, pageSize }: { unreadOnly?: boolean; page?: number; pageSize?: number } = {},
+  ) => {
+    const query = new URLSearchParams();
+    if (unreadOnly !== undefined) query.set('unreadOnly', String(unreadOnly));
+    if (page !== undefined) query.set('page', String(page));
+    if (pageSize !== undefined) query.set('pageSize', String(pageSize));
+
+    return request<PagedResult<ShipNotification>>(
+      `/notifications?${query}`,
+      undefined,
+      hasArray('items'),
+    );
+  },
+
+  /** The one number the shell polls for. */
+  getUnreadNotificationCount: () => request<UnreadNotifications>('/notifications/unread-count'),
+
+  /**
+   * Marks the named notifications read and answers with the count that survived. Ids the caller
+   * does not own match nothing rather than failing the request, so a stale list cannot 404 a click.
+   */
+  markNotificationsRead: (ids: number[]) =>
+    request<UnreadNotifications>('/notifications/mark-read', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    }),
+
+  /** Marks the caller's whole list read, and answers with the count that survived — zero. */
+  markAllNotificationsRead: () =>
+    request<UnreadNotifications>('/notifications/mark-all-read', { method: 'POST' }),
 
   /**
    * Two lenses over the caller's library. `shipId` narrows every figure to one watched ship and
