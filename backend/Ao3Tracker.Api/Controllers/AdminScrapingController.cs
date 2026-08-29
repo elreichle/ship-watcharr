@@ -29,7 +29,7 @@ public class AdminScrapingController : ControllerBase
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IPersistedSettingsStore _settingsStore;
     private readonly IOperatorContactResolver _contacts;
-    private readonly Ao3UserAgentProvider _userAgents;
+    private readonly ScrapingGate _gate;
     private readonly InstanceIdentity _instance;
     private readonly Ao3HttpClientOptions _options;
     private readonly ILogger<AdminScrapingController> _logger;
@@ -38,7 +38,7 @@ public class AdminScrapingController : ControllerBase
         UserManager<ApplicationUser> userManager,
         IPersistedSettingsStore settingsStore,
         IOperatorContactResolver contacts,
-        Ao3UserAgentProvider userAgents,
+        ScrapingGate gate,
         InstanceIdentity instance,
         IOptions<Ao3HttpClientOptions> options,
         ILogger<AdminScrapingController> logger)
@@ -46,7 +46,7 @@ public class AdminScrapingController : ControllerBase
         _userManager = userManager;
         _settingsStore = settingsStore;
         _contacts = contacts;
-        _userAgents = userAgents;
+        _gate = gate;
         _instance = instance;
         _options = options.Value;
         _logger = logger;
@@ -85,7 +85,10 @@ public class AdminScrapingController : ControllerBase
     private async Task<ScrapingIdentityDto> BuildIdentityAsync(CancellationToken ct)
     {
         var resolution = await _contacts.ResolveAsync(ct);
-        var (ok, userAgent, problem) = await _userAgents.TryGetUserAgentAsync(ct);
+
+        // The same gate the worker consults, rather than this endpoint's own idea of it: the screen
+        // that explains why scraping is held has to agree with what is actually holding it.
+        var gate = await _gate.EvaluateAsync(ct);
 
         var saved = await _settingsStore.ReadOperatorContactAsync(ct);
         var isOverridden = !string.IsNullOrWhiteSpace(saved);
@@ -96,15 +99,18 @@ public class AdminScrapingController : ControllerBase
         var defaultContact = (await _contacts.ResolveDefaultAsync(ct)).Contact;
 
         return new ScrapingIdentityDto(
-            UserAgent: ok ? userAgent : null,
+            UserAgent: gate.UserAgent,
             OperatorContact: resolution.Contact,
             ContactSource: resolution.Source.ToString(),
             IsOverridden: isOverridden,
             DefaultContact: defaultContact,
-            ScrapingEnabled: ok,
-            Problem: ok ? null : problem,
+            ScrapingEnabled: gate.CanScrape,
+            Problem: gate.Problem,
             ProductToken: _options.ProductToken,
-            InstanceId: _instance.Id);
+            InstanceId: _instance.Id,
+            IdentityConfigured: gate.IdentityConfigured,
+            Ao3LoginConfigured: gate.Ao3LoginConfigured,
+            IdentityProblem: gate.IdentityProblem);
     }
 
     private async Task<bool> IsCurrentUserAdminAsync()

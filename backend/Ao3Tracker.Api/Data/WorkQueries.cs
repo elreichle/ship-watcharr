@@ -21,18 +21,25 @@ public static class WorkQueries
     public static bool IsOfferedSort(string sort) => Sorts.Contains(sort);
 
     /// <summary>
-    /// The works one user can see, optionally narrowed to a single ship.
+    /// Every work one user may reach, optionally narrowed to a single ship — including the ones a
+    /// ship's listing has stopped carrying.
     ///
     /// Works are global rows, so "whose library is this" is answered entirely by the caller's
     /// subscriptions. <paramref name="shipId"/> intersects with them rather than replacing them:
     /// passing a ship the user does not watch yields nothing, which is what keeps a saved filter
     /// naming a since-unwatched ship from reaching outside its author's library.
     /// </summary>
-    public static IQueryable<Work> Library(AppDbContext db, string userId, int? shipId)
+    /// <remarks>
+    /// This is the scoping for reaching one named work — its detail page, a state write, a download
+    /// request — and <see cref="Library"/> is the scoping for anything that lists or counts. The
+    /// split exists because <see cref="ShipWork.MissingSinceAt"/> is a soft, reversible mark a sweep
+    /// can get wrong: dropping a work out of the feed on it costs a reader a row they can get back
+    /// by looking, while 404ing the work they had rated, noted and downloaded costs them their own
+    /// data with no way back at all.
+    /// </remarks>
+    public static IQueryable<Work> Reachable(AppDbContext db, string userId, int? shipId)
     {
-        var watchedShipIds = db.WatchedShips
-            .Where(w => w.UserId == userId)
-            .Select(w => w.ShipId);
+        var watchedShipIds = WatchedShipIdsOf(db, userId);
 
         // Membership is ShipWork, never the work's own relationship tags: AO3 tag synonyms mean a
         // work returned by the canonical tag can render a synonym in its own blurb, so filtering
@@ -40,6 +47,71 @@ public static class WorkQueries
         return db.Works.Where(w => !w.IsDeleted && w.Ships.Any(sw =>
             watchedShipIds.Contains(sw.ShipId) && (shipId == null || sw.ShipId == shipId)));
     }
+
+    /// <summary>
+    /// The works one user is shown, optionally narrowed to a single ship — <see cref="Reachable"/>
+    /// minus the ones that have left every watched ship carrying them, unless this reader has said
+    /// something about the work.
+    /// </summary>
+    /// <remarks>
+    /// The narrowing is per membership, not per work: an unmarked crossover that lost one of its two
+    /// watched relationship tags is still in the library through the other, and is gone from the
+    /// feed narrowed to the tag it left. That is what user story 16 asks for — a library that does
+    /// not drift permanently away from AO3 — and only a completed full sweep may write the mark
+    /// that causes it (see <see cref="ShipWork.MissingSinceAt"/>).
+    /// </remarks>
+    /// <remarks>
+    /// A work this reader has a <see cref="UserWorkState"/> row for stays, because a state row only
+    /// exists where they marked, rated or noted the work — an emptied state is stored as no row at
+    /// all (see <c>WorksController.SetWorkState</c>). So the exclusion falls on works nobody here
+    /// ever touched, which is nearly all of a library, and a sweep that marks wrongly never takes a
+    /// reader's own history off the screen — including in a feed narrowed to the very tag the work
+    /// left, where it is listed with the chip that says so rather than quietly withheld. Downloads
+    /// are deliberately not part of the test: a requested file is listed by the Downloads page
+    /// whatever the tag does, and its work is <see cref="Reachable"/>.
+    /// </remarks>
+    public static IQueryable<Work> Library(AppDbContext db, string userId, int? shipId)
+    {
+        var watchedShipIds = WatchedShipIdsOf(db, userId);
+        var myStates = StatesOf(db, userId);
+
+        return Reachable(db, userId, shipId).Where(w =>
+            w.Ships.Any(sw => watchedShipIds.Contains(sw.ShipId)
+                && (shipId == null || sw.ShipId == shipId)
+                && sw.MissingSinceAt == null)
+            || myStates.Any(s => s.WorkId == w.Id));
+    }
+
+    /// <summary>
+    /// The ships one reader subscribes to — the whole of "whose library is this".
+    /// </summary>
+    /// <remarks>
+    /// Beside <see cref="Library"/> because several queries need the same set for a purpose
+    /// <see cref="Library"/> itself cannot serve — deciding which of a work's ships may be named
+    /// back to this reader, or which ships get a row of their own on the statistics page. Written
+    /// once so that narrowing what "watched" means later narrows it everywhere at once: a second
+    /// copy of this predicate would keep returning ships the library had stopped including, and
+    /// nothing would fail.
+    /// </remarks>
+    public static IQueryable<WatchedShip> WatchedShipsOf(AppDbContext db, string userId) =>
+        db.WatchedShips.Where(w => w.UserId == userId);
+
+    /// <inheritdoc cref="WatchedShipsOf"/>
+    public static IQueryable<int> WatchedShipIdsOf(AppDbContext db, string userId) =>
+        WatchedShipsOf(db, userId).Select(w => w.ShipId);
+
+    /// <summary>
+    /// One reader's own states — reading status, rating, note — and nobody else's.
+    /// </summary>
+    /// <remarks>
+    /// Beside <see cref="Library"/> rather than inline at each call site for the same reason: the
+    /// works list, the state endpoints and any future count over "unread" all have to narrow by the
+    /// same predicate, and <see cref="UserWorkState.UserId"/> is the whole of "whose state is this".
+    /// A query that forgets it does not return too much — it returns someone else's opinion of the
+    /// same work, which reads as the caller's own.
+    /// </remarks>
+    public static IQueryable<UserWorkState> StatesOf(AppDbContext db, string userId) =>
+        db.UserWorkStates.Where(s => s.UserId == userId);
 
     /// <summary>
     /// Applies the requested sort, always tie-broken by id. Null for a sort that isn't offered.
@@ -86,7 +158,17 @@ public static class WorkQueries
     /// read into arrays here rather than queried through the navigation, so the criteria become
     /// parameters of one SQL statement instead of a lazy-load per clause.
     /// </remarks>
-    public static IQueryable<Work> ApplyFilter(IQueryable<Work> works, SavedWorkFilter filter)
+    /// <param name="callerStates">
+    /// The states of the user applying the set — <see cref="StatesOf"/> for their id, and nobody
+    /// else's. A parameter rather than a <c>userId</c> this method resolves itself, so that every
+    /// call site has to name whose reading it is filtering by: the reading-status and rating
+    /// criteria are the only ones whose result depends on who asks, and a defaulted or forgotten
+    /// user would answer with someone else's opinion of the same works.
+    /// </param>
+    public static IQueryable<Work> ApplyFilter(
+        IQueryable<Work> works,
+        SavedWorkFilter filter,
+        IQueryable<UserWorkState> callerStates)
     {
         if (filter.IsComplete is bool complete) works = works.Where(w => w.IsComplete == complete);
 
@@ -112,6 +194,27 @@ public static class WorkQueries
         // "Teen and below" when the alternative is silently hiding rows for a scraper's shortfall.
         if (filter.MinRating is Ao3Rating min) works = works.Where(w => w.Rating >= min);
         if (filter.MaxRating is Ao3Rating max) works = works.Where(w => w.Rating <= max);
+
+        // The reader's own state, matched through a correlated EXISTS over callerStates rather than
+        // a navigation on Work — a navigation would be loadable without saying whose state it is.
+        if (filter.ReadingStatus is ReadingStatus status)
+        {
+            // "Unread" is the absence of a mark, and the absence has two shapes: no row at all, and
+            // a row left saying None because a status was cleared while a rating or note stayed. A
+            // NOT EXISTS over "marked as anything" covers both, where an equality against None would
+            // find only the second and silently drop every work nobody has ever touched — which is
+            // most of a fresh library.
+            works = status == ReadingStatus.None
+                ? works.Where(w => !callerStates.Any(s => s.WorkId == w.Id && s.Status != ReadingStatus.None))
+                : works.Where(w => callerStates.Any(s => s.WorkId == w.Id && s.Status == status));
+        }
+
+        // Half-stars, 1-10. An unrated work has a null Rating, so it satisfies neither comparison
+        // and drops out of a bounded set — see the remarks on SavedWorkFilter.MinUserRating.
+        if (filter.MinUserRating is int minMine)
+            works = works.Where(w => callerStates.Any(s => s.WorkId == w.Id && s.Rating >= minMine));
+        if (filter.MaxUserRating is int maxMine)
+            works = works.Where(w => callerStates.Any(s => s.WorkId == w.Id && s.Rating <= maxMine));
 
         // Flags masks, compared bitwise against the column rather than expanded into a set of
         // equality checks — the whole reason Ao3Category and Ao3Warning are stored as ints.

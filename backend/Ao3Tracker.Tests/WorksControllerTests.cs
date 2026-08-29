@@ -311,11 +311,13 @@ public class WorksControllerTests : IDisposable
                 new Ao3Pseud
                 {
                     Id = 1, Username = "second", PseudName = "second",
+                    UsernameNormalized = "SECOND", PseudNameNormalized = "SECOND",
                     DisplayName = "second", DisplayNameNormalized = "SECOND",
                 },
                 new Ao3Pseud
                 {
                     Id = 2, Username = "first", PseudName = "first",
+                    UsernameNormalized = "FIRST", PseudNameNormalized = "FIRST",
                     DisplayName = "first", DisplayNameNormalized = "FIRST",
                 });
             db.WorkAuthors.AddRange(

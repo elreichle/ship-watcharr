@@ -1,12 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
 import type { WatchedShip } from '../api/types';
 
 const BACKFILL_LABELS: Record<WatchedShip['backfillState'], string> = {
   NotStarted: 'Not started',
   InProgress: 'Reading the back catalogue',
   Complete: 'Back catalogue read',
-  Failed: 'Backfill failed',
+  Failed: 'Back catalogue given up on',
 };
 
 function formatDate(value: string | null): string {
@@ -15,18 +16,97 @@ function formatDate(value: string | null): string {
 
 interface Status {
   label: string;
-  /** Set when the status is the reason nothing will ever happen for this ship. */
-  bad?: boolean;
+  /**
+   * How loudly to say it. `error` is for a state in which nothing will ever happen for this ship;
+   * `warning` for one that is degraded but still running — a given-up backfill leaves the
+   * incremental pass collecting new works, so calling it an error would overstate it.
+   */
+  tone?: 'error' | 'warning';
   detail?: string;
+}
+
+/**
+ * The page a restart should resume from.
+ *
+ * Not the cursor. A stalling walk steps its cursor backwards once a run looking for a page the
+ * listing will answer for, so by the time a ship is written off the cursor is usually far below the
+ * pages AO3 has already served — and resuming there would have this instance ask for every one of
+ * them again at 5-8 seconds apiece. `backfillResumePage` is the number nothing but a restart lowers.
+ * Re-reading that one page is deliberate: it is the page whose next link points into listing nobody
+ * has walked.
+ */
+function restartPage(ship: WatchedShip): number {
+  return ship.backfillResumePage ?? ship.backfillNextPage ?? 1;
 }
 
 /**
  * What is actually happening to this ship. Ordered by what blocks what: a tag AO3 has never
  * confirmed can't be scraped, so its verification state outranks anything the schedule says.
  */
+/**
+ * Whether an admin restarting this ship's backfill would achieve anything.
+ *
+ * The same two conditions `describeStatus` returns early on, and for the same reason: a tag AO3 has
+ * denied is skipped before the scraper's first request, and an unscheduled ship is never picked up
+ * at all — so a restart on either leaves a row reading "in progress" that no run will ever touch.
+ * The endpoint refuses both; this keeps the button from being offered under a status line that
+ * already says the ship is going nowhere.
+ */
+function canRestartBackfill(ship: WatchedShip): boolean {
+  return (
+    ship.backfillState === 'Failed' &&
+    ship.verificationState !== 'NotFoundOnAo3' &&
+    ship.isScheduled
+  );
+}
+
+/**
+ * The sweep, in one line — or null for a ship that has never had one.
+ *
+ * Beside the status rather than inside it, because the two are independent: a ship whose back
+ * catalogue was given up on can be mid-sweep, and a single status slot would have to drop one of
+ * those to say the other. The sweep is also the only thing in the product that can leave a ship
+ * collecting no new works for days at a time — a sweep in flight beats the incremental pass on
+ * every tick until the walk reaches the end of the listing — and until now nothing outside the run
+ * history said so.
+ */
+function describeSweep(ship: WatchedShip): string | null {
+  if (ship.fullSweepNextPage !== null) {
+    return (
+      `Re-reading the whole listing to find works that have left the tag — next up is page ` +
+      `${ship.fullSweepNextPage}. Its pass for new works waits until this finishes.`
+    );
+  }
+
+  const started = ship.lastFullSweepStartedAt;
+  if (started === null) return null;
+
+  const completed = ship.lastFullSweepCompletedAt;
+
+  // A sweep only writes its completion alongside a conclusion, and its start is left standing when
+  // it is abandoned — so a start newer than the last completion is a walk that did not get there.
+  if (completed !== null && new Date(completed) >= new Date(started)) {
+    return `Listing last re-read in full on ${formatDate(completed)}.`;
+  }
+
+  return (
+    `A full re-read of the listing started ${formatDate(started)} and did not finish; ` +
+    'the next one is due an interval after that, not after this ship next runs.'
+  );
+}
+
 function describeStatus(ship: WatchedShip, verificationEnabled: boolean): Status {
   if (ship.verificationState === 'NotFoundOnAo3') {
-    return { label: 'AO3 has no such tag', bad: true, detail: 'Check the spelling and add it again.' };
+    // Not "add it again": following the same name resolves to this same denied ship, which leaves
+    // its schedule off and is never re-checked — so the old advice sent everybody down a path that
+    // provably does nothing. Following the *right* name is a different tag and does work.
+    return {
+      label: 'AO3 has no such tag',
+      tone: 'error',
+      detail:
+        'Check the spelling — following the same name again lands back here. If the tag was ' +
+        'renamed or briefly gone, an admin can have AO3 asked again from this page.',
+    };
   }
 
   if (ship.verificationState === 'Pending') {
@@ -37,12 +117,57 @@ function describeStatus(ship: WatchedShip, verificationEnabled: boolean): Status
 
   if (!ship.scraperAvailable) return { label: 'Tag confirmed — waiting for the AO3 scraper' };
   if (!ship.isScheduled) return { label: 'Paused' };
-  return { label: BACKFILL_LABELS[ship.backfillState] };
+
+  const label = BACKFILL_LABELS[ship.backfillState];
+  const page = ship.backfillNextPage ?? 1;
+
+  // Said only where the cursor is *behind* what was read, which is exactly the retreat this line
+  // exists to make visible. A forward walk leaves the cursor one past the deepest page and a retreat
+  // can land it exactly on it; neither is a walk that lost ground, and saying the same page twice
+  // would just make the ordinary row longer.
+  const readTo =
+    ship.backfillResumePage != null && ship.backfillResumePage > page
+      ? ` It had read as far as page ${ship.backfillResumePage}.`
+      : '';
+
+  // Both of these lived only in the run history, which is a different page. From here a ship stuck
+  // on a page AO3 will not answer has looked exactly like one quietly working through its listing.
+  //
+  // Neither says the cursor is the page AO3 refused, because it usually isn't: a stalling walk steps
+  // its cursor backwards once a run looking for a page that answers, so by the time it gives up the
+  // number below is where it ended up, not what went wrong.
+  if (ship.backfillState === 'Failed') {
+    return {
+      label,
+      tone: 'warning',
+      detail:
+        `${ship.backfillStalledRuns} runs in a row got nothing AO3 would answer, so this instance ` +
+        `stopped asking; its cursor is at page ${page}.${readTo} New works still arrive; the older ` +
+        'ones are on hold.',
+    };
+  }
+
+  if (ship.backfillState === 'InProgress' && ship.backfillStalledRuns > 0) {
+    return {
+      label,
+      tone: 'warning',
+      detail:
+        `${ship.backfillStalledRuns} ` +
+        `${ship.backfillStalledRuns === 1 ? 'run has' : 'runs in a row have'} got no further ` +
+        `through the listing; its cursor is at page ${page}.${readTo} It keeps trying for a while yet.`,
+    };
+  }
+
+  return { label };
 }
 
 export function ShipsPage() {
+  const { user } = useAuth();
   const [ships, setShips] = useState<WatchedShip[] | null>(null);
   const [verificationEnabled, setVerificationEnabled] = useState(true);
+  // Assumed present until the server says otherwise, so a slow load never flashes a banner saying
+  // scraping is broken at someone whose instance is fine.
+  const [ao3LoginConfigured, setAo3LoginConfigured] = useState(true);
   const [tagName, setTagName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -52,6 +177,7 @@ export function ShipsPage() {
     api.getWatchedShips().then((response) => {
       setShips(response.ships);
       setVerificationEnabled(response.verificationEnabled);
+      setAo3LoginConfigured(response.ao3LoginConfigured);
     });
 
   useEffect(() => {
@@ -141,6 +267,21 @@ export function ShipsPage() {
         <p className="hint">You aren’t following any ships yet.</p>
       ) : (
         <>
+          {/* Every user, not only admins: whoever is looking at an empty library is owed the
+              reason, and a non-admin is told who can fix it rather than shown a form they cannot
+              use. Said as a missing *login* — the session cookie is a cache, and its absence
+              means nothing. */}
+          {!ao3LoginConfigured && (
+            <p className="callout callout-error">
+              <strong>Nothing is being fetched.</strong> The ships you follow are scheduled, but
+              this instance has no AO3 login saved, so every scrape is held. Your library stays
+              empty until one is saved.{' '}
+              {user?.isAdmin
+                ? 'Add it under System → Scraping.'
+                : 'Ask an admin of this instance to add one under System → Scraping.'}
+            </p>
+          )}
+
           {!verificationEnabled && (
             <p className="callout callout-warning">
               Tags can’t be checked right now: this instance has no operator contact, so it isn’t
@@ -170,6 +311,7 @@ export function ShipsPage() {
             <tbody>
               {ships.map((ship) => {
                 const status = describeStatus(ship, verificationEnabled);
+                const sweep = describeSweep(ship);
                 return (
                   <tr key={ship.shipId}>
                     <td className="ship-tag">
@@ -184,8 +326,23 @@ export function ShipsPage() {
                     </td>
                     <td>{ship.workCount.toLocaleString()}</td>
                     <td>
-                      <span className={status.bad ? 'error' : undefined}>{status.label}</span>
+                      <span className={status.tone}>{status.label}</span>
                       {status.detail && <span className="ship-status-detail">{status.detail}</span>}
+                      {sweep !== null && <span className="ship-status-detail">{sweep}</span>}
+                      {/* Admin-only, because a restart spends requests on behalf of everyone
+                          watching the tag — and because it is the only thing in the product that
+                          moves a ship out of Failed. */}
+                      {user?.isAdmin && canRestartBackfill(ship) && (
+                        <BackfillRestart ship={ship} onRestarted={() => void load().catch(() => {})} />
+                      )}
+                      {/* Admin-only for the same two reasons, and the only thing in the product
+                          that moves a ship out of NotFoundOnAo3. */}
+                      {user?.isAdmin && ship.verificationState === 'NotFoundOnAo3' && (
+                        <VerificationRecheck
+                          ship={ship}
+                          onRechecked={() => void load().catch(() => {})}
+                        />
+                      )}
                     </td>
                     <td>{formatDate(ship.lastScrapedAt)}</td>
                     <td>{formatDate(ship.nextScrapeAt)}</td>
@@ -213,6 +370,108 @@ export function ShipsPage() {
           </p>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * The way back out of a written-off backfill.
+ *
+ * The page is editable rather than fixed because the two reasons a backfill gives up want different
+ * answers: after an outage the deepest page read is exactly where to resume, and after a listing
+ * that shrank it is the one page that will fail again. `restartPage` is the default, so the common
+ * case is one click.
+ *
+ * Restarting does not make the ship due — it resumes on its next scheduled run, and saying so here
+ * is what stops the button looking broken when nothing happens for an hour.
+ */
+function BackfillRestart({ ship, onRestarted }: { ship: WatchedShip; onRestarted: () => void }) {
+  const [page, setPage] = useState(String(restartPage(ship)));
+  const [restarting, setRestarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+
+    const parsed = Number(page);
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      setError('A listing page is numbered from 1.');
+      return;
+    }
+
+    setError(null);
+    setRestarting(true);
+    try {
+      await api.restartBackfill(ship.shipId, parsed);
+      onRestarted();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to restart the backfill.');
+    } finally {
+      setRestarting(false);
+    }
+  };
+
+  return (
+    <form className="ship-action" onSubmit={(e) => void submit(e)}>
+      <label>
+        Restart at page
+        <input
+          type="number"
+          min={1}
+          value={page}
+          onChange={(e) => setPage(e.target.value)}
+          disabled={restarting}
+        />
+      </label>
+      <button type="submit" disabled={restarting}>
+        {restarting ? 'Restarting…' : 'Restart'}
+      </button>
+      <span className="ship-status-detail">
+        Picks up on this ship’s next scheduled scrape, not straight away.
+      </span>
+      {error && <span className="error">{error}</span>}
+    </form>
+  );
+}
+
+/**
+ * The way back from a denial.
+ *
+ * A 404 is usually the typo the status line assumes, but it is also what a renamed tag and a tag
+ * briefly withdrawn look like — and nothing re-asks on its own: verification returns before its
+ * first request for a tag already settled, and the scraper skips the ship before its own. Following
+ * the tag again does not help either, because it lands on the same denied row.
+ *
+ * One button and no options: it is a single request against a tag AO3 has already refused, and
+ * there is nothing about it for an admin to choose. The row polls itself while the answer is
+ * pending, so no refresh is needed to see it.
+ */
+function VerificationRecheck({ ship, onRechecked }: { ship: WatchedShip; onRechecked: () => void }) {
+  const [rechecking, setRechecking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const recheck = async () => {
+    setError(null);
+    setRechecking(true);
+    try {
+      await api.recheckVerification(ship.shipId);
+      onRechecked();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to send that tag back for checking.');
+    } finally {
+      setRechecking(false);
+    }
+  };
+
+  return (
+    <div className="ship-action">
+      <button type="button" disabled={rechecking} onClick={() => void recheck()}>
+        {rechecking ? 'Sending…' : 'Check with AO3 again'}
+      </button>
+      <span className="ship-status-detail">
+        For a tag that was renamed or briefly gone. Nothing is scraped until AO3 confirms it.
+      </span>
+      {error && <span className="error">{error}</span>}
     </div>
   );
 }

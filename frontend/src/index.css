@@ -461,6 +461,169 @@
     font-size: var(--font-ui-smaller);
   }
 
+  /* ------------------------------------------------------------------------- one work's page */
+
+  .work-detail-title {
+    margin-bottom: var(--size-2-2);
+  }
+
+  .work-detail-byline {
+    margin-bottom: var(--size-4-3);
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+  }
+
+  .work-detail-section {
+    margin-top: var(--size-4-6);
+  }
+
+  /* Capped for reading rather than for the window: a summary set in one line across a wide screen
+     is the one thing on this page nobody would read. */
+  .work-detail-summary {
+    max-width: 70ch;
+  }
+
+  .work-detail-summary p {
+    margin: 0 0 var(--size-4-2);
+  }
+
+  .work-detail-summary blockquote {
+    margin: 0 0 var(--size-4-2);
+    padding-left: var(--size-4-3);
+    border-left: 3px solid var(--background-modifier-border);
+    color: var(--text-muted);
+  }
+
+  .work-detail-state {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--size-4-4);
+    align-items: flex-end;
+    margin-bottom: var(--size-4-3);
+  }
+
+  .work-detail-tag-group h3 {
+    margin: var(--size-4-3) 0 var(--size-2-2);
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+  }
+
+  .work-detail-series {
+    margin: 0;
+    padding-left: var(--size-4-4);
+  }
+
+  /* Two columns on anything wide enough, one on a phone. The label column sizes to its longest
+     label so the values line up rather than each row starting somewhere new. */
+  .work-detail-facts {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: var(--size-2-2) var(--size-4-4);
+    max-width: 40rem;
+    margin: 0;
+  }
+
+  .work-detail-facts dt {
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+  }
+
+  .work-detail-facts dd {
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ----------------------------------------------------------------- one reader's own state */
+
+  .work-state-cell {
+    min-width: 14rem;
+    white-space: normal;
+  }
+
+  /* A select is full-width by default, which in a table cell means as wide as the widest title. */
+  .work-state-cell select {
+    width: auto;
+    max-width: 100%;
+  }
+
+  .work-state-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--size-4-2);
+    align-items: center;
+    margin-top: var(--size-2-2);
+  }
+
+  /* Why a failed write reads here and not in the page's own error line: it belongs to this row. */
+  .work-state-error {
+    display: block;
+    max-width: 20rem;
+    margin-top: var(--size-2-2);
+    white-space: normal;
+  }
+
+  .rating {
+    display: inline-flex;
+    gap: var(--size-2-2);
+    align-items: center;
+  }
+
+  /* Flush against each other on purpose: the click handler reads a position along this box as a
+     fraction of ten half-stars, so a gap between them would put the boundaries in the wrong place. */
+  .rating-stars {
+    display: inline-flex;
+    border-radius: var(--radius-s);
+    color: var(--text-faint);
+    font-size: var(--font-ui-small);
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .rating-star {
+    position: relative;
+    display: inline-block;
+  }
+
+  /* The filled half is the same glyph again, clipped — never a second character, which would sit
+     on its own metrics and drift out of register with the one underneath. */
+  .rating-star-fill {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: 0;
+    overflow: hidden;
+    color: var(--text-accent);
+  }
+
+  .rating-star[data-fill='half'] .rating-star-fill {
+    width: 50%;
+  }
+
+  .rating-star[data-fill='full'] .rating-star-fill {
+    width: 100%;
+  }
+
+  /* Unrated is a word, not an empty row of stars: five faint stars and half of one faint star are
+     a clipped glyph apart, and the difference is the whole point of the column. */
+  .rating-value {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    white-space: nowrap;
+  }
+
+  .rating[data-rated='true'] .rating-value {
+    color: var(--text-normal);
+  }
+
+  .work-note-row td {
+    white-space: normal;
+  }
+
+  .work-note-field {
+    max-width: 48rem;
+    margin-bottom: var(--size-4-2);
+  }
+
   .ship-tag {
     font-family: var(--font-monospace);
     font-size: var(--font-ui-smaller);
@@ -477,6 +640,31 @@
     font-family: var(--font-interface);
     font-size: var(--font-ui-smaller);
     white-space: normal;
+  }
+
+  /* Sits inside a status cell, under the detail line explaining what it is for. Wraps rather than
+     stretching the column: the table is already wide. Shared by both of a row's admin actions —
+     the control, then the sentence saying what pressing it will and will not do. */
+  .ship-action {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--size-4-2);
+    max-width: 28rem;
+    margin-top: var(--size-4-2);
+  }
+
+  .ship-action label {
+    display: flex;
+    flex-direction: column;
+    gap: var(--size-2-2);
+    color: var(--text-muted);
+    font-family: var(--font-interface);
+    font-size: var(--font-ui-smaller);
+  }
+
+  .ship-action input {
+    width: 7rem;
   }
 
   /* Key/value layout rather than a data grid: labels stay narrow, values wrap freely. */
@@ -693,6 +881,13 @@
     color: var(--text-accent);
   }
 
+  /* A tag the work has left. Muted rather than coloured: it is an explanation for a row being
+     here at all, not something a reader scans for. */
+  .chip-left {
+    color: var(--text-faint);
+    font-style: italic;
+  }
+
   /* Warnings are the one chip a reader may be scanning *for*, so they get the colour. */
   .chip-warning {
     color: var(--text-warning);
@@ -730,6 +925,13 @@
     font-size: var(--font-ui-small);
   }
 
+  /* The counterpart of .error for something that is degraded rather than stopped — a backfill this
+     instance gave up on, whose ship still collects new works. */
+  .warning {
+    color: var(--text-warning);
+    font-size: var(--font-ui-small);
+  }
+
   .success {
     color: var(--text-success);
     font-size: var(--font-ui-small);
@@ -751,6 +953,12 @@
 
   .callout-warning {
     border-left: 3px solid var(--text-warning);
+  }
+
+  /* For a callout that states why something is not working at all, rather than a caution about
+     something that is. */
+  .callout-error {
+    border-left: 3px solid var(--text-error);
   }
 
   /* Shown in place of whatever crashed. Padded like a page rather than a banner, because when the
@@ -789,5 +997,302 @@
     font-size: var(--font-ui-smaller);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+  }
+
+  /* --------------------------------------------------------------------------- notifications */
+
+  .notifications-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--size-4-3);
+    align-items: center;
+    margin-bottom: var(--size-4-4);
+  }
+
+  /* The segmented control carries its own bottom margin for a page that stacks blocks; here it
+     sits in a row that already has one. */
+  .notifications-controls .segmented {
+    margin-bottom: 0;
+  }
+
+  .notification-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .notification {
+    display: flex;
+    gap: var(--size-4-4);
+    align-items: baseline;
+    justify-content: space-between;
+    padding: var(--size-4-2) var(--size-4-3);
+    border-bottom: 1px solid var(--background-modifier-border);
+  }
+
+  /* Unread rows are the reason to be on this page, so they are the ones that look different — a
+     left edge in the accent, which is the same signal the sidebar uses for the active item. */
+  .notification[data-unread] {
+    background-color: var(--background-secondary);
+    box-shadow: inset 2px 0 0 var(--interactive-accent);
+  }
+
+  .notification-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--size-2-1);
+    min-width: 0;
+  }
+
+  .notification-meta {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+  }
+
+  .notification-read {
+    color: var(--text-faint);
+    font-size: var(--font-ui-smaller);
+    white-space: nowrap;
+  }
+
+  .downloads-table {
+    display: block;
+    overflow-x: auto;
+  }
+
+  /* The status word, coloured by what it means. A queued request and a failed one are the two a
+     reader scanning the list is looking for, so they are the two that are not the body colour. */
+  .download-status {
+    font-size: var(--font-ui-small);
+  }
+
+  .download-status[data-status='Pending'],
+  .download-status[data-status='Downloading'] {
+    color: var(--text-muted);
+  }
+
+  .download-status[data-status='Complete'] {
+    color: var(--text-success);
+  }
+
+  .download-status[data-status='Failed'] {
+    color: var(--text-error);
+  }
+
+  /* Why a fetch failed, on its own line under the status: the message names which half of it
+     failed and is a sentence, not a word, so it does not belong beside one. */
+  .download-error {
+    display: block;
+    max-width: 40ch;
+    color: var(--text-error);
+    font-size: var(--font-ui-smaller);
+    white-space: normal;
+  }
+
+  .download-actions {
+    display: flex;
+    gap: var(--size-4-2);
+    align-items: baseline;
+    white-space: nowrap;
+  }
+
+  .download-formats {
+    flex-wrap: wrap;
+  }
+
+  .work-downloads {
+    margin: var(--size-4-3) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .work-downloads li {
+    display: flex;
+    gap: var(--size-4-2);
+    align-items: baseline;
+    flex-wrap: wrap;
+    padding: var(--size-2-3) 0;
+    border-bottom: 1px solid var(--background-modifier-border);
+  }
+
+  .work-downloads li:last-child {
+    border-bottom: none;
+  }
+
+  /* Fixed width so the formats line up down the list rather than shifting with the word's length. */
+  .work-download-format {
+    min-width: 5ch;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+  }
+
+  /* --------------------------------------------------------------------------- statistics */
+
+  /* Every chart below is CSS over a number the server bucketed. No colour literals, for the
+     reason at the top of this file — a bar drawn in a fixed accent is a bar somebody's theme
+     cannot reach, and these are the largest blocks of colour in the app. */
+
+  .stat-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: var(--size-4-3);
+    margin-bottom: var(--size-4-4);
+  }
+
+  .stat-tile {
+    display: flex;
+    flex-direction: column;
+    gap: var(--size-2-1);
+    padding: var(--size-4-3);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m);
+    background-color: var(--background-secondary);
+  }
+
+  .stat-tile-value {
+    font-size: var(--font-ui-large);
+    font-weight: var(--font-semibold);
+    line-height: var(--line-height-tight);
+  }
+
+  .stat-tile-label {
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+  }
+
+  .stat-tile-hint {
+    color: var(--text-faint);
+    font-size: var(--font-ui-smaller);
+  }
+
+  /* Label, bar, value — three columns, so the bars share one baseline down the list however long
+     the labels are. The label column is capped rather than sized to content: a pseud can be
+     arbitrarily long, and letting it size the grid would leave the bars a sliver wide. */
+  .bar-list {
+    display: grid;
+    grid-template-columns: minmax(6rem, 12rem) 1fr auto;
+    gap: var(--size-2-2) var(--size-4-3);
+    align-items: center;
+    margin: 0 0 var(--size-4-3);
+    padding: 0;
+    list-style: none;
+  }
+
+  .bar-list li {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+    align-items: center;
+  }
+
+  .bar-label {
+    overflow: hidden;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .bar-track {
+    display: block;
+    overflow: hidden;
+    width: 100%;
+    height: var(--size-4-3);
+    border-radius: var(--radius-s);
+    background-color: var(--background-modifier-border);
+  }
+
+  .bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: var(--radius-s);
+    background-color: var(--interactive-accent);
+  }
+
+  .bar-value {
+    display: flex;
+    gap: var(--size-4-2);
+    align-items: baseline;
+    font-size: var(--font-ui-small);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .bar-detail {
+    color: var(--text-faint);
+    font-size: var(--font-ui-smaller);
+  }
+
+  /* The read-through cell in the per-ship table: the same bar, sized to its own row rather than
+     stretched across a grid column it does not sit in. */
+  .share {
+    display: flex;
+    gap: var(--size-4-2);
+    align-items: center;
+    min-width: 8rem;
+  }
+
+  .stats-table {
+    display: block;
+    overflow-x: auto;
+    margin-bottom: var(--size-4-3);
+  }
+
+  .stats-table .numeric {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  /* One column per month, scrolling rather than compressing: twenty years of an active tag is
+     240 columns, and squeezing those into the page width draws a solid block. */
+  .month-chart {
+    display: flex;
+    gap: 1px;
+    align-items: flex-end;
+    overflow-x: auto;
+    /* Room at the ends for the year under the January column: the label is several times wider
+       than the column it is centred on, and against the scroll container's edge it would be
+       clipped to its last digits — which is worse than no axis at all. */
+    padding: 0 var(--size-4-6) var(--size-2-2);
+  }
+
+  .month-column {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: var(--size-2-1);
+    align-items: center;
+    width: var(--size-4-3);
+  }
+
+  .month-bar-track {
+    display: flex;
+    align-items: flex-end;
+    width: 100%;
+    height: var(--size-4-16);
+    border-radius: var(--radius-s);
+    background-color: var(--background-modifier-border);
+  }
+
+  .month-bar-fill {
+    width: 100%;
+    /* A month with works is never drawn as nothing: a single work in a busy tag rounds to under a
+       pixel. Only months that have works get a fill at all, so this floor cannot make an empty
+       month look like a quiet one. */
+    min-height: 1px;
+    border-radius: var(--radius-s);
+    background-color: var(--interactive-accent);
+  }
+
+  /* Only January is written, so the axis stays readable at one column per month. The element is
+     rendered empty the rest of the year to hold the columns' height steady. */
+  .month-tick {
+    /* Held at a line's height whether or not it has a year in it, so a January column is not
+       taller than its neighbours and does not lift its bar off the shared baseline. */
+    min-height: 1em;
+    color: var(--text-faint);
+    line-height: 1;
+    font-size: var(--font-ui-smaller);
+    white-space: nowrap;
   }
 }

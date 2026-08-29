@@ -67,6 +67,35 @@ public class SavedWorkFilter
     public Ao3Rating? MinRating { get; set; }
     public Ao3Rating? MaxRating { get; set; }
 
+    // ---- the caller's own reading, not the archive's ------------------------------------------
+    //
+    // These two criteria are the only ones whose meaning depends on WHO applies the set: they are
+    // matched against UserWorkState rows joined on the applying user's id, not on the filter's
+    // owner. Only the owner can ever apply a set — every lookup in SavedFiltersController is scoped
+    // by the caller's id — so the two are the same person and the filter's meaning is stable. Said
+    // out loud because the columns themselves carry no user, and a future endpoint that let one
+    // account apply another's set would silently change what a stored set matches.
+
+    /// <summary>
+    /// Restrict to works the reader has marked with this status. <see cref="ReadingStatus.None"/>
+    /// is a real criterion here and means "unread" in the widest sense — no state row at all, or a
+    /// row whose status was cleared while a rating or note stayed. Null is unconstrained.
+    /// </summary>
+    public ReadingStatus? ReadingStatus { get; set; }
+
+    /// <summary>
+    /// Inclusive bounds on the reader's own rating, in half-stars 1-10 — the same scale as
+    /// <see cref="UserWorkState.Rating"/>, where 7 is three and a half stars.
+    ///
+    /// An unrated work matches neither bound: null is not a score, and a set asking for "3 stars or
+    /// better" that quietly kept everything unrated would be useless. Range-checked in
+    /// <c>SavedFiltersController</c> rather than by a check constraint, unlike the column these are
+    /// compared against — that constraint could be declared on a brand-new table, while adding one
+    /// here would force SQLite to rebuild an existing one.
+    /// </summary>
+    public int? MinUserRating { get; set; }
+    public int? MaxUserRating { get; set; }
+
     /// <summary>Work must carry at least one of these categories. Null or None: unconstrained.</summary>
     public Ao3Category? IncludeCategories { get; set; }
 

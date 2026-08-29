@@ -1,0 +1,1567 @@
+<!DOCTYPE html>
+<html lang="en" data-darkreader-mode="dynamic" data-darkreader-scheme="dark"><head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8"><style class="darkreader darkreader--fallback" media="screen"></style><style class="darkreader darkreader--user-agent" media="screen">@layer {
+html {
+    background-color: var(--darkreader-background-ffffff, #121314) !important;
+}
+html {
+    color-scheme: dark !important;
+}
+iframe {
+    color-scheme: dark !important;
+}
+html, body {
+    background-color: var(--darkreader-background-ffffff, #121314);
+}
+html, body {
+    border-color: var(--darkreader-border-4c4c4c, #565047);
+    color: var(--darkreader-text-000000, #aeadaa);
+}
+a {
+    color: var(--darkreader-text-0040ff, #296cbb);
+}
+table {
+    border-color: var(--darkreader-border-808080, #3f4446);
+}
+mark {
+    color: var(--darkreader-text-000000, #aeadaa);
+}
+::placeholder {
+    color: var(--darkreader-text-a9a9a9, #858079);
+}
+input:-webkit-autofill,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+    background-color: var(--darkreader-background-faffbd, #303302) !important;
+    color: var(--darkreader-text-000000, #aeadaa) !important;
+}
+::selection {
+    background-color: var(--darkreader-background-0060d4, #003a80) !important;
+    color: var(--darkreader-text-ffffff, #aeadaa) !important;
+}
+::-moz-selection {
+    background-color: var(--darkreader-background-0060d4, #003a80) !important;
+    color: var(--darkreader-text-ffffff, #aeadaa) !important;
+}
+}</style><style class="darkreader darkreader--text" media="screen"></style><style class="darkreader darkreader--invert" media="screen">.jfk-bubble.gtx-bubble, .captcheck_answer_label > input + img, span#closed_text > img[src^="https://www.gstatic.com/images/branding/googlelogo"], span[data-href^="https://www.hcaptcha.com/"] > #icon, img.Wirisformula, a[data-testid="headerMediumLogo"]>svg, .d2l-navigation-link-image-container, .d2l-iframe-loading-container, div.mc-ip-hide[style*="background: rgb(255, 255, 255) !important"], [style*="color: rgb(0, 0, 1) !important;"] {
+    filter: invert(100%) hue-rotate(180deg) brightness(75%) contrast(90%) grayscale(5%) !important;
+}</style><style class="darkreader darkreader--inline" media="screen">[data-darkreader-inline-bgcolor] {
+  background-color: var(--darkreader-inline-bgcolor) !important;
+}
+[data-darkreader-inline-bgimage] {
+  background-image: var(--darkreader-inline-bgimage) !important;
+}
+[data-darkreader-inline-border] {
+  border-color: var(--darkreader-inline-border) !important;
+}
+[data-darkreader-inline-border-bottom] {
+  border-bottom-color: var(--darkreader-inline-border-bottom) !important;
+}
+[data-darkreader-inline-border-left] {
+  border-left-color: var(--darkreader-inline-border-left) !important;
+}
+[data-darkreader-inline-border-right] {
+  border-right-color: var(--darkreader-inline-border-right) !important;
+}
+[data-darkreader-inline-border-top] {
+  border-top-color: var(--darkreader-inline-border-top) !important;
+}
+[data-darkreader-inline-boxshadow] {
+  box-shadow: var(--darkreader-inline-boxshadow) !important;
+}
+[data-darkreader-inline-color] {
+  color: var(--darkreader-inline-color) !important;
+}
+[data-darkreader-inline-fill] {
+  fill: var(--darkreader-inline-fill) !important;
+}
+[data-darkreader-inline-stroke] {
+  stroke: var(--darkreader-inline-stroke) !important;
+}
+[data-darkreader-inline-outline] {
+  outline-color: var(--darkreader-inline-outline) !important;
+}
+[data-darkreader-inline-stopcolor] {
+  stop-color: var(--darkreader-inline-stopcolor) !important;
+}
+[data-darkreader-inline-bg] {
+  background: var(--darkreader-inline-bg) !important;
+}
+[data-darkreader-inline-border-short] {
+  border: var(--darkreader-inline-border-short) !important;
+}
+[data-darkreader-inline-border-bottom-short] {
+  border-bottom: var(--darkreader-inline-border-bottom-short) !important;
+}
+[data-darkreader-inline-border-left-short] {
+  border-left: var(--darkreader-inline-border-left-short) !important;
+}
+[data-darkreader-inline-border-right-short] {
+  border-right: var(--darkreader-inline-border-right-short) !important;
+}
+[data-darkreader-inline-border-top-short] {
+  border-top: var(--darkreader-inline-border-top-short) !important;
+}
+[data-darkreader-inline-invert] {
+    filter: invert(100%) hue-rotate(180deg);
+}</style><style class="darkreader darkreader--variables" media="screen">:root {
+   --darkreader-neutral-background: var(--darkreader-background-ffffff, #121314);
+   --darkreader-neutral-text: var(--darkreader-text-000000, #aeadaa);
+   --darkreader-selection-background: var(--darkreader-background-0060d4, #003a80);
+   --darkreader-selection-text: var(--darkreader-text-ffffff, #aeadaa);
+}</style><style class="darkreader darkreader--root-vars" media="screen"></style>
+    <meta charset="utf-8">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <meta name="keywords" content="fanfiction, transformative works, otw, fair use, archive">
+    <meta name="language" content="en-US">
+    <meta name="subject" content="fandom">
+    <meta name="description" content="An Archive of Our Own, a project of the Organization for Transformative Works">
+    <meta name="distribution" content="GLOBAL">
+    <meta name="classification" content="transformative works">
+    <meta name="author" content="Organization for Transformative Works">
+  	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="chrome" content="nointentdetection">
+    <meta name="format-detection" content="telephone=no">
+    <title>we chose to wait! marriage only after sex - Chapter 1 - charminhearts - KPop Demon Hunters (2025) [Archive of Our Own]</title>
+
+    <link rel="stylesheet" type="text/css" media="screen" href="ao3-work-page_files/1_site_screen__8daL.css"><style class="darkreader darkreader--sync" media="screen"></style>
+<link rel="stylesheet" type="text/css" media="only screen and (max-width: 62em), handheld" href="ao3-work-page_files/4_site_midsize.handheld__8daL.css"><style class="darkreader darkreader--sync" media="screen"></style>
+<link rel="stylesheet" type="text/css" media="only screen and (max-width: 42em), handheld" href="ao3-work-page_files/5_site_narrow.handheld__8daL.css"><style class="darkreader darkreader--sync" media="screen"></style>
+<link rel="stylesheet" type="text/css" media="speech" href="ao3-work-page_files/6_site_speech__8daL.css">
+<link rel="stylesheet" type="text/css" media="print" href="ao3-work-page_files/7_site_print__8daL.css">
+<!--[if IE 8]><link rel="stylesheet" type="text/css" media="screen" href="/stylesheets/skins/skin_1_default/8_site_screen_IE8_or_lower.css" /><![endif]-->
+<!--[if IE 5]><link rel="stylesheet" type="text/css" media="screen" href="/stylesheets/skins/skin_1_default/9_site_screen_IE5.css" /><![endif]-->
+<!--[if IE 6]><link rel="stylesheet" type="text/css" media="screen" href="/stylesheets/skins/skin_1_default/10_site_screen_IE6.css" /><![endif]-->
+<!--[if IE 7]><link rel="stylesheet" type="text/css" media="screen" href="/stylesheets/skins/skin_1_default/11_site_screen_IE7.css" /><![endif]-->
+
+
+<!--sandbox for developers	-->
+<link rel="stylesheet" href="ao3-work-page_files/sandbox_8daL.css"><style class="darkreader darkreader--sync" media="screen"></style>
+
+
+
+<script src="ao3-work-page_files/livevalidation_standalone_8daL.js"></script>
+
+<meta name="csrf-param" content="authenticity_token">
+<meta name="csrf-token" content="FIXTURE-CSRF-TOKEN-REDACTED">
+
+    
+  <meta name="darkreader" content="4c3b174c33854fbe8d8ab1b7c83c49a0"><style class="darkreader darkreader--override" media="screen">.jfk-bubble.gtx-bubble {
+    background-color: white !important;
+}
+.vimvixen-hint {
+    background-color: var(--darkreader-background-ffd76e, #4d3803) !important;
+    border-color: var(--darkreader-background-c59d00, #755e05) !important;
+    color: var(--darkreader-text-302505, #a19f9b) !important;
+}
+#vimvixen-console-frame {
+    color-scheme: light !important;
+}
+::placeholder {
+    opacity: 0.5 !important;
+}
+#edge-translate-panel-body,
+.MuiTypography-body1,
+.nfe-quote-text {
+    color: var(--darkreader-neutral-text) !important;
+}
+gr-main-header {
+    background-color: var(--darkreader-background-add8e6, #163641) !important;
+}
+.tou-z65h9k,
+.tou-mignzq,
+.tou-1b6i2ox,
+.tou-lnqlqk {
+    background-color: var(--darkreader-neutral-background) !important;
+}
+.tou-75mvi {
+    background-color: var(--darkreader-background-cfecf5, #0d2b34) !important;
+}
+.tou-ta9e87,
+.tou-1w3fhi0,
+.tou-1b8t2us,
+.tou-py7lfi,
+.tou-1lpmd9d,
+.tou-1frrtv8,
+.tou-17ezmgn {
+    background-color: var(--darkreader-background-f5f5f5, #171819) !important;
+}
+.tou-uknfeu {
+    background-color: var(--darkreader-background-faedda, #312108) !important;
+}
+.tou-6i3zyv {
+    background-color: var(--darkreader-background-85c3d8, #1d4553) !important;
+}
+div.mermaid-viewer-control-panel .btn {
+    background-color: var(--darkreader-neutral-background);
+    fill: var(--darkreader-neutral-text);
+}
+svg g rect.er {
+    fill: var(--darkreader-neutral-background) !important;
+}
+svg g rect.er.entityBox {
+    fill: var(--darkreader-neutral-background) !important;
+}
+svg g rect.er.attributeBoxOdd {
+    fill: var(--darkreader-neutral-background) !important;
+}
+svg g rect.er.attributeBoxEven {
+    fill: var(--darkreader-selection-background);
+    fill-opacity: 0.8 !important;
+}
+svg rect.er.relationshipLabelBox {
+    fill: var(--darkreader-neutral-background) !important;
+}
+svg g g.nodes rect,
+svg g g.nodes polygon {
+    fill: var(--darkreader-neutral-background) !important;
+}
+svg g rect.task {
+    fill: var(--darkreader-selection-background) !important;
+}
+svg line.messageLine0,
+svg line.messageLine1 {
+    stroke: var(--darkreader-neutral-text) !important;
+}
+div.mermaid .actor {
+    fill: var(--darkreader-neutral-background) !important;
+}
+mitid-authenticators-code-app > .code-app-container {
+    background-color: white !important;
+    padding-top: 1rem;
+}
+iframe#unpaywall[src$="unpaywall.html"] {
+    color-scheme: light !important;
+}
+select {
+    --darkreader-bg--form-control-background-color: rgba(22, 22, 22, 0) !important;
+}
+body#tumblr {
+    --darkreader-bg--secondary-accent: 31, 32, 34 !important;
+    --darkreader-bg--white: 23, 23, 23 !important;
+    --darkreader-text--black: 228, 224, 218 !important;
+}
+:host {
+    --d2l-border-color: var(--darkreader-bg--d2l-color-gypsum) !important;
+    --d2l-button-icon-background-color-hover: var(--darkreader-bg--d2l-color-gypsum) !important;
+    --d2l-color-ferrite: var(--darkreader-neutral-text) !important;
+    --d2l-color-sylvite: var(--darkreader-bg--d2l-color-sylvite) !important;
+    --d2l-dropdown-background-color: var(--darkreader-neutral-background) !important;
+    --d2l-dropdown-border-color: var(--darkreader-border--d2l-color-mica) !important;
+    --d2l-input-backgroud-color: var(--darkreader-neutral-background) !important;
+    --d2l-menu-border-color: var(--darkreader-bg--d2l-color-gypsum) !important;
+    --d2l-tooltip-background-color: var(--darkreader-neutral-background) !important;
+    --d2l-tooltip-border-color: var(--darkreader-bg--d2l-color-gypsum) !important;
+}
+:host([_floating]) .d2l-floating-buttons-container {
+    background-color: var(--darkreader-neutral-background) !important;
+    border-top-color: var(--darkreader-border--d2l-color-mica) !important;
+    opacity: 0.88 !important;
+}
+d2l-card {
+    background: var(--darkreader-neutral-background) !important;
+    border-color: var(--darkreader-border--d2l-color-gypsum) !important;
+}
+d2l-dropdown-content > div,
+d2l-menu-item {
+    background-color: var(--darkreader-neutral-background) !important;
+    border-radius: 10px !important;
+}
+d2l-empty-state-simple {
+    border-color: var(--darkreader-bg--d2l-color-gypsum) !important;
+}
+.d2l-button-filter > ul > li > a.vui-button {
+    border-color: var(--darkreader-border--d2l-color-mica) !important;
+}
+.d2l-label-text:has(.d2l-button-subtle-content):hover,
+.d2l-label-text:has(.d2l-button-subtle-content):focus,
+.d2l-label-text:has(.d2l-button-subtle-content):active {
+    background-color: var(--darkreader-bg--d2l-color-gypsum) !important;
+}
+.d2l-navigation-centerer {
+    color: inherit !important;
+}
+.d2l-tabs-layout {
+    border-color: var(--darkreader-border--d2l-color-gypsum) !important;
+}
+.d2l-input,
+.d2l-calendar-date,
+.d2l-htmleditor-container {
+    background-color: var(--darkreader-neutral-background) !important;
+}
+.d2l-collapsible-panel {
+    border: 1px solid var(--darkreader-border--d2l-color-mica) !important;
+    border-radius: 0.4rem !important;
+}
+.d2l-collapsible-panel-divider {
+    border-bottom: 1px solid var(--darkreader-border--d2l-color-mica) !important;
+}
+.d2l-w2d-flex {
+    border-bottom: 2px solid var(--darkreader-border--d2l-color-mica) !important;
+}
+.d2l-collapsible-panel scrolled,
+.d2l-collapsible-panel-header,
+.d2l-w2d-collection-fixed {
+    background-color: var(--darkreader-neutral-background) !important;
+}
+.d2l-loading-spinner-bg {
+    fill: var(--darkreader-bg--d2l-color-gypsum) !important;
+}
+.d2l-loading-spinner-bg-stroke {
+    stroke: var(--darkreader-border--d2l-color-mica) !important;
+}
+.d2l-loading-spinner-wrapper svg path,
+.d2l-loading-spinner-wrapper svg circle {
+    fill: var(--darkreader-neutral-background) !important;
+}
+.d2l-twopanelselector-side.d2l-twopanelselector-side-sep {
+    background: var(--darkreader-bg--d2l-color-mica) !important;
+}
+.d2l-le-TreeAccordionItem-anchor::before {
+    background: var(--darkreader-bg--d2l-color-corundum) !important;
+}
+table[class|="moz-header"] {
+    background: none;
+}
+*[style*="color: rgba(0,0,0,"]:not([style*="color: rgba(0,0,0,0)"]),
+*[style*="color: rgba(0, 0, 0,"]:not([style*="color: rgba(0, 0, 0, 0)"]),
+*[style*="color:#000"],
+*[style*="color:black"],
+*[style*="color:#282828"],
+*[style*="color:#444"],
+*[style*="color: #222222"] {
+    color: var(--darkreader-neutral-text) !important;
+}
+*[style*="background:#fff"],
+*[style*="background-color:#fff"],
+*[style*="background: #fff"] {
+    background: var(--darkreader-neutral-background) !important;
+}
+*[bgcolor="#F5F5F5"],
+*[style*="background-color: #F5F5F5"] {
+    background: var(--darkreader-background-f5f5f5, #171819) !important;
+}
+*[style*="background: #e6e6e6"] {
+    background: var(--darkreader-background-e6e6e6, #1d1f20) !important;
+}
+body[style*="background: rgb(255, 255, 255) !important"] *:not(a),
+.body[style*="background-color: rgb(254, 254, 254) !important"] *:not(a) {
+    background-color: var(--darkreader-neutral-background) !important;
+}
+div[style*="www.gstatic.com/android/"] {
+    background: none !important;
+}
+*[style*="background:#f9f9f9"] {
+    background: var(--darkreader-background-f9f9f9, #141617) !important;
+}
+body.mediawiki.skin-vector #mw-page-base {
+    background-image: none !important;
+}
+.overflow-hidden .spinning-bg,
+.overflow-hidden .solid-bg {
+    background: transparent !important;
+}
+embed[type="application/pdf"] { filter: invert(100%) contrast(90%); }</style></head>
+
+  <body class="logged-in javascript" style="zoom: 1;">
+    <div id="outer" class="wrapper">
+      <ul id="skiplinks"><li><a href="#main">Main Content</a></li></ul>
+      <noscript><p id="javascript-warning">While we&#39;ve done our best to make the core functionality of this site accessible without JavaScript, it will work better with it enabled. Please consider turning it on!</p></noscript>
+
+<!-- BEGIN header -->
+
+<header id="header" class="region">
+
+  <h1 class="heading">
+    <a href="https://archiveofourown.org/"><span>Archive of Our Own</span><img alt="Archive of Our Own" class="logo" src="ao3-work-page_files/logo_42_8daL.png"></a>
+  </h1>
+
+    <nav id="greeting" aria-label="User">
+    <ul class="user navigation actions">
+      <li class="dropdown" aria-haspopup="true">
+        <a href="https://archiveofourown.org/users/fixtureuser" class="dropdown-toggle" data-toggle="dropdown" data-target="#">Hi, fixtureuser!</a>
+        <ul class="menu dropdown-menu">
+          <li><a href="https://archiveofourown.org/users/fixtureuser">My Dashboard</a></li>
+            <li><a href="https://archiveofourown.org/users/fixtureuser/subscriptions">My Subscriptions</a></li>
+            <li><a href="https://archiveofourown.org/users/fixtureuser/bookmarks">My Bookmarks</a></li>
+            <li><a href="https://archiveofourown.org/users/fixtureuser/readings">My History</a></li>
+          <li><a href="https://archiveofourown.org/users/fixtureuser/preferences">My Preferences</a></li>
+        </ul>
+      </li>
+      <li class="dropdown" aria-haspopup="true">
+        <a href="https://archiveofourown.org/works/new" class="dropdown-toggle" data-toggle="dropdown" data-target="#">Post</a>
+        <ul class="menu dropdown-menu">
+          <li><a href="https://archiveofourown.org/works/new">New Work</a></li>
+          <li><a href="https://archiveofourown.org/works/new?import=true">Import Work</a></li>
+        </ul>
+      </li>
+      <li><a rel="nofollow" data-method="delete" href="https://archiveofourown.org/users/logout?return_to=%2Fworks%2F70441196%2Fchapters%2F182995026">Log Out</a></li>
+    </ul>
+
+  <p class="icon"><a href="https://archiveofourown.org/users/fixtureuser"><img alt="" class="icon" src="ao3-work-page_files/icon_user_8daL.png"></a></p>
+</nav>
+
+
+  <nav aria-label="Site">
+    <ul class="primary navigation actions">
+      <li class="dropdown" aria-haspopup="true">
+        <a href="https://archiveofourown.org/menu/fandoms" class="dropdown-toggle" data-toggle="dropdown" data-target="#">Fandoms</a>
+        <ul class="menu dropdown-menu">
+  <li><a href="https://archiveofourown.org/media">All Fandoms</a></li>
+        <li id="medium_5"><a href="https://archiveofourown.org/media/Anime%20*a*%20Manga/fandoms">Anime &amp; Manga</a></li>
+        <li id="medium_3"><a href="https://archiveofourown.org/media/Books%20*a*%20Literature/fandoms">Books &amp; Literature</a></li>
+        <li id="medium_4"><a href="https://archiveofourown.org/media/Cartoons%20*a*%20Comics%20*a*%20Graphic%20Novels/fandoms">Cartoons &amp; Comics &amp; Graphic Novels</a></li>
+        <li id="medium_7"><a href="https://archiveofourown.org/media/Celebrities%20*a*%20Real%20People/fandoms">Celebrities &amp; Real People</a></li>
+        <li id="medium_2"><a href="https://archiveofourown.org/media/Movies/fandoms">Movies</a></li>
+        <li id="medium_6"><a href="https://archiveofourown.org/media/Music%20*a*%20Bands/fandoms">Music &amp; Bands</a></li>
+        <li id="medium_8"><a href="https://archiveofourown.org/media/Other%20Media/fandoms">Other Media</a></li>
+        <li id="medium_30198"><a href="https://archiveofourown.org/media/Theater/fandoms">Theater</a></li>
+        <li id="medium_1"><a href="https://archiveofourown.org/media/TV%20Shows/fandoms">TV Shows</a></li>
+        <li id="medium_476"><a href="https://archiveofourown.org/media/Video%20Games/fandoms">Video Games</a></li>
+        <li id="medium_9971"><a href="https://archiveofourown.org/media/Uncategorized%20Fandoms/fandoms">Uncategorized Fandoms</a></li>
+</ul>
+
+      </li>
+      <li class="dropdown" aria-haspopup="true">
+        <a href="https://archiveofourown.org/menu/browse" class="dropdown-toggle" data-toggle="dropdown" data-target="#">Browse</a>
+        <ul class="menu dropdown-menu">
+  <li><a href="https://archiveofourown.org/works">Works</a></li>
+  <li><a href="https://archiveofourown.org/bookmarks">Bookmarks</a></li>
+  <li><a href="https://archiveofourown.org/tags">Tags</a></li>
+  <li><a href="https://archiveofourown.org/collections">Collections</a></li>
+</ul>
+
+      </li>
+      <li class="dropdown" aria-haspopup="true">
+        <a href="https://archiveofourown.org/menu/search" class="dropdown-toggle" data-toggle="dropdown" data-target="#">Search</a>
+        <ul class="menu dropdown-menu">
+  <li><a href="https://archiveofourown.org/works/search">Works</a></li>
+  <li><a href="https://archiveofourown.org/bookmarks/search">Bookmarks</a></li>
+  <li><a href="https://archiveofourown.org/tags/search">Tags</a></li>
+  <li><a href="https://archiveofourown.org/people/search">People</a></li>
+</ul>
+
+      </li>
+      <li class="dropdown" aria-haspopup="true">
+        <a href="https://archiveofourown.org/menu/about" class="dropdown-toggle" data-toggle="dropdown" data-target="#">About</a>
+        <ul class="menu dropdown-menu">
+  <li><a href="https://archiveofourown.org/about">About Us</a></li>
+  <li><a href="https://archiveofourown.org/admin_posts">News</a></li>
+  <li><a href="https://archiveofourown.org/faq">FAQ</a></li>
+  <li><a href="https://archiveofourown.org/wrangling_guidelines">Wrangling Guidelines</a></li>
+  <li><a href="https://archiveofourown.org/donate">Donate or Volunteer</a></li>
+</ul>
+
+      </li>
+      <li class="search"><form class="search" id="search" role="search" aria-label="Work" action="/works/search" accept-charset="UTF-8" method="get">
+  <fieldset>
+    <p>
+      <label class="landmark" for="site_search">Work Search</label>
+      <input class="text" id="site_search" aria-describedby="site_search_tooltip" type="text" name="work_search[query]">
+      <span class="tip" role="tooltip" id="site_search_tooltip">tip: "uchiha sasuke/uzumaki naruto" angst kudos&gt;10</span>
+      <span class="submit actions"><input type="submit" value="Search" class="button"></span>
+    </p>
+  </fieldset>
+</form></li>
+    </ul>
+  </nav>
+
+
+
+  <div class="clear"></div>
+
+</header>
+
+
+
+<!-- END header -->
+
+      <div id="inner" class="wrapper">
+        <!-- BEGIN sidebar -->
+        <!-- END sidebar -->
+
+        <!-- BEGIN main -->
+        <div id="main" class="chapters-show region" role="main">
+          
+          <div class="flash"></div>
+          <!--page description, messages-->
+<!--/descriptions-->
+
+<!--subnav-->
+<!--/subnav-->
+
+<!-- BEGIN revealed -->
+  <!-- BEGIN work -->
+  <div class="work">
+    <p class="landmark"><a name="top">&nbsp;</a></p>
+
+    <!--work description, metadata, notes and messages-->
+    <!-- BEGIN navigation -->
+<h3 class="landmark heading">Actions</h3>
+<ul class="work navigation actions">
+
+
+
+    <li class="chapter entire"><a href="https://archiveofourown.org/works/70441196?view_full_work=true">Entire Work</a></li>
+
+
+      <li class="chapter next"><a href="https://archiveofourown.org/works/70441196/chapters/183593781#workskin">Next Chapter →</a></li>
+
+    <li class="chapter"><noscript><a href="/works/70441196/navigate">Chapter Index</a></noscript><button class="collapsed">Chapter Index</button>
+      <ul id="chapter_index" class="expandable secondary hidden">
+        <li>
+          <form action="/works/70441196/chapters/182995026" accept-charset="UTF-8" method="get">
+            <p>
+              <select name="selected_id" id="selected_id"><option selected="selected" value="182995026">1. sick princess</option>
+<option value="183593781">2. spoiled princess</option>
+<option value="184313326">3. tired princess</option>
+<option value="188407116">4. grumpy princess</option>
+<option value="191548051">5. happy princesses</option></select>
+              <span class="submit actions"><input type="submit" name="commit" value="Go"></span>
+            </p>
+</form>        </li>
+        <li><a href="https://archiveofourown.org/works/70441196/navigate">Full-Page Index</a></li>
+      </ul>
+    </li>
+
+
+    <li class="bookmark">
+      <a class="bookmark_form_placement_open" href="#bookmark-form">Edit Bookmark</a>
+      <a class="hidden bookmark_form_placement_close" href="#" style="display: none;">Cancel Bookmark</a>
+    </li>
+
+    <li class="mark">
+        <form class="button_to" method="post" action="/works/70441196/mark_for_later"><input type="hidden" name="_method" value="patch" autocomplete="off"><button type="submit">Mark for Later</button><input type="hidden" name="authenticity_token" value="FIXTURE-CSRF-TOKEN-REDACTED" autocomplete="off"></form>
+    </li>
+
+  <li class="comments" id="show_comments_link_top">
+      <a data-remote="true" href="https://archiveofourown.org/comments/show_comments?chapter_id=182995026">Comments </a>
+  </li>
+
+
+
+    <li class="share">
+      <a class="modal modal-attached" title="Share Work" href="https://archiveofourown.org/works/70441196/share" aria-controls="modal">Share</a>
+    </li>
+
+    <li class="subscribe">
+      <form class="ajax-create-destroy" id="new_subscription" data-create-value="Subscribe" data-destroy-value="Unsubscribe" action="/users/fixtureuser/subscriptions" accept-charset="UTF-8" method="post"><input type="hidden" name="authenticity_token" value="FIXTURE-CSRF-TOKEN-REDACTED" autocomplete="off">
+  <input autocomplete="off" type="hidden" value="70441196" name="subscription[subscribable_id]" id="subscription_subscribable_id">
+  <input autocomplete="off" type="hidden" value="Work" name="subscription[subscribable_type]" id="subscription_subscribable_type">
+  <input type="submit" name="commit" value="Subscribe">
+</form>
+    </li>
+
+    <li class="download"><noscript><h4 class="heading">Download</h4></noscript><button class="collapsed">Download</button>
+      <ul class="expandable secondary hidden">
+          <li><a href="https://archiveofourown.org/downloads/70441196/we_chose_to_wait.azw3?updated_at=1767140797">AZW3</a></li>
+          <li><a href="https://archiveofourown.org/downloads/70441196/we_chose_to_wait.epub?updated_at=1767140797">EPUB</a></li>
+          <li><a href="https://archiveofourown.org/downloads/70441196/we_chose_to_wait.mobi?updated_at=1767140797">MOBI</a></li>
+          <li><a href="https://archiveofourown.org/downloads/70441196/we_chose_to_wait.pdf?updated_at=1767140797">PDF</a></li>
+          <li><a href="https://archiveofourown.org/downloads/70441196/we_chose_to_wait.html?updated_at=1767140797">HTML</a></li>
+      </ul>
+    </li>
+</ul>
+<!-- END navigation -->
+
+
+    <h3 class="landmark heading">Work Header</h3>
+
+<div class="wrapper">
+
+  <dl class="work meta group">
+          <dt class="rating tags">
+
+              Rating:
+          </dt>
+
+          <dd class="rating tags">
+            <ul class="commas">
+               <li><a class="tag" href="https://archiveofourown.org/tags/Explicit/works">Explicit</a></li>
+            </ul>
+          </dd>
+          <dt class="warning tags">
+
+              <a href="https://archiveofourown.org/tos_faq#tags">Archive Warning</a>:
+          </dt>
+
+          <dd class="warning tags">
+            <ul class="commas">
+               <li><a class="tag" href="https://archiveofourown.org/tags/No%20Archive%20Warnings%20Apply/works">No Archive Warnings Apply</a></li>
+            </ul>
+          </dd>
+          <dt class="category tags">
+
+              Categories:
+          </dt>
+
+          <dd class="category tags">
+            <ul class="commas">
+               <li><a class="tag" href="https://archiveofourown.org/tags/F*s*F/works">F/F</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Multi/works">Multi</a></li>
+            </ul>
+          </dd>
+          <dt class="fandom tags">
+
+              Fandom:
+          </dt>
+
+          <dd class="fandom tags">
+            <ul class="commas">
+               <li><a class="tag" href="https://archiveofourown.org/tags/KPop%20Demon%20Hunters%20(2025)/works">KPop Demon Hunters (2025)</a></li>
+            </ul>
+          </dd>
+          <dt class="relationship tags">
+
+              Relationship:
+          </dt>
+
+          <dd class="relationship tags">
+            <ul class="commas">
+               <li><a class="tag" href="https://archiveofourown.org/tags/Mira*s*Rumi*s*Zoey%20(KPop%20Demon%20Hunters)/works">Mira/Rumi/Zoey (KPop Demon Hunters)</a></li>
+            </ul>
+          </dd>
+          <dt class="character tags">
+
+              Characters:
+          </dt>
+
+          <dd class="character tags">
+            <ul class="commas">
+               <li><a class="tag" href="https://archiveofourown.org/tags/Zoey%20(KPop%20Demon%20Hunters)/works">Zoey (KPop Demon Hunters)</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Mira%20(KPop%20Demon%20Hunters)/works">Mira (KPop Demon Hunters)</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Rumi%20(KPop%20Demon%20Hunters)/works">Rumi (KPop Demon Hunters)</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Bobby%20(KPop%20Demon%20Hunters)/works">Bobby (KPop Demon Hunters)</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Celine%20(KPop%20Demon%20Hunters)/works">Celine (KPop Demon Hunters)</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Original%20Child%20Character(s)/works">Original Child Character(s)</a></li>
+            </ul>
+          </dd>
+          <dt class="freeform tags">
+
+              Additional Tags:
+          </dt>
+
+          <dd class="freeform tags">
+            <ul class="commas">
+               <li><a class="tag" href="https://archiveofourown.org/tags/Post-Canon/works">Post-Canon</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Unplanned%20Pregnancy/works">Unplanned Pregnancy</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Fluff%20and%20Humor/works">Fluff and Humor</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Family%20Fluff/works">Family Fluff</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Slice%20of%20Life/works">Slice of Life</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Cuddling%20*a*%20Snuggling/works">Cuddling &amp; Snuggling</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Smut/works">Smut</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Mild%20Sexual%20Content/works">Mild Sexual Content</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Dirty%20Jokes/works">Dirty Jokes</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Inappropriate%20Use%20of%20the%20Honmoon%20(KPop%20Demon%20Hunters)/works">Inappropriate Use of the Honmoon (KPop Demon Hunters)</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Touch-Starved%20Rumi%20(KPop%20Demon%20Hunters)/works">Touch-Starved Rumi (KPop Demon Hunters)</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Zoey%20Has%20ADHD%20(KPop%20Demon%20Hunters)/works">Zoey Has ADHD (KPop Demon Hunters)</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Protective%20Zoey%20(KPop%20Demon%20Hunters)/works">Protective Zoey (KPop Demon Hunters)</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Protective%20Mira%20(KPop%20Demon%20Hunters)/works">Protective Mira (KPop Demon Hunters)</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Soft%20Mira%20(KPop%20Demon%20Hunters)/works">Soft Mira (KPop Demon Hunters)</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Crack%20Treated%20Seriously/works">Crack Treated Seriously</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Childbirth/works">Childbirth</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Kid%20Fic/works">Kid Fic</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Family%20Dynamics/works">Family Dynamics</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Good%20Parent%20Celine%20(KPop%20Demon%20Hunters)/works">Good Parent Celine (KPop Demon Hunters)</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Marriage%20Proposal/works">Marriage Proposal</a></li><li><a class="tag" href="https://archiveofourown.org/tags/Wedding%20Fluff/works">Wedding Fluff</a></li>
+            </ul>
+          </dd>
+
+      <dt class="language">
+        Language:
+      </dt>
+      <dd class="language" lang="en">
+        English
+      </dd>
+
+      <dt class="series">
+        Series:
+      </dt>
+      <dd class="series">
+        <span class="series"><span class="position">Part 1 of <a href="https://archiveofourown.org/series/5366891">I see a dream inside my eyes (you are the dream inside my eyes)</a></span><span class="divider"> </span><a class="next" href="https://archiveofourown.org/works/76734541">Next Work →</a></span>
+      </dd>
+
+      <dt class="collections">
+        Collections:
+      </dt>
+      <dd class="collections">
+        <a href="https://archiveofourown.org/collections/WholesomePolytrixFics">Polytrix Fics that Soothe my Soul</a>
+      </dd>
+
+    <dt class="stats">Stats:</dt>
+    <dd class="stats">
+<!-- end of cache -->
+
+      <dl class="stats"><dt class="published">Published:</dt><dd class="published">2025-09-06</dd><dt class="status">Completed:</dt><dd class="status">2025-11-01</dd><dt class="words">Words:</dt><dd class="words">46,090</dd><dt class="chapters">Chapters:</dt><dd class="chapters">5/5</dd><dt class="comments">Comments:</dt><dd class="comments">235</dd><dt class="kudos">Kudos:</dt><dd class="kudos">2,757</dd><dt class="bookmarks">Bookmarks:</dt><dd class="bookmarks"><a href="https://archiveofourown.org/works/70441196/bookmarks">492</a></dd><dt class="hits">Hits:</dt><dd class="hits">59,676</dd></dl>
+      </dd>
+  </dl>
+</div>
+
+
+    <div id="work-skin" class="wrapper">
+      
+
+      <!-- BEGIN section where work skin applies -->
+      <div id="workskin">
+        <div class="preface group">
+  <h2 class="title heading">
+    we chose to wait! marriage only after sex
+  </h2>
+  <h3 class="byline heading">
+    <a rel="author" href="https://archiveofourown.org/users/charminhearts/pseuds/charminhearts">charminhearts</a>
+  </h3>
+
+
+      <div class="summary module">
+        <h3 class="heading">Summary:</h3>
+          <blockquote class="userstuff">
+            <blockquote><p>"Did you notice she's showing pregnancy symptoms?"</p>
+<p>"Symptons of what now?" Mira controlled her voice as much as she 
+could, but couldn't help but look silly and wide-eyed. Zoey shrugs.</p>
+<p>"Morning sickness," the maknae raises her index finger. "Throwing up 
+every time she eats something," she raises her middle finger, and 
+continues listing Rumi's symptoms, raising one finger at a time. 
+"Fatigue, drowsiness, fainting, and remember last night she smelled 
+tacos while you were cooking rice?! She started crying because she 
+wanted tacos! Which reminds me, mood swings. That's it, our fingers got 
+our girlfriend pregnant!"</p></blockquote><p>or.</p>
+<p>Rumi begins to show signs of pregnancy, something that leaves her 
+girlfriends extremely confused, until they discover that, in fact, they 
+got their girlfriend pregnant.</p>
+          </blockquote>
+      </div>
+
+
+</div>
+
+      <!--/descriptions-->
+
+        <div id="chapters">
+          <!-- This partial requires local variable 'chapter' -->
+<div class="chapter" id="chapter-1">
+  <!-- chapter management -->
+
+
+  <div class="chapter preface group">
+    <h3 class="title">
+      <a href="https://archiveofourown.org/works/70441196/chapters/182995026">Chapter 1</a>: sick princess
+    </h3>
+
+    <!-- only display byline if different from the main byline -->
+
+        <div id="summary" class="summary module">
+          <h3 class="heading">Summary:</h3>
+          <blockquote class="userstuff">
+            <p>Rumi is sick and doesn't want to go to the hospital. Zoey and Mira take her anyway.</p>
+          </blockquote>
+        </div>
+
+      <div id="notes" class="notes module">
+        <h3 class="heading">Notes:</h3>
+          <blockquote class="userstuff"><p>Hi bubs!<br>
+I solemnly swear this is just tooth-rotting fluff. I'm messing with some
+ headcanons and this time we'll be witnessing Mira and Zoey going crazy 
+taking care of their pregnant girlfriend (and it's all their fault).</p>
+<p>Have fun! &lt;3</p></blockquote>
+            <p>
+            (See the end of the chapter for  <a href="#chapter_1_endnotes">more notes</a>.)
+            </p>
+      </div>
+  </div>
+
+  <!--main content-->
+  <div class="userstuff module" role="article">
+    <h3 class="landmark heading" id="work">Chapter Text</h3>
+    <p>"Let's take it again, from the top!" Mira repeated for the third 
+time that morning during choreography rehearsals for their new comeback.</p><p>The
+ chosen single is perfect, and Mira didn't take long to come up with the
+ best choreography, but this one has some tiring moves. Zoey, even the 
+most energetic of them, was already tired.</p><p>It's been a rather intense few weeks of preparation for their next comeback, which is scheduled for next month.</p><p>"<em>Man</em>,
+ I need a vacation," Zoey grumbled, sprawling further on the floor and 
+grunting audibly, adding a bit of over-the-top drama by throwing an arm 
+up and resting it on her face, covering her eyes.</p><p>"We just got 
+back from our vacation in Jeju, quit slacking off," Mira flexed her 
+muscles. Zoey didn't hold back from calling her an exhibitionist, of 
+course.</p><p>"That was ages ago!" she complained, raising her arms and 
+legs in the air to intensify her drama. Mira rolled her eyes and crossed
+ her arms, a smug smile adorning her lips. "I need a vacation again."</p><p>"We've had two weeks off, it's already too good. Now get up and work."</p><p>"I
+ miss the old times when you used to love me," Zoey sniffed, crocodile 
+tears barely coming. She knew complaining was pointless; Mira always got
+ so bossy when they were rehearsing choreography.</p><p>Rumi chuckled as
+ she watched her girlfriends, amused by the way Mira tried to pull 
+Zoey's limp body off the floor, but she just refused to budge.</p><p>Rehearsals
+ for their new comeback have been chaotic since they started. After 
+enjoying a two-week break in Jeju Island, getting back into their normal
+ routine was proving a bit difficult.</p><p>They usually felt refreshed 
+after a two-week break between a world tour and their next comeback, but
+ this time they still felt somewhat exhausted.</p><p>Perhaps this was 
+because, even on a break from work, they kept working. In the three 
+weeks since they returned to Seoul, the new album already has songs 
+ready because Zoey, even on vacation, can't stop ideas from emerging. 
+Lyrics and melodies found their way into her notebooks whenever 
+inspiration struck her.</p><p>Mira didn't have the same habit. She took advantage of the two weeks and focused her energy on preventing <em>Rumi</em> from working, keeping her busy and making sure she was too tired and sore to even <em>think</em> about it.</p><p>Zoey
+ always joined in. There was no inspiration in the world that would make
+ her turn away when Rumi's moans penetrated the barrier of her 
+noise-canceling headphones.</p><p>It had been a rather intense two 
+weeks, indeed. Thanks to Mira's idea of ​​staying in a house far enough 
+away, they didn't even need to worry about keeping Rumi quiet; she was 
+all theirs to play, listen to, and admire.</p><p>So if they returned to Seoul and were still terribly tired and sore, that was <em>entirely</em> their own fault.</p><p>Even
+ Rumi, the workaholic, the one always willing to work, the one 
+responsible for demanding more effort from them... was there, sitting, 
+drinking water. Just watching their interaction and enjoying the extra 
+minutes she had to rest.</p><p>She's been feeling more tired lately. Her
+ stamina used to be much higher, she could keep up with Mira's pace and 
+was the one coordinating the breaks, but there are some days when she 
+hasn't even found the energy to practice.</p><p>Rumi has never been one 
+to get tired at the beginning of rehearsals. They had only gone through 
+the choreography twice, and she was already feeling tired, tempted to 
+join Zoey and lie down on the floor, but she forced herself to maintain 
+her posture. She's their leader, after all, and she needs to show 
+determination, to set an example.</p><p>The moment she stood up ready to
+ call them back to practice, Rumi felt a slight dizziness. She leaned 
+against the nearest wall, surprised by her body's reaction. It was true 
+that she was tired, but feeling dizzy was something new. It had never 
+happened before, no matter how difficult the choreography.</p><p>Mira 
+and Zoey were too distracted arguing to notice Rumi's state, so she took
+ advantage of this and took her time to recover, quickly forcing a smile
+ on her face and going to her girlfriends.</p><p>"Come on, Zoey," Mira narrowed her eyes at the speed with which she stood up when <em>Rumi</em> asked.</p><p>"You’re
+ sleeping on the couch tonight," she&nbsp;threatens, but Zoey just 
+leaned closer to Rumi and rested her chin on her shoulder.</p><p>"Not happenin'! Ru won't let you do it to me," she stuck her tongue out at her.</p><p>Mira
+ could have tried to prolong the discussion for a few more moments, but 
+Rumi simply declared that they were taking a break from bickering and 
+should focus on the choreography for now. A chorus of "yes, ma'am, we 
+will get back to work, ma'am," echoed.</p><p>Rumi positioned herself in 
+the center, assuming the pose for the beginning of the choreography, 
+Zoey right next to her, slightly bent to the left, one hand on Rumi's 
+hip. Mira put the music on the speakers, positioning herself to Rumi's 
+right and assuming that serious, observant posture she always displays 
+when she's focused on the choreography, her eyes fixed on the large 
+mirror in front of them, alert for any slight flaw that might occur 
+during rehearsals.</p><p>Zoey needed to correct her posture at one 
+point, and Mira kept commenting on how lazy Rumi's execution was. She 
+stopped the music after the second play and focused on helping them 
+correct their errors.</p><p>Mira addressed Rumi first, repeating her movements and directing her to follow, quickly improving upon the leader dancer’s help.</p><p>When
+ she moved toward Zoey, Rumi took advantage of the brief free time to 
+get a little water. Fatigue was consuming her once again, so exhausted 
+that her breathing was labored, and honestly, she saw no reason for it. 
+Of the three of them, Rumi was the most tired, and that's not like her 
+at all.</p><p>So she continued pushing herself for the rest of the 
+rehearsal, demanding more firmness in her movements and forcing her body
+ to keep dancing until Mira was satisfied with their 
+performance—something that happened an hour later.</p><p>Rumi was 
+panting. More than ever. Sweat dripped from her chin, the dizziness so 
+miserable that she felt her body swaying even while standing in the 
+choreography's ending pose. Breathless and with her mouth half-open, she
+ tried to control the situation. She just needed water and some rest. 
+It's a normal occurrence after a tough rehearsal. Yes. Everything was 
+perfectly fine, just tiredness and thirst.</p><p><em>Why is her vision getting black edges, really?</em></p><p>"Okay,
+ girls, we can call it a day. You're much better and—Rumi? Are you 
+okay?" Mira's eyes widened as she noticed her girlfriend's condition, 
+and in a split second, she&nbsp;realized what was about to happen. 
+"Zoey, she's going to faint—!"</p><p>She acted impulsively upon hearing 
+Mira's scream. Zoey was more focused on catching her breath and fanning 
+her face with her hand, simply registering Mira's comments, her gaze 
+wandering around the room, inert to what was happening around her until 
+she heard her girlfriend's desperate call and forced herself to move 
+quickly.</p><p>Zoey grabbed Rumi's unconscious body just in time to stop
+ her from falling to the floor, her confused gaze shifting from the 
+half-demon's serene face to the panic etched on Mira's expression.</p><p>Rumi, fainting after a rehearsal. That's something Zoey <em>never</em> imagined she'd witness.</p><hr><p>The fainting episode was handled Rumi-style, as expected, much to the dismay of her girlfriends.</p><p>While
+ Zoey and Mira insisted it wasn't normal for her to pass out like that, 
+Rumi said she was perfectly fine and saw no reason to go to the 
+hospital, especially since she'd woken up quickly. Maybe it was just a 
+drop in blood pressure. Maybe she was just too tired; the choreography 
+was just more complicated that time. She's fine. It's been two days 
+since the fainting, and everything is perfectly normal. Nothing to worry
+ about.</p><p>At least that's what she believed until that morning.</p><p>Rumi
+ is the first to start the day at their penthouse. Zoey and Mira tend to
+ sleep a little longer while she is awake and active. Rumi usually check
+ her emails, reads something or prepares their breakfast—as practically 
+as possible, usually avoiding using the stove for anything other than 
+frying eggs. Mira has forbidden her from cooking anything more elaborate
+ since the last time she tried to prove herself in the kitchen.</p><p>That
+ morning, however, she was hunched over the toilet. She'd barely woken 
+up before she felt a sharp discomfort that relentlessly told her she 
+needed to run to the bathroom.</p><p>Zoey and Mira woke up with a start.
+ They jumped out of bed when they heard the sound of vomiting and looked
+ at each other, frowning as they realized the sick person in question 
+was Rumi.</p><p>Getting sick isn't at all like Rumi.</p><p>Mira has 
+always wondered about her immunity; illnesses never seemed to affect her
+ so often. Celine says it's due to her demon half; human illnesses 
+rarely affect her. So as Zoey held Rumi's hair and stroked her back that
+ morning, Mira wondered what could possibly be wrong.</p><p>After she 
+finished throwing up, Zoey wiped the corner of Rumi's mouth and helped 
+her stand, lowering the toilet seat and flushing. The bathroom floor and
+ the purplette's shirt were stained with vomit; she didn't even have 
+time to reach the toilet before she started throwing up.</p><p>Mira 
+stepped forward to clean up the mess while Zoey helped Rumi stand, 
+having noticed how dizzy she was when she tried to walk to the sink, her
+ body swaying to the side, vertigo evident.</p><p>The youngest then 
+stayed by Rumi's side while she brushed her teeth. The vomit-stained 
+shirt was discarded on the marble countertop, and then Zoey carefully 
+guided her back to the bedroom, promptly grabbing a clean shirt to put 
+on her girlfriend.</p><p>"How are you feeling? I think we should go to 
+the hospital, Ru," she suggested gently as she helped Rumi lie down on 
+the bed, arranging pillows to keep her comfortable and covering her 
+girlfriend's limp body with their duvet.</p><p>"I'm fine," Rumi 
+insisted, stubbornness taking over. There's nothing she hates more than 
+being sick, especially when she needs to be up and about to record their
+ single at the studio in four hours. "I just need to lie down for a bit 
+until the dizziness eases."</p><p>"Rumi, you're clearly not okay," she 
+commented, trying to sound as calm as possible to avoid battling her 
+girlfriend's stubbornness.</p><p>But it was no use.</p><p>"I said I'm fine," Zoey's eyes widened at the <em>sharp</em>
+ reply. Her tone was so harsh it didn't even sound like Rumi. She looked
+ angry; any retort on the tip of Zoey's tongue disappeared.</p><p>"Okay,"
+ she averted her gaze to the sheets, stepping away from the bed with her
+ hands clasped behind her. "I'll let you rest, then."</p><p>She left the
+ room with a frown, Rumi's answer echoing in her mind. She was somewhat 
+surprised by her girlfriend's reaction. And confused. And maybe a little
+ upset. With heavy steps, she searched for Mira; she needed to talk 
+about what happened or she felt like she would explode.</p><p>Zoey found Mira in the kitchen.</p><p>After
+ cleaning their bathroom and putting the dirty shirt in the wash, she 
+thought it best to occupy her time preparing breakfast, focusing on 
+making something lighter for Rumi's likely sensitive stomach. 
+Anti-nausea and dizziness medication was already on the tray, along with
+ fresh fruit cut into a bowl, crackers, and a glass of water.</p><p>"How
+ is she?" Mira asked upon noticing Zoey's presence, finding her 
+girlfriend's posture strange. She expected to find her concerned, not 
+angry.</p><p>"Stubborn? Rude? She <em>yelled</em> at me!" She threw 
+herself into her chair and crossed her arms, her eyes narrowed, 
+expression irritated. One foot began tapping relentlessly against the 
+floor as she told Mira what happened. Mira listened with a raised 
+eyebrow. It wasn't like Rumi to react so sharply to a simple question.</p><p>"Maybe
+ she just needs some space, Zo. I'm sure she didn't mean to be rude to 
+you," the youngest's pout and saddened chocolate eyes remained there 
+throughout their breakfast. Mira tried to comfort her and kiss the pout 
+away, but she continued sulking for a long time.</p><p>Eventually, Zoey tried to push Rumi's rude response out of her mind.</p><p>Maybe it was just a one-time thing.</p><hr><p>It wasn't a one-time thing.</p><p>Rumi's mood had been on edge these past few days. Always too grumpy, too sad, or too happy—there was <em>no</em> middle ground. Mira began to consider that her period was coming soon, maybe it was just PMS bothering her.</p><p>Something
+ they dismissed from their list of assumptions when Mira remembered Rumi
+ mentioning that her period had been strange a few days ago, something 
+about it only lasting a short time, maybe less than two days.</p><p>Zoey
+ and Mira tried their best not to get carried away by their girlfriend's
+ mood. But things were starting to get to them both by the third day.</p><p>Rumi's
+ stomach wasn't giving her any respite lately. The nausea was constant. 
+Mira had lost count of how many times she'd seen her throw up in the 
+last forty-eight hours. She refused to go to the hospital, claiming she 
+wasn't feeling anything worrisome. Her stubbornness wouldn't let her 
+understand that the simple fact that she was throwing up every meal <em>wasn't</em> normal.</p><p>Medication didn't even seem to have any effect.</p><p>And Rumi continued working as if she weren't sick.</p><p>Indeed,
+ she proved capable of handling her commitments to a certain extent. On 
+the first day of nausea, they had to go to the studio to record the 
+songs for their new album, and Rumi didn't even seem sick. Bobby only 
+noticed something was off after their snack break, when she had barely 
+finished a small piece of Gimbap before running to the bathroom, 
+promptly followed by Mira. Zoey stayed nearby to reassure Bobby and 
+inform him that the workaholic lady insisted she wasn't sick and would 
+continue working normally.</p><p>On the second day, they were going over
+ the choreography again, and breaks happened more frequently so Rumi 
+could rest better, which led to a rehearsal that usually lasted three 
+hours to last <em>five</em>.</p><p>Mira and Zoey tried to remain calm 
+and understanding so as not to worsen the situation if they stressed 
+Rumi out by insisting that she should rest or go to the hospital for 
+proper medication. But on the third morning in a row having to hold 
+Rumi's hair and help her stand up due to dizziness, Mira couldn't ignore
+ her girlfriend's obvious sickness any longer.</p><p>"I know you don't want to go to the hospital, Ru, but this is <em>so</em>
+ weird. You haven't been eating anything unusual, and I honestly can't 
+understand the reason for your dizziness. We need to see a doctor to 
+figure out what's wrong, princess," Mira said in the sweetest tone she 
+could muster, hands clasped together in a plea, kind eyes fixed on her 
+girlfriend's pale face.</p><p>"I'm fine," Rumi, stubborn as ever, simply
+ crossed her arms. "I never stay sick for long, you know that. This will
+ pass soon, and I don't want to waste time in a hospital for a doctor to
+ look at my face and prescribe me the same medications I'm already 
+taking that <em>don't work</em> at all."</p><p>"Princess—" Mira kept her expression frozen in a wide-eyed stare, hands raised mid-gesture, when she interrupted her.</p><p>"How
+ insistent, Mira!" She began to approach her, and the pinkhead took 
+automatic steps back, wanting to avoid being the target of her bad mood,
+ but apparently there was no escape. "You two keep telling me to go to 
+the hospital when you <em>know</em> I don't like it, it's <em>always</em> a waste of time. My body is different from yours; medications never work for me!"</p><p>"We're just worried about you," Zoey interrupted the argument, getting their attention by <em>raising</em>
+ her voice slightly. "You're sick and we want to understand what's 
+wrong. Is it really that hard to let us take care of you for once?"</p><p>Zoey regretted opening her mouth the next moment.</p><p>She'd
+ hoped Rumi would do what she'd done the last few days; it would be less
+ desperate and easier to deal with. Usually, her response has been quite
+ serious and frank. She simply makes it clear that she's not open to 
+negotiations, that she's not going to any hospital and will get better 
+soon, but what actually happened was the complete opposite.</p><p>She started to <em>cry</em>.</p><p>Mira
+ and Zoey froze in place when they noticed her eyes watering. Then the 
+sobs began, and her hands went to her eyes, trying to blink away the 
+tears that wouldn't stop falling, and her voice sounded for the first 
+time, broken, <em>small</em>, hurt.</p><p>"I am sorry," she sobbed and 
+sniffed, then removed her hands from her eyes, staring at her 
+girlfriends with those chestnut eyes shining with painful tears. "You 
+just want to take care of me, and I keep acting like an idiot. I don't 
+know what's wrong with me, I'm so stressed, and I just wish this nausea 
+would stop, I'm so sorry."</p><p>She was immediately enveloped in a hug.
+ Rumi was still crying and mumbling about what a terrible girlfriend she
+ was for refusing to be cared for and for being rude to them, 
+apologizing for her bad mood, for yelling at them. Mira and Zoey looked 
+at each other, confused, genuinely desperate. Rumi's bad mood is a 
+thousand times easier to handle than her recent outburst of emotions.</p><p>"It's
+ okay, it's okay," Zoey took the initiative to try to calm her down, her
+ arms firmly around Rumi's waist, chin resting on her shoulder, feeling 
+her tremble in her arms. "We understand, Rumi, really. We just want to 
+take care of you right now, bubby. Could you let us take you to the 
+hospital?"</p><p>"Don't cry, princess, we didn't want you to feel sad. 
+It's just that you've been sick for a while. You passed out five days 
+ago, and this nausea started two days ago. Even if the medication 
+doesn't work, it's important to run some tests just to make sure 
+everything is okay with you." Mira caressed her purple, wavy hair; it 
+was loose and messy. Rumi has been very tired lately. When they're home 
+and have no other plans for the day, she prefers to sleep, not wanting 
+to braid her hair, just surrendering to sleep for hours until one of 
+them wakes her, or the urge to throw up makes her get out of bed in a 
+hurry.</p><p>They focused on soothing their girlfriend's crying until 
+her shoulders stopped shaking. Mira and Zoey might have been upset about
+ the somewhat rude treatment they'd been receiving, but they couldn't 
+stop worrying about her despite it, especially since they knew these 
+mood swings must be affecting even Rumi.</p><p>Understanding and patient
+ as always, they waited for Rumi to feel better, never failing to 
+reassure her so that the feeling of security enveloped her until the 
+tears stopped.</p><p>Eventually, the three of them ended up on the 
+couch. Rumi still between them, one leg draped over Mira's thigh, her 
+head resting in the crook of her neck. Her hands intertwined with 
+theirs.</p><p>"I don't know what's wrong with me," Rumi whimpered, 
+burying her face deeper into Mira's neck and hiding there. "I'm sorry 
+for being so annoying lately. I know you guys just want to take care of 
+me, and I'm just an idiot in return."</p><p>"Don't say that, princess," 
+Mira pulled her up onto her lap, holding her tightly. Gentle hands 
+rested on her girlfriend's thighs, allowing her to retreat back into the
+ crook of her neck.</p><p>Zoey moved closer, sitting next to Mira, a firm hand on the purplette's waist, and a tender kiss was planted on her back.</p><p>"We know it's been a rough few days for you, babe," Zoey assured her, running her hand over her sides in gentle caresses.</p><p>"I'm
+ sorry," the plea was muffled by Mira's neck, but they both heard it 
+clearly. A silly smile escaped them at the oldest's small voice.</p><p>"We forgive you," Zoey kissed her back again, smiling when she noticed patterns glistening even with clothes covering them.</p><p>"Would you mind going to the hospital now, princess?" Mira encouraged, gently stroking her bare legs.</p><p>Silence
+ settled between them for a moment. If they weren't familiar with Rumi's
+ breathing when she's asleep, they might even think she'd fallen asleep,
+ but no. Zoey's cheek was squeezed on her back; she could feel her 
+girlfriend's breathing, and she was wide awake, just quiet.</p><p>Zoey 
+and Mira continued to wrap their arms around her, kisses and caresses 
+keeping her safe and comfortable in that moment, a dome of love that 
+made her happy and satisfied, her patterns shining in a soft pearl that 
+indicated the tranquility she felt inside.</p><p>"Can you wait until tomorrow?"</p><p>The
+ question made Zoey and Mira let out weary but understanding sighs. 
+They'd expected this insistence on thinking herself indestructible. They
+ were already accustomed to her stubbornness and reluctance to go to 
+hospitals, so despite being visibly frustrated, they still smiled.</p><p>"If
+ you wake up and you're still sick, we're going to the hospital tomorrow
+ whether you like it or not," Zoey informed her, leaving no room for 
+arguments, and Rumi nodded in agreement.</p><p>Maybe she'd wake up and the nausea and dizziness would finally be gone, and everything would go back to normal.</p><hr><p>Miraculously, Rumi woke up feeling completely fine.</p><p>Mira
+ and Zoey waited until after breakfast for any sign that she might throw
+ up food at any moment, but nothing happened. She seemed healthier than 
+ever.</p><p>“<em>Seemed</em>” being the key word for the situation.</p><p>Since
+ the final rehearsal of the new song's choreography had been somewhat 
+disrupted by Rumi's excessive rest breaks, Mira suggested they practice a
+ bit after lunch, just to ensure the bridge was perfectly executed. This
+ being the most difficult and tiring part of the new choreography, the 
+perfection Mira aspired to was still some way off.</p><p>Rumi began to 
+feel that fatigue consuming her as the dance practice time wore on. 
+Dizziness overcame her as she tried to stay upright and dance, once 
+again pushing her body beyond its limits.</p><p><em>Exhaustion</em> was 
+the word that best described her current state. Since returning from 
+vacation, rehearsals and recording for their upcoming comeback had been 
+draining her energy, and it seemed like it was only going to get worse. 
+She firmly believed that the only thing keeping her going was her own 
+consuming stubbornness and perfectionism; she couldn't bear the thought 
+of failure.</p><p>She couldn't let her girlfriends, Bobby, the company, or Celine down. Or her fans, <em>especially</em>
+ her fans. Everyone was eagerly awaiting their new album; the media was 
+already speculating that Huntrix would likely return soon with new 
+songs, as some fansites had already seen the girls going to rehearsals 
+several times throughout the days. Letting so many people down wasn't a 
+viable option right now; it <em>never</em> would be.</p><p>But what do you do when all you feel is the whole world <em>spinning</em> around you while you try to follow a choreography?</p><p>Rumi
+ managed to stay sane until the end of practice, but her heart was 
+beating so fast she could feel it in her throat. The corners of her 
+vision were already darkening, like the first time she'd fainted while 
+practicing the choreography, and this time Rumi was sure what was about 
+to happen when Mira turned off the music and started talking to them.</p><p>"Okay,
+ my loves, you were amazing today, I have nothing to complain about." 
+Zoey began to bounce on her heels, beaming with joy that their 
+performance had satisfied Mira enough, but soon they both turned their 
+gazes to their leader, hoping for some pep talk, congratulations, or 
+insistence that they needed to go over the choreography just one more 
+time.</p><p>However, Rumi just raised a trembling index finger and tried to focus her blurred vision on Zoey's face.</p><p>"I'mma pass out."</p><p>Zoey
+ and Mira might have found it comical if it weren't so disturbing. The 
+maknae was thankfully close enough to hold Rumi's limp body once more, 
+and they stared at each other, certain of what they had to do. Whether 
+Rumi liked it or not, they were going to the hospital right now.</p><p>"At
+ least she's passed out, no tantrums on the way," Mira winked, her index
+ finger extended toward Zoey, and the youngest adjusted Rumi's limp body
+ so she could carry her bridal-style, keeping her head resting on her 
+shoulder. Mira helped her straighten her posture as they walked out of 
+the building, and one of the staff members promptly went to get a car 
+from the parking lot.</p><hr><p>Zoey was tasked with talking to the 
+nurse in charge while Mira made sure Rumi was comfortable in the 
+hospital bed. After the maknae reported constant fainting and nausea, 
+she answered more questions about Rumi's diet and any changes in her 
+behavior that they could report while she remained unconscious.</p><p>They
+ recounted everything that had happened recently, from mood swings to 
+Rumi's unusual sleep patterns. How she slept at any free moment of the 
+day, how tired she seemed all the time, her morning sickness, and the 
+meals that always ended with her throwing up profusely.</p><p>Zoey noticed halfway through the reports how much she seemed to be reporting common pregnancy symptoms, but laughed it off.</p><p>Mira stared at her curiously and waited until the nurse left the room to ask.</p><p>"What's up?" The pinkhead asks bluntly, her eyes fixed on Zoey and a hand gently resting on Rumi's arm.</p><p>"S’Nothing,"
+ Mira raises both eyebrows with a skeptical look. Zoey rolls her eyes 
+playfully and approaches the bed, taking the free chair next to her 
+girlfriend. "Did you notice she's showing pregnancy symptoms?"</p><p>"Symptoms of <em>what</em> now?" Mira controlled her voice as much as she could, but couldn't help but look silly and wide-eyed. Zoey shrugs.</p><p>"Morning
+ sickness," the maknae raises her index finger. "Throwing up every time 
+she eats something," she raises her middle finger, and continues listing
+ Rumi's symptoms, raising one finger at a time. "Fatigue, drowsiness, 
+fainting, and remember last night she smelled tacos while you were 
+cooking <em>rice</em>?! She started <em>crying</em> because she wanted tacos! Which reminds me, mood swings. That's it, our fingers got our girlfriend pregnant!"</p><p>Mira
+ put her hand in front of Zoey's mouth—she clearly forgot they were 
+famous figures and in a space where anyone could hear them from the 
+hallway. Zoey licked Mira's hand with a narrowed gaze.</p><p>The pinkhead removed her hand from her mouth. "Ew," she wrinkled her nose, wiping the saliva on Zoey's shirt.</p><p>"Funny
+ how when my tongue is somewhere else, I don't hear any—" Mira put her 
+hand in front of Zoey's mouth again, and this time there was <em>no</em> lick that could make her remove it.</p><p>"Stop
+ saying things like that out loud. We're in a hospital, anyone can hear 
+you, and we don't need gossip circulating, especially if the source was <em>you</em>,"
+ Zoey tried to pout. Mira could feel her mouth moving. Then she sighed 
+and wiped the saliva from her hand again. "Rumi isn't pregnant—but 
+really. The symptoms are very... <em>similar</em>."</p><p>"Similar? I 
+can see the nurse coming back here any minute now, asking if she's up to
+ date with her birth control just to clear things up!"</p><p>Mira chose 
+not to think too much about the similarity of Rumi's symptoms to 
+pregnancy, though she should have agreed with Zoey's train of thought.</p><p>"She got her period, what? Three weeks ago— <em>Why</em>
+ am I acting like this is relevant information...?" Mira mumbled the 
+last question more to herself than for Zoey to answer. And suddenly, 
+they both went very quiet.</p><p>Unlike the first time she fainted, Rumi
+ was out for a long time. A few days ago, she woke up after three 
+minutes. But this time, she'd already been out for several minutes, 
+almost an hour to be precise.</p><p>Since Rumi was still asleep, they 
+waited in the room, taking advantage of the silence to get some rest. 
+Zoey was responsible for distracting them in the meantime, quickly 
+finding videos of marine animals that enchanted Mira, soft giggles 
+echoing in the room every now and then.</p><p>Until they heard the first mumble.</p><p>Zoey's
+ phone was blocked when they noticed movement coming from the bed, both 
+of them looking up to find Rumi with one eye open, trying to adjust to 
+the excessive brightness.</p><p>"Hey, baby," Mira whispered, getting up 
+from the chair and caressing her confused face. She raised a hand, 
+positioning it above Rumi's field of vision just to partially block the 
+light. "You okay?"</p><p>"Why did you bring me to the hospital?" If they
+ were at home, Zoey could kiss that adorable little pout until it 
+dissolved into a smile. Unfortunately, there wasn't much she could do at
+ the moment, so she simply approached her girlfriend from the other side
+ of the bed.</p><p>"You passed out after rehearsal, remember? Second 
+time fainting in a week, Ru. We couldn't just ignore this. I'mma let 
+your nurse know you're awake and I'll be right back. Stay with Mir for 
+now, okay?"</p><p>Rumi grumbled in response, clearly not pleased at 
+being forced to be treated by doctors who would most likely use a large 
+needle to draw blood from her at any minute.</p><p>"Stop pouting, I can't kiss you now," Mira booped Rumi's nose, eliciting a small smile from her.</p><p>"Has the doctor said anything yet?"</p><p>Already
+ well aware of Rumi's apprehensions about hospitals, Mira stepped 
+forward to take her hand and plant a lingering kiss on her knuckles.</p><p>"It'll
+ be okay, Ru, if you behave, you'll get ice cream later," a wink was 
+directed at the half-demon. Rumi tried to play along, but her nerves got
+ the better of her.</p><p>It took a few moments for the nurse to return 
+to Rumi's room, and this time she entered accompanied by a doctor, with 
+Zoey right on their heels. The doctor eagerly read the clipboard to the 
+patient after proper introductions and greetings. Rumi was surprised by 
+the number of symptoms she'd been experiencing lately, when she would 
+only say she'd been feeling nauseous and dizzy.</p><p>Zoey always worked
+ hard to care for her family, and Rumi felt even more helpless under the
+ worried gaze of her girlfriend, so attentive to the doctor's words, 
+watching over Rumi at every moment.</p><p>The doctor, Soyeon, solemnly 
+turned her attention and questions to Rumi after finishing reading the 
+clipboard, confirming all the symptoms with her and then starting to ask
+ new questions.</p><p>"Very well, Miss Ryu, we'll proceed with tests 
+from now on. We'll draw enough blood to check your levels and do a 
+Beta-HCG—" Rumi didn't even pay attention to the rest of what the doctor
+ had to say, more concerned with the words "tests" and "draw blood”, 
+these two things together always mean <em>needles</em>.</p><p>Zoey and 
+Mira devoted their full attention to the doctor, duly attentive and 
+nodding at each new piece of information, their eyes fixed on the doctor
+ and the nurse, absorbing everything they were given.</p><p>After the 
+blood draw and the doctor's departure, promising to return to the room 
+with the results soon, Zoey and Mira looked at each other with the most 
+serious expressions possible.</p><p>"Did you understand anything?" Mira asked.</p><p>"None,
+ but thank goodness Google exists these days. I'll look it up and you 
+kiss her boo-boo," Zoey pointed her phone at Rumi—who looked more like a
+ toddler after a vaccination.</p><p>The patterns on her body shone 
+yellow, her body tense, and her eyes glassy, ​​threatening to burst into
+ tears at any moment. She just wanted to go home. She'd much rather be 
+quiet in their bed than being stuck with needles and waiting in that 
+uncomfortable bed.</p><p>"I hate it when doctors use complicated words. 
+Would it hurt to say it could be low blood pressure? Jeez—" Mira heard 
+Zoey mumbling in the middle of her research, but the pinkhead had 
+another mission at the moment.</p><p>Rumi made room for her on the bed 
+and was promptly hugged by her girlfriend. Mira leaned her back against 
+the small, uncomfortable headboard, sitting next to the purplette and 
+being used as a pillow. She gently stroked Rumi's hair and murmured soft
+ praises, reassuring her that they would be home soon.</p><p>"She just 
+used a bunch of big words to say she's going to do a blood test," Zoey 
+concluded at the end of her research, but the youngest's giggle didn't 
+go unnoticed by the pinkhead.</p><p>"What are you laughing at now?" Mira asks.</p><p>Rumi narrowed her eyes, indignant that her girlfriend found reason to laugh in the midst of her suffering.</p><p>"One
+ of the tests Doctor Soyeon mentioned is a pregnancy test," Zoey waved 
+her hands in the air, approaching her girlfriends and sitting on the 
+chair, pulling it closer to the bed with a sharp, uncomfortable creak.</p><p>"A what?" Rumi frowned. "<em>Why</em> do I need a pregnancy test?!"</p><p>"To
+ be fair, your symptoms are very similar to those of pregnancy, 
+sweetheart." Zoey tried to smile to lighten the mood, but Rumi was still
+ clearly uncomfortable. "I mean, we kinda came inside last time."</p><p>"Ridiculous," Mira shook her head, pinching the bridge of her nose. But, indeed, it had happened.</p><p>May Celine never find out what they did.</p><p>"I
+ can already see our baby in our arms," ​​Zoey wiggled her eyebrows 
+playfully, smiling at her girlfriends. "They'll have black hair just 
+like mine, I'll cut their bangs every month. And Mira's eyes. And 
+they'll be spoiled like Rumi!"</p><p>"I'm not spoiled!"</p><p>Rumi tried to cross her arms, and the pain in one of them reminded her why she hated hospitals. <em>Damn needles!</em></p><p>Mira
+ and Zoey chose not to comment on how spoiled she is; they didn't want 
+to awaken the bad mood beast that had been inhabiting Rumi's 
+subconscious these past few days.</p><p>"We'll name our baby Honbaby, after the Honstrap we used to conceive them."</p><p>"<em>Christ</em>. Just shut up, please." Mira squeezed her eyes shut, beginning to question the life decisions that had led her to this moment.</p><p>"None
+ of this would be happening if you hadn't brought me to the hospital, so
+ just bear with it now," Rumi snuggled closer to Mira, using her legs as
+ a pillow and enjoying the caresses on her hair.</p><p>"Don't worry, 
+princess, we'll rub your feet every day during your pregnancy," Rumi 
+rolled her eyes. Even Mira had already started messing, and frankly, 
+thinking about the last few days, she wondered if there really wasn't 
+some way she was developing a psychological pregnancy.</p><p>And apparently she wasn't the only one wondering about the possibilities.</p><p>"But,
+ like, seriously now," Zoey scratched the back of her neck, leaning 
+closer, her chin resting on the sheets. "There's no chance of that 
+happening, right? I mean, for Rumi to…, you know..."</p><p>"Pretty unlikely," Mira says.</p><p>"Yeah,
+ totally unlikely," Zoey waved a hand briefly, looking away at the chair
+ next to her with a half-smile playing on her lips. "Of course we didn't
+ accidentally get our girlfriend pregnant. <em>Pfft</em>. We totally didn't."</p><p>Mira
+ and Zoey could have laughed it off and calmed their girlfriend's 
+nerves, but remembering that night left them both a little disturbed. 
+They recalled the memories precisely, the way Rumi's walls felt 
+clenching around their length, and when their climax hit, they simply 
+let themselves be carried away, too caught up to think about anything 
+other than filling her. The half-demon felt shivers remembering the 
+sensation, so different from when they used a silicone toy. That night 
+it was warm and... <em>real</em>. Scarily real.</p><p>But obviously there was <em>nothing</em> to worry about.</p><p>It
+ was just a new experience they shared together. Yeah. Biologically 
+impossible for Zoey and Mira to get their girlfriend pregnant.</p><p>Their girlfriend, who is also part demon and has a direct connection to the new Honmoon they've built together.</p><p><em>Pfft. It's okay</em>,
+ Zoey wiped the sweat from her forehead with the back of her hand, then 
+scratched her earlobe. Agony threatened to consume her with every second
+ she thought about that possibility.</p><p><em>I'm not going to gnaw at this, I'll wait for the doctor to come back and say everything's okay</em>, Mira thought, letting out a long sigh and trying to calm herself.</p><p>Rumi stared at them and identified the clear concern and nervousness in their demeanor.</p><p>They
+ remained in complete silence, each lost in a different memory of that 
+night, the memories so vivid they caused a certain agony, goosebumps 
+running down their spines—totally <em>unwelcome</em> given the current circumstances.</p><p>The
+ next few minutes waiting for the nurse or doctor were almost eternal. 
+Zoey kept checking her watch, casually rocking in her chair to release 
+pent-up energy, nervous enough to say nothing, just chewing the insides 
+of her cheeks to keep herself constantly moving, distracting herself 
+however she could.</p><p>Mira was quiet. Extremely quiet. Rumi could 
+barely hear her breathing at that moment, and all three of them knew 
+exactly what was going through their minds, between the memories of that
+ night and the fear of what they might have done. Hope that the doctor 
+would simply arrive and say Rumi had a drop in blood pressure was the 
+only thing keeping them from collapsing in that room.</p><p>The sound of
+ a light knock on the door drew their attention. Mira got out of bed, 
+helping Rumi adjust as best as she could so they could speak to the 
+doctor, and then Zoey was opening the door and letting the two women, 
+the doctor and nurse in charge of Rumi, enter.</p><p>"Very well, 
+ladies," Doctor Soyeon smiled briefly, greeting them once more, and 
+everyone responded cordially. "We believe that Miss Ryu's fainting was 
+caused by several factors, the main one being the patient's hormonal 
+changes. Unfortunately, her body couldn't handle the pressure of the 
+rehearsals. Any exertion should be completely avoided from now on."</p><p>"Excuse
+ me," Rumi interrupted the doctor, visibly disturbed by the information.
+ "What do you mean by 'completely avoided'? We're working on our next 
+comeback, how soon will I be able to return to rehearsals?"</p><p>"I'd 
+say you can continue your work, avoiding too much effort. As Miss Choi 
+mentioned, you were dancing when you fainted, correct?" The three young 
+women nodded slowly. "I'm afraid the exertion of the choreography was 
+too much for you, Miss Ryu. Your body needs rest right now to avoid 
+future complications."</p><p>"And what's the problem, doctor? Some kind 
+of repetitive motion issue?" Zoey asked, but the woman's smile somewhat 
+reassured her.</p><p>"Miss Ryu is actually pregnant. The Beta-HCG test 
+confirmed the pregnancy hormone. We're not sure how far along you are, I
+ recommend starting your prenatal care so that the appropriate tests can
+ be done and precautions can be taken. I believe your work won't be 
+affected at all, but for now, avoid dancing; any effort should be 
+completely out of the question to avoid future problems with your 
+pregnancy."</p><p>"Wait, wait—" Rumi threw up her hands, sitting up in bed in a hurried movement. "I— You said I'm—"</p><p>"You're pregnant, Miss Ryu."</p><p>Zoey and Mira weren't even <em>blinking</em> at this point.</p><p><em>Oh boy. What did we do?</em></p>
+  </div>
+  <!--/main-->
+
+    <div class="chapter preface group">
+      <div class="end notes module" id="chapter_1_endnotes">
+        <h3 class="heading">Notes:</h3>
+        <blockquote class="userstuff">
+          <p>Thoughts, concerns, comments about this? Feel free to talk to me here in the comments or on my <a href="https://x.com/luvscharming?t=8Kt-lZZZCuCORUSkbP2R-g&amp;s=09" rel="nofollow">Twitter</a><br>I will be sharing some snippets there too :D</p>
+<p>See ya~</p>
+        </blockquote>
+      </div>
+    </div>
+
+</div>
+
+<!-- end of cache -->
+
+        </div>
+
+
+      </div>
+      <!-- END work skin -->
+    </div>
+  </div>
+  <!-- END work -->
+
+  <!-- BEGIN comment section -->
+  <!-- Gets embedded anywhere we need to list comments on a top-level commentable. We need the local variable "commentable" here. -->
+<div id="feedback" class="feedback">
+
+  <h3 class="landmark heading">Actions</h3>
+
+  <ul class="actions">
+      <li><a href="#main">↑ Top</a></li>
+
+
+      <li><a href="https://archiveofourown.org/works/70441196/chapters/183593781#workskin">Next Chapter →</a></li>
+
+
+
+
+      <li>
+        <form id="new_kudo" action="/kudos" accept-charset="UTF-8" method="post"><input type="hidden" name="authenticity_token" value="FIXTURE-CSRF-TOKEN-REDACTED" autocomplete="off">
+          <input autocomplete="off" value="70441196" type="hidden" name="kudo[commentable_id]" id="kudo_commentable_id">
+          <input autocomplete="off" value="Work" type="hidden" name="kudo[commentable_type]" id="kudo_commentable_type">
+          <input type="submit" name="commit" value="Kudos ♥" id="kudo_submit">
+</form>      </li>
+
+
+      <li>
+        <a class="bookmark_form_placement_open" href="#bookmark-form">Edit Bookmark</a>
+      </li>
+
+
+        <li id="show_comments_link"><a data-remote="true" href="https://archiveofourown.org/comments/show_comments?chapter_id=182995026">Comments (55)</a></li>
+  </ul>
+
+
+  <div id="kudos_message"></div>
+  
+
+    <h3 class="landmark heading">Kudos</h3>
+<div id="kudos">
+      <p class="kudos">
+          <a href="https://archiveofourown.org/users/Zoey_is_Hot_FR69">Zoey_is_Hot_FR69</a>, <a href="https://archiveofourown.org/users/Alien_Guy_of_Science">Alien_Guy_of_Science</a>, <a href="https://archiveofourown.org/users/ttbd">ttbd</a>, <a href="https://archiveofourown.org/users/hmm_nz">hmm_nz</a>, <a href="https://archiveofourown.org/users/Itsbeenaminute">Itsbeenaminute</a>, <a href="https://archiveofourown.org/users/ProducedbyMGC">ProducedbyMGC</a>, <a href="https://archiveofourown.org/users/huffleduck">huffleduck</a>, <a href="https://archiveofourown.org/users/Dearnoone97">Dearnoone97</a>, <a href="https://archiveofourown.org/users/Stormy32">Stormy32</a>, <a href="https://archiveofourown.org/users/ViStandsForViolence">ViStandsForViolence</a>, <a href="https://archiveofourown.org/users/Rapunzel15">Rapunzel15</a>, <a href="https://archiveofourown.org/users/MariNokien">MariNokien</a>, <a href="https://archiveofourown.org/users/Knuckles1002">Knuckles1002</a>, <a href="https://archiveofourown.org/users/Riverbound">Riverbound</a>, <a href="https://archiveofourown.org/users/PHANTOM27R">PHANTOM27R</a>, <a href="https://archiveofourown.org/users/gumpybean">gumpybean</a>, <a href="https://archiveofourown.org/users/ScreamGleek">ScreamGleek</a>, <a href="https://archiveofourown.org/users/CPDLS">CPDLS</a>, <a href="https://archiveofourown.org/users/giggle_fish">giggle_fish</a>, <a href="https://archiveofourown.org/users/Sangais_Lupus">Sangais_Lupus</a>, <a href="https://archiveofourown.org/users/evrymaxx">evrymaxx</a>, <a href="https://archiveofourown.org/users/myhouseofstoneurivygrows">myhouseofstoneurivygrows</a>, <a href="https://archiveofourown.org/users/LilEnbyAstronomer">LilEnbyAstronomer</a>, <a href="https://archiveofourown.org/users/UserName99">UserName99</a>, <a href="https://archiveofourown.org/users/youknownothingjohnsnow">youknownothingjohnsnow</a>, <a href="https://archiveofourown.org/users/Anime571">Anime571</a>, <a href="https://archiveofourown.org/users/DragonByte">DragonByte</a>, <a href="https://archiveofourown.org/users/aNONy_3">aNONy_3</a>, <a href="https://archiveofourown.org/users/love_girls">love_girls</a>, <a href="https://archiveofourown.org/users/MajorMarineWolf">MajorMarineWolf</a>, <a href="https://archiveofourown.org/users/brainiac180106">brainiac180106</a>, <a href="https://archiveofourown.org/users/sleepymaknae">sleepymaknae</a>, <a href="https://archiveofourown.org/users/Sammgg">Sammgg</a>, <a href="https://archiveofourown.org/users/Lightning_Mcq33rn">Lightning_Mcq33rn</a>, <a href="https://archiveofourown.org/users/Mqteb">Mqteb</a>, <a href="https://archiveofourown.org/users/Danverous">Danverous</a>, <a href="https://archiveofourown.org/users/Hibiscus02">Hibiscus02</a>, <a href="https://archiveofourown.org/users/Eroraf">Eroraf</a>, <a href="https://archiveofourown.org/users/SomeCreativeNerd">SomeCreativeNerd</a>, <a href="https://archiveofourown.org/users/jumperstripes">jumperstripes</a>, <a href="https://archiveofourown.org/users/CrimsonHouse">CrimsonHouse</a>, <a href="https://archiveofourown.org/users/MidnightMoonstars">MidnightMoonstars</a>, <a href="https://archiveofourown.org/users/Fanofallworks">Fanofallworks</a>, <a href="https://archiveofourown.org/users/queenoffireandstars">queenoffireandstars</a>, <a href="https://archiveofourown.org/users/Baksu_Phantom">Baksu_Phantom</a>, <a href="https://archiveofourown.org/users/insanelagomorph">insanelagomorph</a>, <a href="https://archiveofourown.org/users/always23">always23</a>, <a href="https://archiveofourown.org/users/LoreWorshipper">LoreWorshipper</a>, <a href="https://archiveofourown.org/users/Snowdust406">Snowdust406</a>, <a href="https://archiveofourown.org/users/FrostRuler">FrostRuler</a><span id="kudos_more_connector">, and </span><a id="kudos_more_link" data-remote="true" href="https://archiveofourown.org/works/70441196/kudos?before=9617990906">1872 more users</a>
+             as well as 
+          835 guests
+         left kudos on this work!
+      </p>
+</div>
+
+
+
+  <h3 class="landmark heading"><a id="comments">Comments</a></h3>
+  
+
+    <div id="add_comment_placeholder" title="top level comment">
+      <div id="add_comment">
+        <!-- expects the local variables comment, commentable, and button_name -->
+<div class="post comment" id="comment_form_for_182995026">
+  <form class="new_comment" id="comment_for_182995026" action="/chapters/182995026/comments" accept-charset="UTF-8" method="post"><input type="hidden" name="authenticity_token" value="FIXTURE-CSRF-TOKEN-REDACTED" autocomplete="off">
+    <fieldset>
+      <legend>Post Comment</legend>
+
+
+
+
+
+
+
+
+          <h4 class="heading">Comment as <span class="byline">fixtureuser</span>
+            <input autocomplete="off" value="0" id="comment_pseud_id_for_182995026" type="hidden" name="comment[pseud_id]">
+          </h4>
+
+        <p class="footnote">Plain text with limited HTML  <a class="help symbol question modal modal-attached" aria-label="Html help" href="https://archiveofourown.org/help/html" aria-controls="modal"><span class="symbol question"><span>?</span></span></a></p>
+
+      <p>
+        <label for="comment_content_for_182995026" class="landmark">Comment</label>
+        <textarea id="comment_content_for_182995026" class="comment_form observe_textlength" title="Enter Comment" name="comment[comment_content]"></textarea><span role="alert" id="comment_content_for_182995026_LV_validation_message" class=" LV_validation_message LV_valid"></span>
+        <input type="hidden" id="controller_name_for_182995026" name="controller_name" value="chapters">
+      </p>
+      <p class="character_counter" tabindex="0"><span id="comment_content_for_182995026_counter" class="value" data-maxlength="10000" aria-valuenow="10000">10000</span> characters left</p>
+      <script>
+//<![CDATA[
+var validation_for_comment_content_for_182995026 = new LiveValidation('comment_content_for_182995026', { wait: 500, onlyOnBlur: false });
+validation_for_comment_content_for_182995026.add(Validate.Presence, {"failureMessage":"Brevity is the soul of wit, but we need your comment to have text in it.","validMessage":""});
+validation_for_comment_content_for_182995026.add(Validate.Length, {"maximum":"10000","tooLongMessage":"must be less than 10000 characters long."});
+//]]>
+</script>
+      <p class="submit actions">
+          <input type="submit" name="commit" value="Comment" id="comment_submit_for_182995026" data-disable-with="Please wait...">
+        </p>
+    </fieldset>
+</form></div>
+<div class="clear"></div>
+
+      </div>
+    </div>
+
+  <!-- If we have javascript, here is where the comments will be spiffily inserted -->
+  <!-- If not, and show_comments is true, here is where the comments will be rendered -->
+  <div id="comments_placeholder" style="display:none;">
+  </div>
+
+
+    <div id="bookmark_form_placement" class="wrapper toggled" style="display: none;">
+        <div class="post bookmark" id="bookmark-form">
+  <h3 class="landmark heading">Bookmark</h3>
+
+
+
+
+  
+
+  <form action="/bookmarks/0" accept-charset="UTF-8" method="post"><input type="hidden" name="_method" value="put" autocomplete="off"><input type="hidden" name="authenticity_token" value="FIXTURE-CSRF-TOKEN-REDACTED" autocomplete="off">
+    <fieldset>
+      <legend>Bookmark</legend>
+        <p class="close actions">
+            <a class="bookmark_form_placement_close" href="#comments" aria-label="cancel" style="display: none;">×</a>
+        </p>
+
+      <h4 class="heading">
+          <span class="byline">
+            fixtureuser, 
+            <input autocomplete="off" value="0" type="hidden" name="bookmark[pseud_id]" id="bookmark_pseud_id">
+          </span>
+         save a bookmark!
+      </h4>
+
+
+      <fieldset>
+        <legend>Write Comments</legend>
+        <dl>
+          <dt><label for="bookmark_notes">Notes</label></dt>
+          <dd>
+              <p class="footnote" id="notes-field-description-summary">
+                The creator's summary is added automatically.
+              </p>
+            <p class="footnote" id="notes-field-description-html">
+              Plain text with limited HTML  <a class="help symbol question modal modal-attached" aria-label="Html help" href="https://archiveofourown.org/help/html" aria-controls="modal"><span class="symbol question"><span>?</span></span></a> Embedded images (&lt;img&gt; tags) will be displayed as HTML, including the image's source link and any alt text.
+            </p>
+            <textarea rows="4" id="bookmark_notes" class="observe_textlength" aria-describedby="notes-field-description-summary notes-field-description-html" name="bookmark[bookmarker_notes]"></textarea>
+            <p class="character_counter" tabindex="0"><span id="bookmark_notes_counter" class="value" data-maxlength="5000" aria-valuenow="5000">5000</span> characters left</p>
+          </dd>
+
+          <dt><label for="bookmark_tag_string_autocomplete">Your tags</label></dt>
+          <dd>
+              <p class="footnote" id="tag-string-description">
+                The creator's tags are added automatically.
+              </p>
+            <ul class="autocomplete"><li class="input"><input type="text" class="text" autocomplete="off" role="combobox" aria-expanded="true" aria-autocomplete="list" id="bookmark_tag_string_autocomplete"><div class="autocomplete dropdown" style="display: none;"></div></li></ul><input class="autocomplete" data-autocomplete-method="/autocomplete/tag?type=all" data-autocomplete-hint-text="Start typing for suggestions!" data-autocomplete-no-results-text="(No suggestions found)" data-autocomplete-min-chars="1" data-autocomplete-searching-text="Searching..." size="60" aria-describedby="tag-string-description" type="text" name="bookmark[tag_string]" id="bookmark_tag_string" style="display: none;">
+            <p class="character_counter">
+              Comma separated, 150 characters per tag
+            </p>
+          </dd>
+
+          <dt><label for="bookmark_collection_names_autocomplete">Add to collections</label></dt>
+          <dd>
+            <ul class="autocomplete"><li class="input"><input type="text" class="text" autocomplete="off" role="combobox" aria-expanded="true" aria-autocomplete="list" id="bookmark_collection_names_autocomplete"><div class="autocomplete dropdown" style="display: none;"></div></li></ul><input class="autocomplete" data-autocomplete-method="/autocomplete/open_collection_names" data-autocomplete-hint-text="Start typing for suggestions!" data-autocomplete-no-results-text="(No suggestions found)" data-autocomplete-min-chars="1" data-autocomplete-searching-text="Searching..." size="60" type="text" name="bookmark[collection_names]" id="bookmark_collection_names" style="display: none;">
+          </dd>
+        </dl>
+      </fieldset>
+
+      <fieldset>
+        <legend>Choose Type and Post</legend>
+        <p> 
+          <input name="bookmark[private]" type="hidden" value="0" autocomplete="off"><input type="checkbox" value="1" name="bookmark[private]" id="bookmark_private"> <label for="bookmark_private">Private bookmark</label>
+          <input name="bookmark[rec]" type="hidden" value="0" autocomplete="off"><input type="checkbox" value="1" name="bookmark[rec]" id="bookmark_rec"> <label for="bookmark_rec">Rec</label>
+        </p>
+        <p class="submit actions">
+          <input type="submit" name="commit" value="Update">
+        </p>
+      </fieldset>
+    </fieldset>
+</form></div>
+
+    </div>
+
+</div>
+<!-- END comments -->
+
+  <!-- END comment section -->
+
+    <script type="speculationrules">
+      {
+        "prerender": [
+          {
+            "source": "list",
+            "urls": ["/works/70441196/chapters/183593781#workskin"]
+          }
+        ]
+      }
+    </script>
+<!-- END revealed -->
+
+
+
+          <div class="clear"><!--presentational--></div>
+        </div>
+        <!-- END main -->
+      </div>
+      <!-- BEGIN footer -->
+<div id="footer" role="contentinfo" class="region">
+  <h3 class="landmark heading">Footer</h3>
+  <ul class="navigation actions">
+        <li class="module group">
+          <h4 class="heading">Customize</h4>
+          <ul class="menu">
+            <li><form class="button_to" method="post" action="/skins/unset"><button type="submit">Default</button><input type="hidden" name="authenticity_token" value="FIXTURE-CSRF-TOKEN-REDACTED" autocomplete="off"></form></li>
+              <li><form class="button_to" method="post" action="/skins/891/set"><button type="submit">Low Vision Default</button><input type="hidden" name="authenticity_token" value="FIXTURE-CSRF-TOKEN-REDACTED" autocomplete="off"></form></li>
+              <li><form class="button_to" method="post" action="/skins/929/set"><button type="submit">Reversi</button><input type="hidden" name="authenticity_token" value="FIXTURE-CSRF-TOKEN-REDACTED" autocomplete="off"></form></li>
+              <li><form class="button_to" method="post" action="/skins/932/set"><button type="submit">Snow Blue</button><input type="hidden" name="authenticity_token" value="FIXTURE-CSRF-TOKEN-REDACTED" autocomplete="off"></form></li>
+          </ul>
+        </li>
+    <li class="module group">
+      <h4 class="heading">About the Archive</h4>
+      <ul class="menu">
+        <li><a href="https://archiveofourown.org/site_map">Site Map</a></li>
+        <li><a href="https://archiveofourown.org/diversity">Diversity Statement</a></li>
+        <li><a href="https://archiveofourown.org/tos">Terms of Service</a></li>
+        <li><a href="https://archiveofourown.org/content">Content Policy</a></li>
+        <li><a href="https://archiveofourown.org/privacy">Privacy Policy</a></li>
+        <li><a href="https://archiveofourown.org/takedown">DMCA &amp; TIDA Policies</a> </li>
+        <li><a href="https://www.otwstatus.org/">Site Status</a></li>
+      </ul>
+    </li>
+    <li class="module group">
+      <h4 class="heading">Contact Us</h4>
+      <ul class="menu">
+        <li><a href="https://archiveofourown.org/abuse_reports/new">Policy Questions &amp; Abuse Reports</a></li>
+        <li><a href="https://archiveofourown.org/support">Technical Support &amp; Feedback</a></li>
+      </ul>
+    </li>
+    <li class="module group">
+      <h4 class="heading">Development</h4>
+      <ul class="menu">
+          <li>
+            <a href="https://github.com/otwcode/otwarchive/commits/v1.6.0.3">otwarchive v1.6.0.3</a>
+          </li>
+        <li><a href="https://archiveofourown.org/known_issues">Known Issues</a></li>
+        <li>
+          <a title="View License" href="https://www.gnu.org/licenses/old-licenses/gpl-2.0.html">GPL-2.0-or-later</a> by the <a title="Organization for Transformative Works" href="https://transformativeworks.org/">OTW</a>
+        </li>
+      </ul>
+    </li>
+  </ul>
+</div>
+<!-- END footer -->
+
+    </div>
+    <!-- check to see if this controller/action allow tinymce before we load the gigantor js; see application_helper -->
+<script src="ao3-work-page_files/jquery.min_8daL.js" type="text/javascript"></script>
+<script src="ao3-work-page_files/jquery-ui.min_8daL.js" type="text/javascript"></script>
+<!-- if user has googleapis blocked for some reason we need a fallback -->
+<script type="text/javascript">
+  if (typeof jQuery == 'undefined') {
+    document.write(unescape("%3Cscript src='/javascripts/jquery.min.js' type='text/javascript'%3E%3C/script%3E"));
+    document.write(unescape("%3Cscript src='/javascripts/jquery-ui.min.js' type='text/javascript'%3E%3C/script%3E"));
+  }
+</script>
+
+
+<script type="text/javascript">$j = jQuery.noConflict();</script>
+<script src="ao3-work-page_files/jquery.scrollTo.min_8daL.js"></script>
+<script src="ao3-work-page_files/jquery.livequery.min_8daL.js"></script>
+<script src="ao3-work-page_files/rails_8daL.js"></script>
+<script src="ao3-work-page_files/application_8daL.js"></script>
+<script src="ao3-work-page_files/bootstrap-dropdown.min_8daL.js"></script>
+<script src="ao3-work-page_files/jquery-shuffle_8daL.js"></script>
+<script src="ao3-work-page_files/jquery.tokeninput.min_8daL.js"></script>
+<script src="ao3-work-page_files/jquery.trap.min_8daL.js"></script>
+<script src="ao3-work-page_files/ao3modal.min_8daL.js"></script>
+<script src="ao3-work-page_files/js.cookie.min_8daL.js"></script>
+
+<script src="ao3-work-page_files/filters.min_8daL.js"></script>
+
+
+
+  <script>
+//<![CDATA[
+
+    $j(document).ready(function() {
+      var permitted_hosts = ["104.153.64.122","208.85.241.152","208.85.241.157","ao3.org","archiveofourown.com","archiveofourown.gay","archiveofourown.net","archiveofourown.org","download.archiveofourown.org","insecure.archiveofourown.org","secure.archiveofourown.org","www.archiveofourown.com","www.archiveofourown.net","www.archiveofourown.org","www.ao3.org","archive.transformativeworks.org"];
+      var current_host = window.location.hostname;
+
+      if (!permitted_hosts.includes(current_host) && Cookies.get("proxy_notice") !== "0" && window.location.protocol !== "file:") {
+        $j("#skiplinks").after("<div id=\"proxy-notice\">\n  <div class=\"userstuff\">\n    <p class=\"important\">Important message:<\/p>\n    <ol>\n      <li>You are using a proxy site that is not part of the Archive of Our Own.<\/li>\n      <li>The entity that set up the proxy site can see what you submit, including your IP address. If you log in through the proxy site, it can see your password.<\/li>\n    <\/ol>\n    <p class=\"important\">Важная информация:<\/p>\n    <ol>\n      <li>Вы используете прокси-сайт, который не является частью AO3 (Нашего Архива).<\/li>\n      <li>Субъект, настроивший прокси-сайт, может видеть, что вы отправляете, включая ваш IP-адрес. Если вы авторизуетесь через прокси-сайт, он может видеть ваш пароль.<\/li>\n    <\/ol>\n    <p class=\"important\">Важливе повідомлення:<\/p>\n    <ol>\n      <li>Ви використовуєте проксі-сайт, який не є частиною Archive of Our Own (Нашого Власного Архіву).<\/li>\n      <li>Творці цього проксі-сайту можуть бачити Ваші дані та дії, а також Вашу IP-адресу. Якщо Ви входите до свого облікового запису, використовуючи проксі-сайт, його творці можуть бачити Ваш пароль.<\/li>\n    <\/ol>\n    <p class=\"important\">重要提示：<\/p>\n    <ol>\n      <li>您使用的是第三方开发的反向代理网站，此网站并非Archive of Our Own - AO3（AO3作品库）原站。<\/li>\n      <li>代理网站的开发者能够获取您上传至该站点的全部内容，包括您的ip地址。如您通过代理登录AO3，对方将获得您的密码。<\/li>\n    <\/ol>\n    <p class=\"submit\"><button class=\"action\" type=\"button\" id=\"proxy-notice-dismiss\">Dismiss Notice<\/button><\/p>\n  <\/div>\n<\/div>\n\n<script>\n//<![CDATA[\n\n  \$j(document).ready(function() {\n    \$j(\"#proxy-notice-dismiss\").on(\"click\", function() {\n      Cookies.set(\"proxy_notice\", \"0\");\n      \$j(\"#proxy-notice\").slideUp();\n    });\n  });\n\n//]]]]><![CDATA[>\n<\/script>");
+      }
+    });
+
+//]]>
+</script>
+    <script>
+      $j(document).on("loadedCSRF", function() {
+        function send() {
+          $j.post("/works/70441196/hit_count.json")
+        }
+
+        // If a browser doesn't support prerendering, then document.prerendering
+        // will be undefined, and we'll just send the hit count immediately.
+        if (document.prerendering) {
+          document.addEventListener("prerenderingchange", send);
+        } else {
+          send();
+        }
+      })
+    </script>
+
+
+  
+
+<div id="modal-bg" class="modal-closer"><div class="loading"></div></div><div id="modal-wrap" class="modal-closer"><div id="modal"><div class="content userstuff"></div><div class="footer"><span class="title"></span><a class="action modal-closer" href="#">Close</a></div></div></div></body></html>

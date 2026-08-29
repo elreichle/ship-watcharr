@@ -1,6 +1,7 @@
 using Ao3Tracker.Api.Data;
 using Ao3Tracker.Api.Models;
 using Ao3Tracker.Api.Services.Credentials;
+using Ao3Tracker.Api.Services.Downloads;
 using Ao3Tracker.Api.Services.Scraping;
 using Ao3Tracker.Api.Services.Settings;
 using Ao3Tracker.Api.Services.Storage;
@@ -105,7 +106,6 @@ builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(storagePaths.KeysDirectory));
 
 // ---- AO3 credential storage ----
-builder.Services.AddScoped<IAo3CredentialStore, Ao3CredentialStore>();
 builder.Services.AddScoped<IAo3InstanceCredentialStore, Ao3InstanceCredentialStore>();
 
 // ---- Rate-limited scraping HTTP client ----
@@ -122,29 +122,99 @@ builder.Services.AddSingleton(sp => InstanceIdentity.LoadOrCreate(sp.GetRequired
 builder.Services.AddScoped<IOperatorContactResolver, OperatorContactResolver>();
 builder.Services.AddScoped<Ao3UserAgentProvider>();
 
+// The two gates on scraping — an honest User-Agent, and an AO3 login — answered together, so the
+// worker that holds jobs and the admin screen that explains why cannot disagree. Scoped for the
+// same reason as the two above: it re-reads settings and the credential row on every poll.
+builder.Services.AddScoped<ScrapingGate>();
+
 builder.Services
     .AddHttpClient<IRateLimitedHttpClient, RateLimitedAo3HttpClient>(client =>
     {
-        // No default User-Agent here on purpose — see RateLimitedAo3HttpClient.SendWithRetryAsync,
+        // No default User-Agent here on purpose — see RateLimitedAo3HttpClient.SendOnceAsync,
         // which sets it per request so a settings change takes effect immediately.
         client.Timeout = TimeSpan.FromSeconds(30);
+    })
+    // Cookies off, redirects on. The instance's AO3 session lives in a database row shared by every
+    // process reading this deployment's data, so a per-handler cookie jar would be a second copy of
+    // it that quietly diverged; the client sets the header itself. Redirects stay automatic because
+    // a synonym tag is recognised by where the request ended up.
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        UseCookies = false,
+        AllowAutoRedirect = true,
     });
 
+// The login POST's transport, differing in exactly one setting: it does not follow redirects. A
+// successful login answers with a 302 whose Set-Cookie *is* the session, and following it spends
+// that cookie on a page nobody asked for. Same gate and same User-Agent — see Ao3LoginHttpClient.
+builder.Services
+    .AddHttpClient<Ao3LoginHttpClient>(client => client.Timeout = TimeSpan.FromSeconds(30))
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        UseCookies = false,
+        AllowAutoRedirect = false,
+    });
+
+// ---- The instance's AO3 session ----
+// Three seams rather than one, and the split is what keeps them acyclic: the HTTP client reads the
+// cached cookie through IAo3SessionCache (which cannot log in), the establisher performs the round
+// trip through the HTTP client, and the provider decides whether one is needed. Nothing that logs
+// in is reachable from the thing that attaches cookies.
+// Singleton, unlike its two neighbours: it owns the scope it reads and writes the session in,
+// precisely so that a cookie check reached from inside a scrape does not save through the scrape's
+// own DbContext. See Ao3SessionCache.
+builder.Services.AddSingleton<IAo3SessionCache, Ao3SessionCache>();
+builder.Services.AddScoped<IAo3SessionEstablisher, Ao3SessionEstablisher>();
+
+// Singleton, like ScrapeWakeSignal and for the same reason: the worker that backs off and the admin
+// request that cancels the backoff are the two things that have to agree about it.
+builder.Services.AddSingleton<Ao3LoginBackoff>();
+builder.Services.AddScoped<IAo3SessionProvider, Ao3SessionProvider>();
+
 // ---- Scrapers (add new IAo3Scraper implementations here; ScraperRegistry picks them up automatically) ----
-// None registered yet: the placeholder scraper was removed along with the placeholder schema,
-// and the real ship-index scraper arrives with the AO3 parser.
+// Scoped rather than singleton: a scraper holds the DbContext it writes through, and the worker
+// resolves one per job inside that job's own scope.
+// Registered explicitly rather than left to the constructors' defaults, so a test can substitute a
+// fake clock through the same container the app composes.
+builder.Services.AddSingleton(TimeProvider.System);
+
+builder.Services.AddScoped<IWorkIngestor, WorkIngestor>();
+builder.Services.AddScoped<IAo3Scraper, Ao3ShipIndexScraper>();
 builder.Services.AddScoped<ScraperRegistry>();
+
+// The per-work detail pass, which is not an IAo3Scraper and so not in the registry: a ScrapeJob is
+// one row per ship walking one tag's listing, and a work's publication date and full tag list are
+// neither ship-scoped nor paginated. See Ao3WorkDetailScraper for the whole of that reasoning.
+builder.Services.AddScoped<IAo3WorkDetailScraper, Ao3WorkDetailScraper>();
+
+// Singleton, because it is what one pass remembers for the next: the works whose page this process
+// has asked for and could not read. See WorkDetailAttempts for why it is memory and not a column.
+builder.Services.AddSingleton<WorkDetailAttempts>();
 
 // ---- Ship verification (confirms a followed tag exists on AO3, and folds synonyms into
 // their canonical tag). Shares the rate-limited client, so it cannot outpace scraping. ----
 builder.Services.AddScoped<IShipVerifier, Ao3ShipVerifier>();
 
+// ---- Downloads ----
+// Scoped for the same reason a scraper is: the fetcher writes through the DbContext of the scope
+// the worker resolved it in, one per queued request.
+builder.Services.AddScoped<IDownloadFetcher, DownloadFetcher>();
+
 // ---- Background workers ----
 // Singleton, and registered before the worker that waits on it: the signal is the one piece of
 // state a scoped request and the long-lived worker have to share.
 builder.Services.AddSingleton<ScrapeWakeSignal>();
+builder.Services.AddSingleton<DownloadWakeSignal>();
 builder.Services.AddHostedService<ScrapeWorker>();
 builder.Services.AddHostedService<ShipVerificationWorker>();
+
+// Shares the rate gate with the two above, so a queue of downloads cannot outpace scraping or be
+// outpaced by it — one instance, one stream of requests to AO3.
+builder.Services.AddHostedService<DownloadWorker>();
+
+// The same gate again, and the same rate limiter: reading a work's own page is one more request
+// this instance makes to AO3, and the least urgent of the three.
+builder.Services.AddHostedService<WorkDetailWorker>();
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();

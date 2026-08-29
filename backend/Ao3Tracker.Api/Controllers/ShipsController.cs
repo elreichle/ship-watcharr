@@ -29,18 +29,18 @@ public class ShipsController : ControllerBase
 
     private readonly AppDbContext _db;
     private readonly ScraperRegistry _scraperRegistry;
-    private readonly Ao3UserAgentProvider _userAgents;
+    private readonly ScrapingGate _gate;
     private readonly ScrapeWakeSignal _scrapeWake;
 
     public ShipsController(
         AppDbContext db,
         ScraperRegistry scraperRegistry,
-        Ao3UserAgentProvider userAgents,
+        ScrapingGate gate,
         ScrapeWakeSignal scrapeWake)
     {
         _db = db;
         _scraperRegistry = scraperRegistry;
-        _userAgents = userAgents;
+        _gate = gate;
         _scrapeWake = scrapeWake;
     }
 
@@ -52,11 +52,12 @@ public class ShipsController : ControllerBase
     {
         var ships = await LoadWatchedShipsAsync(null, ct);
 
-        // Asked of the same provider the verification worker consults, so the page cannot claim
-        // checks are running while the worker is sitting them out.
-        var (verificationEnabled, _, _) = await _userAgents.TryGetUserAgentAsync(ct);
+        // Asked of the same gate the workers consult, so the page cannot claim checks are running
+        // while the worker is sitting them out — and, for the login, cannot leave a user staring at
+        // an empty library with nothing on screen saying why.
+        var gate = await _gate.EvaluateAsync(ct);
 
-        return Ok(new WatchedShipsDto(ships, verificationEnabled));
+        return Ok(new WatchedShipsDto(ships, gate.IdentityConfigured, gate.Ao3LoginConfigured));
     }
 
     /// <summary>
@@ -80,6 +81,12 @@ public class ShipsController : ControllerBase
                 w.CreatedAt,
                 w.RequestedTagName,
                 w.Ship.BackfillState,
+                w.Ship.BackfillNextPage,
+                w.Ship.BackfillResumePage,
+                w.Ship.BackfillStalledRuns,
+                w.Ship.FullSweepNextPage,
+                w.Ship.LastFullSweepStartedAt,
+                w.Ship.LastFullSweepCompletedAt,
                 w.Ship.VerificationState,
                 w.Ship.VerificationError,
 
@@ -113,7 +120,13 @@ public class ShipsController : ControllerBase
             r.Job is not null && _scraperRegistry.TryGet(r.Job.ScraperKey) is not null,
             r.VerificationState.ToString(),
             r.VerificationError,
-            r.RequestedTagName))];
+            r.RequestedTagName,
+            r.BackfillNextPage,
+            r.BackfillResumePage,
+            r.BackfillStalledRuns,
+            r.FullSweepNextPage,
+            r.LastFullSweepStartedAt,
+            r.LastFullSweepCompletedAt))];
     }
 
     [HttpPost]
@@ -163,6 +176,22 @@ public class ShipsController : ControllerBase
         var watch = await _db.WatchedShips
             .FirstOrDefaultAsync(w => w.UserId == userId && w.ShipId == shipId, ct);
         if (watch is null) return NotFound();
+
+        // Their notifications about this ship go with the subscription. Unlike reading state, which
+        // survives an unfollow because it is about the *work*, a notification is about the tag: it
+        // says this ship gained something, and a reader who has stopped following it has stopped
+        // being told. Leaving them would keep an unread count ticking for a ship no longer on the
+        // page, with nothing to click through to.
+        //
+        // Before the save rather than after it. There is no ordering that survives a failure
+        // between the two, so the choice is which half to be left holding: a delete that lands
+        // without the unfollow costs this reader notifications the next pass will send again, where
+        // an unfollow that lands without the delete leaves rows nothing can ever clear — the state
+        // the paragraph above says must not exist. `ct` is the request's abort token, so a client
+        // that disconnects mid-call is the ordinary way into that window, not an exotic one.
+        await _db.Notifications
+            .Where(n => n.UserId == userId && n.ShipId == shipId)
+            .ExecuteDeleteAsync(ct);
 
         _db.WatchedShips.Remove(watch);
         await _db.SaveChangesAsync(ct);

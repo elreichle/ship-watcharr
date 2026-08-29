@@ -97,11 +97,12 @@ public sealed class Ao3ShipVerifier : IShipVerifier
         {
             response = await _http.GetAsync(url, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ScrapeCancellation.IsShutdown(ex, ct))
         {
             // Covers the no-operator-contact case too: the client throws rather than sending a
             // request it cannot identify, and an instance that is not allowed to talk to AO3 has
-            // learned nothing about the tag.
+            // learned nothing about the tag. A request that timed out is the same kind of silence,
+            // and reaches here for the same reason — see ScrapeCancellation.
             return await InconclusiveAsync(ship, ex.Message, ct);
         }
 
@@ -142,6 +143,7 @@ public sealed class Ao3ShipVerifier : IShipVerifier
     private async Task<ShipVerificationResult> VerifiedAsync(Ship ship, long? tagId, CancellationToken ct)
     {
         MarkVerified(ship, tagId);
+        await ReinstateScheduleAsync(ship, ct);
         await _db.SaveChangesAsync(ct);
 
         _logger.LogInformation("Verified ship {ShipId} ({Tag}) against AO3", ship.Id, ship.CanonicalTagName);
@@ -196,6 +198,45 @@ public sealed class Ao3ShipVerifier : IShipVerifier
         return minutes >= MaxRetryDelay.TotalMinutes ? MaxRetryDelay : TimeSpan.FromMinutes(minutes);
     }
 
+    /// <summary>
+    /// Gives back the schedule <see cref="NotFoundAsync"/> took away, now that AO3 has answered for
+    /// the tag after all.
+    ///
+    /// Only reachable through <c>POST /api/admin/ships/{id}/verification/recheck</c>, which is the
+    /// only thing that moves a settled verification back to <see cref="ShipVerificationState.Pending"/>.
+    /// Without this the recheck would be half a route back: the ship would read Verified and no run
+    /// would ever touch it, because the worker only ever picks up an enabled job.
+    ///
+    /// Conditioned on the ship still having watchers, because that is the other thing a disabled job
+    /// means — unfollowing the last subscription switches the schedule off — and a verification
+    /// landing afterwards is not a reason to start walking a tag nobody is waiting for.
+    ///
+    /// One statement rather than a read and a write, because those two race the unfollow that is the
+    /// whole reason for the condition: <c>UnwatchShip</c> deletes the last watch, commits, and only
+    /// then disables the job, so a check that read the watcher before that commit and saved after it
+    /// would re-enable a schedule nobody is watching — and nothing would ever turn it off again,
+    /// since the ship appears on no reader's Ships page. The database evaluates both halves at the
+    /// moment of the UPDATE, which is the only place they can be evaluated together.
+    ///
+    /// Run before the verification itself is saved, so the half left standing by a failure between
+    /// them is an enabled schedule on a ship still reading Pending — the ordinary state of every
+    /// newly followed tag, which the next check settles. The other order leaves a ship Verified and
+    /// unscheduled, which is the state this whole route exists to get out of and which the recheck
+    /// endpoint, taking only denied ships, would refuse to fix.
+    /// </summary>
+    private async Task ReinstateScheduleAsync(Ship ship, CancellationToken ct)
+    {
+        var reinstated = await _db.ScrapeJobs
+            .Where(j => j.ShipId == ship.Id && !j.IsEnabled)
+            .Where(j => _db.WatchedShips.Any(w => w.ShipId == ship.Id))
+            .ExecuteUpdateAsync(j => j.SetProperty(job => job.IsEnabled, true), ct);
+
+        if (reinstated == 0) return;
+
+        _logger.LogInformation(
+            "AO3 confirmed tag {Tag}; ship {ShipId} is scheduled again", ship.CanonicalTagName, ship.Id);
+    }
+
     private static void MarkVerified(Ship ship, long? tagId)
     {
         ship.VerificationState = ShipVerificationState.Verified;
@@ -242,6 +283,7 @@ public sealed class Ao3ShipVerifier : IShipVerifier
             ship.CanonicalTagNameNormalized = normalized;
             ship.TagUrlSegment = Ao3TagUrl.ToUrlSegment(canonicalName);
             MarkVerified(ship, tagId);
+            await ReinstateScheduleAsync(ship, ct);
             await _db.SaveChangesAsync(ct);
 
             _logger.LogInformation(

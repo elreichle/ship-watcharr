@@ -14,14 +14,3 @@ namespace Ao3Tracker.Api.Dtos;
 public record UpdateAccountEmailRequest(string? Email);
 
 public record AccountEmailDto(string? Email, bool IsUsedAsOperatorContact);
-
-public record SetAo3CredentialRequest(
-    [Required] string Ao3Username,
-    [Required] string Ao3Password);
-
-/// <summary>Never includes the password/session cookie — status only.</summary>
-public record Ao3CredentialStatusDto(
-    bool HasCredential,
-    string? Ao3Username,
-    bool HasActiveSession,
-    DateTime? SessionExpiresAt);

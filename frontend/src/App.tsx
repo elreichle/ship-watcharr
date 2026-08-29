@@ -6,8 +6,12 @@ import { AdminRoute } from './components/AdminRoute';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { WorksPage } from './pages/WorksPage';
+import { WorkDetailPage } from './pages/WorkDetailPage';
+import { NotificationsPage } from './pages/NotificationsPage';
 import { FiltersPage } from './pages/FiltersPage';
 import { ShipsPage } from './pages/ShipsPage';
+import { DownloadsPage } from './pages/DownloadsPage';
+import { StatsPage } from './pages/StatsPage';
 import { SchedulesPage } from './pages/SchedulesPage';
 import { AccountSettingsPage } from './pages/AccountSettingsPage';
 import { AppearanceSettingsPage } from './pages/AppearanceSettingsPage';
@@ -33,8 +37,13 @@ export default function App() {
               of its own. Works leads because it is the thing the app is for. */}
           <Route path="/" element={<Navigate to="/works" replace />} />
           <Route path="/works" element={<WorksPage />} />
+          {/* A work of its own, under the list it is reached from, so the sidebar keeps Works lit. */}
+          <Route path="/works/:workId" element={<WorkDetailPage />} />
+          <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/filters" element={<FiltersPage />} />
           <Route path="/ships" element={<ShipsPage />} />
+          <Route path="/downloads" element={<DownloadsPage />} />
+          <Route path="/stats" element={<StatsPage />} />
           <Route path="/schedules" element={<SchedulesPage />} />
 
           <Route path="/settings" element={<Navigate to="/settings/account" replace />} />

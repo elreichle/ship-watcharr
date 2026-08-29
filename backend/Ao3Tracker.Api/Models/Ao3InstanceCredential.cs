@@ -5,7 +5,9 @@ namespace Ao3Tracker.Api.Models;
 ///
 /// Instance-level rather than per-user because scraped data is shared: one <c>Ship</c> is scraped
 /// once for everyone following it, so "whose login does this scrape use" has no per-user answer.
-/// See <see cref="Ao3Credential"/>, the per-user row this replaces.
+/// Replaced a per-user row, retired along with its endpoints and its table; the ciphertext was
+/// carried across by the <c>InstanceAo3Credential</c> migration, so nobody had to type a password
+/// again.
 ///
 /// The credential is the durable source of truth and the session is only a cache of it. A password
 /// saved here stays saved — it does not expire, and losing the session cookie is not losing the

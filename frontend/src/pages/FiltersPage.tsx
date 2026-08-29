@@ -4,6 +4,7 @@ import { api, ApiError } from '../api/client';
 import type {
   Ao3TagType,
   FilterVocabulary,
+  ReadingStatus,
   SavedFilter,
   SavedFilterAuthor,
   SavedFilterTag,
@@ -12,6 +13,21 @@ import type {
   WatchedShip,
   WorkSort,
 } from '../api/types';
+import {
+  describeHalfStars,
+  HALF_STAR_VALUES,
+  READING_STATUS_LABELS,
+  READING_STATUSES,
+} from '../readingStatus';
+
+/**
+ * How each status reads as a criterion rather than as a mark. Only "None" differs: on a Works row
+ * it means "you have not said", while as a filter it is the thing people actually want to ask for.
+ */
+const READING_STATUS_CRITERION_LABELS: Record<ReadingStatus, string> = {
+  ...READING_STATUS_LABELS,
+  None: 'Unread — not marked at all',
+};
 
 const TAG_TYPES: Ao3TagType[] = ['Freeform', 'Relationship', 'Character', 'Fandom', 'Warning'];
 
@@ -51,6 +67,9 @@ function emptyDraft(): Draft {
     maxBookmarks: null,
     minRating: null,
     maxRating: null,
+    readingStatus: null,
+    minUserRating: null,
+    maxUserRating: null,
     includeCategories: [],
     excludeCategories: [],
     includeWarnings: [],
@@ -162,6 +181,18 @@ function describeFilter(filter: SavedFilter, vocabulary: FilterVocabulary | null
     parts.push(`warns ${labels(vocabulary?.warnings, filter.includeWarnings)}`);
   if (filter.excludeWarnings.length > 0)
     parts.push(`no ${labels(vocabulary?.warnings, filter.excludeWarnings)}`);
+
+  if (filter.readingStatus)
+    parts.push(
+      filter.readingStatus === 'None' ? 'unread' : `marked ${READING_STATUS_LABELS[filter.readingStatus].toLowerCase()}`,
+    );
+
+  if (filter.minUserRating !== null && filter.maxUserRating !== null)
+    parts.push(`you rated ${describeHalfStars(filter.minUserRating)}–${describeHalfStars(filter.maxUserRating)}`);
+  else if (filter.minUserRating !== null)
+    parts.push(`you rated ${describeHalfStars(filter.minUserRating)} or more`);
+  else if (filter.maxUserRating !== null)
+    parts.push(`you rated ${describeHalfStars(filter.maxUserRating)} or less`);
 
   if (filter.languageCode)
     parts.push(`in ${vocabulary ? labelFor(vocabulary.languages, filter.languageCode) : filter.languageCode}`);
@@ -483,6 +514,60 @@ function FilterEditor({ filterId, draft, vocabulary, ships, onCancel, onSaved }:
         <p className="hint filter-note">
           Both ends are inclusive. Works whose rating AO3 never showed us sort below every real one,
           so an upper bound on its own keeps them — set a lower bound too if you’d rather not see them.
+        </p>
+      </Section>
+
+      <Section title="Your own reading">
+        <label className="filter-field">
+          Reading status
+          <select
+            value={value.readingStatus ?? ''}
+            onChange={(e) =>
+              set('readingStatus', e.target.value === '' ? null : (e.target.value as ReadingStatus))
+            }
+          >
+            <option value="">Any — read or not</option>
+            {READING_STATUSES.map((status) => (
+              <option key={status} value={status}>
+                {READING_STATUS_CRITERION_LABELS[status]}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="filter-field">
+          Your rating, at least
+          <select
+            value={value.minUserRating ?? ''}
+            onChange={(e) => set('minUserRating', e.target.value === '' ? null : Number(e.target.value))}
+          >
+            <option value="">Any</option>
+            {HALF_STAR_VALUES.map((half) => (
+              <option key={half} value={half}>
+                {describeHalfStars(half)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="filter-field">
+          Your rating, at most
+          <select
+            value={value.maxUserRating ?? ''}
+            onChange={(e) => set('maxUserRating', e.target.value === '' ? null : Number(e.target.value))}
+          >
+            <option value="">Any</option>
+            {HALF_STAR_VALUES.map((half) => (
+              <option key={half} value={half}>
+                {describeHalfStars(half)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <p className="hint filter-note">
+          Your marks, not the archive’s — “Unread” covers everything you have never touched, not just
+          works you cleared. A rating bound drops works you have not rated: unrated is not a score.
         </p>
       </Section>
 

@@ -22,49 +22,6 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("Ao3Tracker.Api.Models.Ao3Credential", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Ao3Username")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("EncryptedPassword")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("EncryptedSessionCookie")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("SessionEstablishedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("SessionExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId")
-                        .IsUnique();
-
-                    b.ToTable("Ao3Credentials");
-                });
-
             modelBuilder.Entity("Ao3Tracker.Api.Models.Ao3InstanceCredential", b =>
                 {
                     b.Property<int>("Id")
@@ -128,7 +85,17 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("PseudNameNormalized")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("UsernameNormalized")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -137,9 +104,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
 
                     b.HasIndex("DisplayNameNormalized");
 
-                    b.HasIndex("Username");
+                    b.HasIndex("UsernameNormalized");
 
-                    b.HasIndex("Username", "PseudName")
+                    b.HasIndex("UsernameNormalized", "PseudNameNormalized")
                         .IsUnique();
 
                     b.ToTable("Ao3Pseuds");
@@ -250,6 +217,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.Property<byte>("Format")
                         .HasColumnType("smallint");
 
+                    b.Property<int?>("PreviousWorkDownloadFileId")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("RequestedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -268,6 +238,8 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
 
                     b.HasKey("Id");
 
+                    b.HasIndex("PreviousWorkDownloadFileId");
+
                     b.HasIndex("WorkDownloadFileId");
 
                     b.HasIndex("WorkId");
@@ -276,6 +248,43 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                         .IsUnique();
 
                     b.ToTable("Downloads");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.Notification", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ReadAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("ShipId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("WorkId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ShipId");
+
+                    b.HasIndex("WorkId");
+
+                    b.HasIndex("UserId", "Id");
+
+                    b.HasIndex("UserId", "ReadAt");
+
+                    b.ToTable("Notifications");
                 });
 
             modelBuilder.Entity("Ao3Tracker.Api.Models.SavedWorkFilter", b =>
@@ -332,6 +341,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.Property<int?>("MaxRating")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("MaxUserRating")
+                        .HasColumnType("integer");
+
                     b.Property<int?>("MaxWordCount")
                         .HasColumnType("integer");
 
@@ -353,6 +365,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.Property<int?>("MinRating")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("MinUserRating")
+                        .HasColumnType("integer");
+
                     b.Property<int?>("MinWordCount")
                         .HasColumnType("integer");
 
@@ -360,6 +375,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<byte?>("ReadingStatus")
+                        .HasColumnType("smallint");
 
                     b.Property<int?>("ShipId")
                         .HasColumnType("integer");
@@ -571,6 +589,12 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.Property<int?>("BackfillNextPage")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("BackfillResumePage")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("BackfillStalledRuns")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime?>("BackfillStartedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -589,6 +613,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("FullSweepNextPage")
+                        .HasColumnType("integer");
 
                     b.Property<DateTime?>("IncrementalWatermarkUtc")
                         .HasColumnType("timestamp with time zone");
@@ -883,6 +910,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.Property<bool>("UpdatedAtIsApproximate")
                         .HasColumnType("boolean");
 
+                    b.Property<DateTime?>("UpdatedAtObservedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int>("Warnings")
                         .HasColumnType("integer");
 
@@ -1137,19 +1167,13 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
-            modelBuilder.Entity("Ao3Tracker.Api.Models.Ao3Credential", b =>
-                {
-                    b.HasOne("Ao3Tracker.Api.Models.ApplicationUser", "User")
-                        .WithOne("Ao3Credential")
-                        .HasForeignKey("Ao3Tracker.Api.Models.Ao3Credential", "UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("Ao3Tracker.Api.Models.Download", b =>
                 {
+                    b.HasOne("Ao3Tracker.Api.Models.WorkDownloadFile", "PreviousFile")
+                        .WithMany()
+                        .HasForeignKey("PreviousWorkDownloadFileId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Ao3Tracker.Api.Models.ApplicationUser", "User")
                         .WithMany("Downloads")
                         .HasForeignKey("UserId")
@@ -1168,6 +1192,35 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                         .IsRequired();
 
                     b.Navigation("File");
+
+                    b.Navigation("PreviousFile");
+
+                    b.Navigation("User");
+
+                    b.Navigation("Work");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.Notification", b =>
+                {
+                    b.HasOne("Ao3Tracker.Api.Models.Ship", "Ship")
+                        .WithMany()
+                        .HasForeignKey("ShipId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ao3Tracker.Api.Models.ApplicationUser", "User")
+                        .WithMany("Notifications")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ao3Tracker.Api.Models.Work", "Work")
+                        .WithMany()
+                        .HasForeignKey("WorkId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Ship");
 
                     b.Navigation("User");
 
@@ -1450,9 +1503,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
 
             modelBuilder.Entity("Ao3Tracker.Api.Models.ApplicationUser", b =>
                 {
-                    b.Navigation("Ao3Credential");
-
                     b.Navigation("Downloads");
+
+                    b.Navigation("Notifications");
 
                     b.Navigation("SavedWorkFilters");
 

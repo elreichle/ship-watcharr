@@ -32,6 +32,13 @@ public class SavedFiltersController : ControllerBase
     /// </summary>
     private const int MaxCriteriaPerList = 50;
 
+    /// <summary>
+    /// The scale a reader's own rating sits on, matching <c>CK_UserWorkStates_Rating</c> and
+    /// <c>WorksController</c>'s bounds exactly — 7 is three and a half stars.
+    /// </summary>
+    private const int MinHalfStars = 1;
+    private const int MaxHalfStars = 10;
+
     private readonly AppDbContext _db;
 
     public SavedFiltersController(AppDbContext db)
@@ -180,7 +187,10 @@ public class SavedFiltersController : ControllerBase
         CancellationToken ct)
     {
         var matching = await WorkQueries
-            .ApplyFilter(WorkQueries.Library(_db, userId, filter.ShipId), filter)
+            .ApplyFilter(
+                WorkQueries.Library(_db, userId, filter.ShipId),
+                filter,
+                WorkQueries.StatesOf(_db, userId))
             .CountAsync(ct);
 
         IReadOnlyList<SavedFilterTagDto> Tags(bool exclude) =>
@@ -220,6 +230,9 @@ public class SavedFiltersController : ControllerBase
             filter.MaxBookmarks,
             filter.MinRating?.ToString(),
             filter.MaxRating?.ToString(),
+            filter.ReadingStatus?.ToString(),
+            filter.MinUserRating,
+            filter.MaxUserRating,
             FlagNames(filter.IncludeCategories, Ao3Labels.Categories),
             FlagNames(filter.ExcludeCategories, Ao3Labels.Categories),
             FlagNames(filter.IncludeWarnings, Ao3Labels.Warnings),
@@ -381,6 +394,16 @@ public class SavedFiltersController : ControllerBase
                 "The lowest rating has to be at or below the highest.");
         }
 
+        var readingStatus = ParseValue<ReadingStatus>(request.ReadingStatus, nameof(request.ReadingStatus));
+
+        // The reader's own scale, not AO3's: half-stars 1-10, matching UserWorkState.Rating's check
+        // constraint. Bounded here because the column these are compared against is constrained and
+        // these are not — a set asking for 11 stars would otherwise store cleanly and match nothing
+        // for ever, which reads as a broken filter rather than as the typo it is.
+        RequireOrdered(nameof(request.MinUserRating), request.MinUserRating, request.MaxUserRating, "rating");
+        RequireHalfStars(nameof(request.MinUserRating), request.MinUserRating);
+        RequireHalfStars(nameof(request.MaxUserRating), request.MaxUserRating);
+
         var includeCategories = ParseFlags<Ao3Category>(request.IncludeCategories, nameof(request.IncludeCategories));
         var excludeCategories = ParseFlags<Ao3Category>(request.ExcludeCategories, nameof(request.ExcludeCategories));
         var includeWarnings = ParseFlags<Ao3Warning>(request.IncludeWarnings, nameof(request.IncludeWarnings));
@@ -443,6 +466,7 @@ public class SavedFiltersController : ControllerBase
             request,
             minRating,
             maxRating,
+            readingStatus,
             includeCategories,
             excludeCategories,
             includeWarnings,
@@ -465,6 +489,16 @@ public class SavedFiltersController : ControllerBase
     {
         if (value is int number && number < 0)
             ModelState.AddModelError(field, "That can't be negative.");
+    }
+
+    /// <summary>
+    /// Half-stars, 1-10 — <c>UserWorkState.Rating</c>'s own scale, restated so a bound outside it is
+    /// a 400 naming the field rather than a set that silently matches nothing.
+    /// </summary>
+    private void RequireHalfStars(string field, int? value)
+    {
+        if (value is int half && (half < MinHalfStars || half > MaxHalfStars))
+            ModelState.AddModelError(field, $"A rating is {MinHalfStars} to {MaxHalfStars} half-stars.");
     }
 
     private void RequireWithinLimit(string field, int count, string what)
@@ -528,6 +562,7 @@ public class SavedFiltersController : ControllerBase
         SaveFilterRequest Request,
         Ao3Rating? MinRating,
         Ao3Rating? MaxRating,
+        ReadingStatus? ReadingStatus,
         Ao3Category? IncludeCategories,
         Ao3Category? ExcludeCategories,
         Ao3Warning? IncludeWarnings,
@@ -557,6 +592,9 @@ public class SavedFiltersController : ControllerBase
             filter.MaxBookmarks = Request.MaxBookmarks;
             filter.MinRating = MinRating;
             filter.MaxRating = MaxRating;
+            filter.ReadingStatus = ReadingStatus;
+            filter.MinUserRating = Request.MinUserRating;
+            filter.MaxUserRating = Request.MaxUserRating;
             filter.IncludeCategories = IncludeCategories;
             filter.ExcludeCategories = ExcludeCategories;
             filter.IncludeWarnings = IncludeWarnings;

@@ -1,10 +1,13 @@
 import type {
   AccountEmail,
-  Ao3CredentialStatus,
   Ao3TagType,
+  BackfillRestarted,
   CurrentUser,
   DatabaseStatus,
+  Download,
+  DownloadFormat,
   FilterVocabulary,
+  InstanceAo3Credential,
   PagedResult,
   SavedFilter,
   SavedFilterAuthor,
@@ -13,10 +16,17 @@ import type {
   ScrapeJob,
   ScrapeRun,
   ScrapingIdentity,
+  SetWorkStateInput,
+  ShipNotification,
+  Stats,
+  UnreadNotifications,
+  VerificationRechecked,
   WatchedShip,
   WatchedShipsResponse,
+  WorkDetail,
   WorkListItem,
   WorkQuery,
+  WorkState,
 } from './types';
 
 export class ApiError extends Error {
@@ -50,6 +60,50 @@ const hasArray =
   (field: string): ResponseCheck =>
   (body) =>
     isRecord(body) && Array.isArray(body[field]);
+
+/**
+ * A page of works, with every row carrying the caller's own state.
+ *
+ * `items` alone is not enough any more: the works list reads `work.state.status` on every row, so a
+ * server that does not send `state` — one deployed behind this page — would throw during render
+ * rather than produce the version-mismatch message this whole mechanism exists for.
+ */
+const isWorksPage: ResponseCheck = (body) =>
+  isRecord(body) &&
+  Array.isArray(body.items) &&
+  body.items.every((item) => isRecord(item) && isRecord(item.state));
+
+/**
+ * One work's detail. The page maps over four of these lists and reads `state` on every render, so
+ * a server that sent none of them would throw during render rather than report a version mismatch.
+ */
+const isWorkDetail: ResponseCheck = (body) =>
+  isRecord(body) &&
+  Array.isArray(body.authors) &&
+  Array.isArray(body.tags) &&
+  Array.isArray(body.series) &&
+  Array.isArray(body.ships) &&
+  Array.isArray(body.categories) &&
+  Array.isArray(body.warnings) &&
+  isRecord(body.state);
+
+/**
+ * Statistics over the library. The page maps over six lists inside the two lenses and reads the
+ * counts on every row, so a server that sent a body without them would throw during render rather
+ * than report the version mismatch this check exists to name.
+ */
+const isStats: ResponseCheck = (body) =>
+  isRecord(body) &&
+  Array.isArray(body.ships) &&
+  isRecord(body.corpus) &&
+  isRecord(body.reading) &&
+  Array.isArray(body.corpus.worksByUpdatedMonth) &&
+  Array.isArray(body.corpus.ratingMix) &&
+  Array.isArray(body.corpus.kudosDistribution) &&
+  Array.isArray(body.corpus.wordCountDistribution) &&
+  Array.isArray(body.corpus.topAuthors) &&
+  Array.isArray(body.reading.statusMix) &&
+  Array.isArray(body.reading.ratingsAgainstReception);
 
 async function request<T>(path: string, init?: RequestInit, isValid?: ResponseCheck): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -111,22 +165,32 @@ export const api = {
       body: JSON.stringify({ email: email?.trim() || null }),
     }),
 
-  getAo3Credential: () => request<Ao3CredentialStatus>('/account/ao3-credential'),
-
-  setAo3Credential: (ao3Username: string, ao3Password: string) =>
-    request<void>('/account/ao3-credential', {
-      method: 'PUT',
-      body: JSON.stringify({ ao3Username, ao3Password }),
-    }),
-
-  removeAo3Credential: () => request<void>('/account/ao3-credential', { method: 'DELETE' }),
-
   getWatchedShips: () => request<WatchedShipsResponse>('/ships', undefined, hasArray('ships')),
 
   watchShip: (tagName: string) =>
     request<WatchedShip>('/ships', { method: 'POST', body: JSON.stringify({ tagName }) }),
 
   unwatchShip: (shipId: number) => request<void>(`/ships/${shipId}`, { method: 'DELETE' }),
+
+  /**
+   * Puts a written-off backfill back to InProgress. Admin-only, and shared: the walk belongs to the
+   * ship every watcher shares, not to the caller's subscription. `fromPage` null means the ship's
+   * stored cursor — where its last run landed, which the halving retreat may have dragged well
+   * above where the walk actually read to.
+   */
+  restartBackfill: (shipId: number, fromPage: number | null) =>
+    request<BackfillRestarted>(`/admin/ships/${shipId}/backfill/restart`, {
+      method: 'POST',
+      body: JSON.stringify({ fromPage }),
+    }),
+
+  /**
+   * Sends a tag AO3 denied back through verification. Admin-only and shared, like the restart
+   * above: the check spends a request against a tag the archive has already refused, on behalf of
+   * everyone watching it. The schedule stays off until AO3 answers for the tag.
+   */
+  recheckVerification: (shipId: number) =>
+    request<VerificationRechecked>(`/admin/ships/${shipId}/verification/recheck`, { method: 'POST' }),
 
   getWorks: ({
     page,
@@ -149,7 +213,97 @@ export const api = {
     if (savedFilterId != null) query.set('savedFilterId', String(savedFilterId));
     if (useDefaultFilter !== undefined) query.set('useDefaultFilter', String(useDefaultFilter));
 
-    return request<PagedResult<WorkListItem>>(`/works?${query}`, undefined, hasArray('items'));
+    return request<PagedResult<WorkListItem>>(`/works?${query}`, undefined, isWorksPage);
+  },
+
+  /**
+   * Everything held about one work. 404s for a work no ship the caller follows carries, which is
+   * the same scoping the list applies rather than a separate rule about detail pages.
+   */
+  getWork: (workId: number) =>
+    request<WorkDetail>(`/works/${workId}`, undefined, isWorkDetail),
+
+  /**
+   * Replaces the caller's own state on one work. There is no patch: the server writes all three
+   * fields, so every caller sends the state it wants to hold, not the one field it touched.
+   */
+  setWorkState: (workId: number, state: SetWorkStateInput) =>
+    request<WorkState>(`/works/${workId}/state`, { method: 'PUT', body: JSON.stringify(state) }),
+
+  /**
+   * Everything this reader has asked for, newest first. Not scoped to what they still watch — a
+   * download is a request they made, and hiding one with its ship would strand the file.
+   */
+  getDownloads: () => request<Download[]>('/downloads', undefined, Array.isArray),
+
+  /**
+   * Asks for one format of one work, and answers with the request as it now stands. Idempotent per
+   * (reader, work, format): a second click reads back the first request rather than queueing a
+   * second fetch of identical bytes, so no caller needs to guard against one.
+   */
+  requestDownload: (workId: number, format: DownloadFormat) =>
+    request<Download>(`/works/${workId}/downloads`, {
+      method: 'POST',
+      body: JSON.stringify({ format }),
+    }),
+
+  deleteDownload: (id: number) => request<void>(`/downloads/${id}`, { method: 'DELETE' }),
+
+  /**
+   * Where the bytes live. A plain address rather than a `fetch`, because the browser's own
+   * download machinery is what should stream a file to disk — reading it through this client would
+   * buffer a whole PDF in the page to hand it straight back.
+   */
+  downloadFileUrl: (id: number) => `/api/downloads/${id}/file`,
+
+  /**
+   * The caller's notifications, newest first. `unreadOnly` narrows to what has not been marked
+   * read, which is the list a reader opening this page from a lit badge actually wants.
+   */
+  getNotifications: (
+    { unreadOnly, page, pageSize }: { unreadOnly?: boolean; page?: number; pageSize?: number } = {},
+  ) => {
+    const query = new URLSearchParams();
+    if (unreadOnly !== undefined) query.set('unreadOnly', String(unreadOnly));
+    if (page !== undefined) query.set('page', String(page));
+    if (pageSize !== undefined) query.set('pageSize', String(pageSize));
+
+    return request<PagedResult<ShipNotification>>(
+      `/notifications?${query}`,
+      undefined,
+      hasArray('items'),
+    );
+  },
+
+  /** The one number the shell polls for. */
+  getUnreadNotificationCount: () => request<UnreadNotifications>('/notifications/unread-count'),
+
+  /**
+   * Marks the named notifications read and answers with the count that survived. Ids the caller
+   * does not own match nothing rather than failing the request, so a stale list cannot 404 a click.
+   */
+  markNotificationsRead: (ids: number[]) =>
+    request<UnreadNotifications>('/notifications/mark-read', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    }),
+
+  /** Marks the caller's whole list read, and answers with the count that survived — zero. */
+  markAllNotificationsRead: () =>
+    request<UnreadNotifications>('/notifications/mark-all-read', { method: 'POST' }),
+
+  /**
+   * Two lenses over the caller's library. `shipId` narrows every figure to one watched ship and
+   * 404s on a ship they do not watch — the same scoping the works list applies.
+   *
+   * Sent key by key rather than from an object, for the reason `getWorks` gives: an omitted ship
+   * means the whole library, and `URLSearchParams` would send a null one as the string "null".
+   */
+  getStats: (shipId?: number | null) => {
+    const query = new URLSearchParams();
+    if (shipId != null) query.set('shipId', String(shipId));
+
+    return request<Stats>(`/stats?${query}`, undefined, isStats);
   },
 
   getSavedFilters: () => request<SavedFilter[]>('/saved-filters', undefined, Array.isArray),
@@ -192,6 +346,18 @@ export const api = {
     request<ScrapeRun[]>(`/scrape-jobs/${jobId}/runs`, undefined, Array.isArray),
 
   getScrapingIdentity: () => request<ScrapingIdentity>('/admin/scraping/identity'),
+
+  getInstanceAo3Credential: () =>
+    request<InstanceAo3Credential>('/admin/scraping/ao3-credential'),
+
+  setInstanceAo3Credential: (ao3Username: string, ao3Password: string) =>
+    request<InstanceAo3Credential>('/admin/scraping/ao3-credential', {
+      method: 'PUT',
+      body: JSON.stringify({ ao3Username, ao3Password }),
+    }),
+
+  removeInstanceAo3Credential: () =>
+    request<InstanceAo3Credential>('/admin/scraping/ao3-credential', { method: 'DELETE' }),
 
   updateScrapingIdentity: (operatorContact: string | null) =>
     request<ScrapingIdentity>('/admin/scraping/identity', {

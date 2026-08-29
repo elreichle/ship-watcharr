@@ -15,10 +15,87 @@ public static class ScrapeStopReason
     /// <summary>Spent the per-run wall-clock budget.</summary>
     public const string TimeCap = "timeCap";
 
-    /// <summary>Circuit breaker opened after too many consecutive failures.</summary>
+    /// <summary>
+    /// Circuit breaker opened after too many consecutive failures — the archive answering nothing
+    /// usable, MaxConsecutiveFailures times in a row, spaced by the shared 5-8s gate.
+    ///
+    /// A failed run, unlike the other two budget stops: <see cref="Cap"/> and <see cref="TimeCap"/>
+    /// are a run spending an allowance it was given. It is also counted by
+    /// <c>Ao3ShipIndexScraper.HeldAfterPageAsync</c>'s streak, because the walk re-asks a page that
+    /// fails at the transport level and so reaches a page it cannot get past by this reason rather
+    /// than by <see cref="Error"/>.
+    /// </summary>
     public const string Breaker = "breaker";
 
+    /// <summary>
+    /// The walk stopped short of a page that run after run has refused to answer, without asking
+    /// for it. Not a page that failed this run — a page this run deliberately did not spend a
+    /// request on, because the last several runs each spent one on it and got nothing back.
+    ///
+    /// That page can be page 1, in which case the run made no request at all: a tag the archive
+    /// 404s has no page any run of it ever read, and the hold is on the whole walk rather than on
+    /// its depth. See <see cref="NotFound"/> for what has to be true before the walk reads it that
+    /// way.
+    ///
+    /// Recorded as a failed run, because it is one: the pass could not get through the listing. It
+    /// is distinct from <see cref="Error"/> so that the walk can tell its own held runs apart from
+    /// the failures that caused them, which is what times the periodic re-probe — see
+    /// <c>Ao3ShipIndexScraper.HeldAfterPageAsync</c>. Like <see cref="Error"/>, and for the same
+    /// reason, it may never move the watermark.
+    /// </summary>
+    public const string Held = "held";
+
+    /// <summary>
+    /// The run made no request, because the tag it is for is one AO3 has denied. Distinct from
+    /// <see cref="LastPage"/>, which it used to be recorded as: that says the walk read to the end
+    /// of the listing, and this run never asked for a page of it. Nothing here can fix the ship, and
+    /// no scrape ever will: only an admin sending the tag back for checking
+    /// (<c>POST /api/admin/ships/{id}/verification/recheck</c>) moves a settled verification back to
+    /// Pending. So it is not <see cref="Held"/> either, which names a page the walk means to come
+    /// back to.
+    /// </summary>
+    public const string Denied = "denied";
+
+    /// <summary>
+    /// The archive answered 404 for the first page this run asked for, having read none — which is
+    /// the archive saying definitively that the page is not there, rather than failing to answer.
+    ///
+    /// Distinct from <see cref="Error"/>, which it used to be recorded as, because a run that read
+    /// nothing names no page and the two readings of that are opposite. A transport failure, a
+    /// refused status or the breaker opening on page 1 is the archive being unwell, and a walk that
+    /// concluded anything from those would stop scraping the whole instance for the length of an
+    /// outage. A 404 is not that. It is the only stop reason
+    /// <c>Ao3ShipIndexScraper.HeldAfterPageAsync</c> will build a streak on with no page behind it,
+    /// and so the one that lets a tag AO3 no longer serves stop being asked for every tick.
+    ///
+    /// A failure like <see cref="Error"/>, and for the same reason: the pass got nothing, and the
+    /// run history is the only place a headless worker reports itself.
+    /// </summary>
+    public const string NotFound = "notFound";
+
     public const string Error = "error";
+
+    /// <summary>
+    /// The process died mid-run, and startup reconciliation closed the row. Not a stop the walk can
+    /// choose — <c>ScrapeWorker.ReconcileInterruptedRunsAsync</c> is the only writer — but a value
+    /// that appears in <c>ScrapeRun.StopReason</c> like any other, and therefore one that anything
+    /// reading that column as a closed vocabulary has to know about. It was a bare string literal
+    /// until <see cref="Held"/> gave the column a reader.
+    /// </summary>
+    public const string Interrupted = "interrupted";
+
+    /// <summary>
+    /// Whether a run that stopped for this reason failed, and so must be recorded
+    /// <c>ScrapeRunStatus.Failed</c> rather than <c>Succeeded</c>.
+    ///
+    /// Here rather than inline at <c>ScrapeWorker</c>'s one call site because the run history is
+    /// read back as well as written: <c>Ao3ShipIndexScraper.HeldAfterPageAsync</c> reads these rows
+    /// to decide what it may ask for, and the test fixtures that arrange a run history have to
+    /// agree with the worker about which stops are failures or they arrange histories no instance
+    /// can produce. See the call site for why each value is on this list.
+    /// </summary>
+    public static bool RecordsAsFailure(string? stopReason) =>
+        stopReason is Error or Held or Denied or Breaker or NotFound;
 }
 
 /// <summary>

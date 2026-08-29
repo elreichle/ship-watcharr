@@ -198,12 +198,13 @@ public class Ao3InstanceCredentialStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Reads_a_password_encrypted_by_the_per_user_store()
+    public async Task Reads_a_password_encrypted_under_the_purpose_the_retired_per_user_store_used()
     {
-        // What the InstanceAo3Credential migration's carry-over relies on. It copies the per-user
-        // ciphertext across without decrypting it, which only works because both stores share one
-        // protector purpose — so if that string ever diverges, an operator who had already saved a
-        // credential silently has to re-enter it. This is the test that fails first if it does.
+        // The purpose string is written out here rather than read off the store, because what this
+        // pins is that it never changes. The InstanceAo3Credential migration copied per-user
+        // ciphertext across without decrypting it, so a credential saved before that migration is
+        // still readable today only while this exact string is in use. The per-user store itself is
+        // gone; the ciphertext it wrote is not.
         var protection = new ServiceCollection()
             .AddDataProtection()
             .SetApplicationName("Ao3Tracker")
@@ -212,26 +213,14 @@ public class Ao3InstanceCredentialStoreTests : IDisposable
             .BuildServiceProvider()
             .GetRequiredService<IDataProtectionProvider>();
 
-        string userId;
+        var carriedOver = protection.CreateProtector("Ao3Tracker.Ao3Credentials.v1").Protect("hunter2");
+
         await using (var db = NewContext())
         {
-            var user = new ApplicationUser { UserName = "emma", NormalizedUserName = "EMMA" };
-            db.Users.Add(user);
-            await db.SaveChangesAsync();
-            userId = user.Id;
-        }
-
-        await new Ao3CredentialStore(NewContext(), protection)
-            .SetCredentialAsync(userId, "scraper_account", "hunter2");
-
-        // The copy the migration performs, in one step: ciphertext moved, never decrypted.
-        await using (var db = NewContext())
-        {
-            var perUser = await db.Ao3Credentials.SingleAsync();
             db.Ao3InstanceCredentials.Add(new Ao3InstanceCredential
             {
-                Ao3Username = perUser.Ao3Username,
-                EncryptedPassword = perUser.EncryptedPassword,
+                Ao3Username = "scraper_account",
+                EncryptedPassword = carriedOver,
             });
             await db.SaveChangesAsync();
         }

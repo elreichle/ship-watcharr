@@ -25,11 +25,12 @@ WORKDIR /app
 # /app/data holds the SQLite db file (default provider), the Data Protection key ring,
 # and the admin-editable settings.json overlay — mount one volume there and the whole
 # instance is durable across container recreation.
-RUN adduser --disabled-password --home /app --gecos '' appuser \
-    && mkdir -p /app/data \
-    && chown -R appuser:appuser /app
-COPY --from=backend-build --chown=appuser:appuser /app/publish .
-USER appuser
+# The aspnet image already ships a non-root user `app` (uid/gid 1654) and carries no
+# adduser/useradd to make another with. /app/data is chowned here rather than at runtime
+# because a fresh named volume mounted over it inherits this directory's ownership.
+RUN mkdir -p /app/data && chown -R app:app /app
+COPY --from=backend-build --chown=app:app /app/publish .
+USER app
 
 ENV ASPNETCORE_URLS=http://+:8080 \
     ASPNETCORE_ENVIRONMENT=Production \

@@ -20,6 +20,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Captured AO3 markup, copied beside the test assembly so a parser test reads the page as it
+         was actually served. Parsers are built against these, never against remembered selectors. -->
+    <Content Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Ao3Tracker.Api\Ao3Tracker.Api.csproj" />
   </ItemGroup>
 

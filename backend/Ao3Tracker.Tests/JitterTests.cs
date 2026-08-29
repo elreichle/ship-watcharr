@@ -16,9 +16,12 @@ public class JitterTests
 
     private static RateLimitedAo3HttpClient Client(Ao3HttpClientOptions options) =>
         new(new HttpClient(),
+            new Ao3LoginHttpClient(new HttpClient()),
             new MemoryCache(new MemoryCacheOptions()),
             Options.Create(options),
             userAgents: null!,   // not reached: these tests exercise delay maths only
+            sessions: null!,     // likewise
+            TimeProvider.System,
             NullLogger<RateLimitedAo3HttpClient>.Instance);
 
     [Fact]
@@ -137,7 +140,7 @@ public class JitterTests
         var interval = TimeSpan.FromHours(6);
         var before = DateTime.UtcNow;
 
-        var runs = Enumerable.Range(0, 500).Select(_ => ScrapeWorker.NextRunAfter(interval)).ToList();
+        var runs = Enumerable.Range(0, 500).Select(_ => ScrapeWorker.NextRunAfter(interval, before)).ToList();
 
         var offsets = runs.Select(r => (r - before).TotalHours).ToList();
 

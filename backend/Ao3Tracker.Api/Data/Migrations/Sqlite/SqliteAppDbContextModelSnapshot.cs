@@ -17,47 +17,6 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
 
-            modelBuilder.Entity("Ao3Tracker.Api.Models.Ao3Credential", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Ao3Username")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("EncryptedPassword")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("EncryptedSessionCookie")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("SessionEstablishedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("SessionExpiresAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId")
-                        .IsUnique();
-
-                    b.ToTable("Ao3Credentials");
-                });
-
             modelBuilder.Entity("Ao3Tracker.Api.Models.Ao3InstanceCredential", b =>
                 {
                     b.Property<int>("Id")
@@ -119,7 +78,17 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("PseudNameNormalized")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UsernameNormalized")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
@@ -128,9 +97,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
 
                     b.HasIndex("DisplayNameNormalized");
 
-                    b.HasIndex("Username");
+                    b.HasIndex("UsernameNormalized");
 
-                    b.HasIndex("Username", "PseudName")
+                    b.HasIndex("UsernameNormalized", "PseudNameNormalized")
                         .IsUnique();
 
                     b.ToTable("Ao3Pseuds");
@@ -239,6 +208,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                     b.Property<byte>("Format")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("PreviousWorkDownloadFileId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime>("RequestedAt")
                         .HasColumnType("TEXT");
 
@@ -257,6 +229,8 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
 
                     b.HasKey("Id");
 
+                    b.HasIndex("PreviousWorkDownloadFileId");
+
                     b.HasIndex("WorkDownloadFileId");
 
                     b.HasIndex("WorkId");
@@ -265,6 +239,41 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                         .IsUnique();
 
                     b.ToTable("Downloads");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.Notification", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReadAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ShipId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("WorkId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ShipId");
+
+                    b.HasIndex("WorkId");
+
+                    b.HasIndex("UserId", "Id");
+
+                    b.HasIndex("UserId", "ReadAt");
+
+                    b.ToTable("Notifications");
                 });
 
             modelBuilder.Entity("Ao3Tracker.Api.Models.SavedWorkFilter", b =>
@@ -319,6 +328,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                     b.Property<int?>("MaxRating")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("MaxUserRating")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int?>("MaxWordCount")
                         .HasColumnType("INTEGER");
 
@@ -340,6 +352,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                     b.Property<int?>("MinRating")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("MinUserRating")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int?>("MinWordCount")
                         .HasColumnType("INTEGER");
 
@@ -347,6 +362,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
+
+                    b.Property<byte?>("ReadingStatus")
+                        .HasColumnType("INTEGER");
 
                     b.Property<int?>("ShipId")
                         .HasColumnType("INTEGER");
@@ -552,6 +570,12 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                     b.Property<int?>("BackfillNextPage")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("BackfillResumePage")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("BackfillStalledRuns")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime?>("BackfillStartedAt")
                         .HasColumnType("TEXT");
 
@@ -570,6 +594,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
+
+                    b.Property<int?>("FullSweepNextPage")
+                        .HasColumnType("INTEGER");
 
                     b.Property<DateTime?>("IncrementalWatermarkUtc")
                         .HasColumnType("TEXT");
@@ -858,6 +885,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                     b.Property<bool>("UpdatedAtIsApproximate")
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTime?>("UpdatedAtObservedAt")
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("Warnings")
                         .HasColumnType("INTEGER");
 
@@ -1106,19 +1136,13 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
-            modelBuilder.Entity("Ao3Tracker.Api.Models.Ao3Credential", b =>
-                {
-                    b.HasOne("Ao3Tracker.Api.Models.ApplicationUser", "User")
-                        .WithOne("Ao3Credential")
-                        .HasForeignKey("Ao3Tracker.Api.Models.Ao3Credential", "UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("Ao3Tracker.Api.Models.Download", b =>
                 {
+                    b.HasOne("Ao3Tracker.Api.Models.WorkDownloadFile", "PreviousFile")
+                        .WithMany()
+                        .HasForeignKey("PreviousWorkDownloadFileId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Ao3Tracker.Api.Models.ApplicationUser", "User")
                         .WithMany("Downloads")
                         .HasForeignKey("UserId")
@@ -1137,6 +1161,35 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                         .IsRequired();
 
                     b.Navigation("File");
+
+                    b.Navigation("PreviousFile");
+
+                    b.Navigation("User");
+
+                    b.Navigation("Work");
+                });
+
+            modelBuilder.Entity("Ao3Tracker.Api.Models.Notification", b =>
+                {
+                    b.HasOne("Ao3Tracker.Api.Models.Ship", "Ship")
+                        .WithMany()
+                        .HasForeignKey("ShipId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ao3Tracker.Api.Models.ApplicationUser", "User")
+                        .WithMany("Notifications")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ao3Tracker.Api.Models.Work", "Work")
+                        .WithMany()
+                        .HasForeignKey("WorkId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Ship");
 
                     b.Navigation("User");
 
@@ -1419,9 +1472,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
 
             modelBuilder.Entity("Ao3Tracker.Api.Models.ApplicationUser", b =>
                 {
-                    b.Navigation("Ao3Credential");
-
                     b.Navigation("Downloads");
+
+                    b.Navigation("Notifications");
 
                     b.Navigation("SavedWorkFilters");
 

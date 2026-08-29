@@ -4,21 +4,6 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Ao3Tracker.Api.Data.Configurations;
 
-public class Ao3CredentialConfiguration : IEntityTypeConfiguration<Ao3Credential>
-{
-    public void Configure(EntityTypeBuilder<Ao3Credential> entity)
-    {
-        entity.HasKey(c => c.Id);
-
-        entity.HasIndex(c => c.UserId).IsUnique();
-
-        entity.HasOne(c => c.User)
-            .WithOne(u => u.Ao3Credential)
-            .HasForeignKey<Ao3Credential>(c => c.UserId)
-            .OnDelete(DeleteBehavior.Cascade);
-    }
-}
-
 public class UserWorkStateConfiguration : IEntityTypeConfiguration<UserWorkState>
 {
     public void Configure(EntityTypeBuilder<UserWorkState> entity)
@@ -92,7 +77,48 @@ public class DownloadConfiguration : IEntityTypeConfiguration<Download>
             .HasForeignKey(d => d.WorkDownloadFileId)
             .OnDelete(DeleteBehavior.SetNull);
 
+        // The copy the reader still holds while a re-fetch is outstanding. SetNull for the same
+        // reason, and it is the same file table: what distinguishes the two references is which
+        // version of the work the request is reporting, not where the bytes live.
+        entity.HasOne(d => d.PreviousFile)
+            .WithMany()
+            .HasForeignKey(d => d.PreviousWorkDownloadFileId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         entity.HasIndex(d => new { d.UserId, d.WorkId, d.Format }).IsUnique();
         entity.HasIndex(d => d.WorkDownloadFileId);
+        entity.HasIndex(d => d.PreviousWorkDownloadFileId);
+    }
+}
+
+public class NotificationConfiguration : IEntityTypeConfiguration<Notification>
+{
+    public void Configure(EntityTypeBuilder<Notification> entity)
+    {
+        entity.HasKey(n => n.Id);
+
+        entity.HasOne(n => n.User)
+            .WithMany(u => u.Notifications)
+            .HasForeignKey(n => n.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // A merge deletes the synonym ship, and its notifications go with it. That is the right
+        // answer rather than a loss: the row said "this tag gained a work", and the tag it named
+        // has stopped existing. The work is still in the library under the canonical ship.
+        entity.HasOne(n => n.Ship)
+            .WithMany()
+            .HasForeignKey(n => n.ShipId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        entity.HasOne(n => n.Work)
+            .WithMany()
+            .HasForeignKey(n => n.WorkId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // The two reads this table has: one reader's list newest-first, and their unread count.
+        // Both are keyed on the owner first, which is also the whole of "whose notification is
+        // this" — see the remarks on Notification.
+        entity.HasIndex(n => new { n.UserId, n.Id });
+        entity.HasIndex(n => new { n.UserId, n.ReadAt });
     }
 }

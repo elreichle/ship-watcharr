@@ -22,6 +22,20 @@ public class Download
     public int? WorkDownloadFileId { get; set; }
     public WorkDownloadFile? File { get; set; }
 
+    /// <summary>
+    /// The copy the reader already has, while this request is out looking for a newer one.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="WorkDownloadFileId"/> because that one is the request's own answer
+    /// and may never name bytes of a version the work has moved past — a row saying Complete beside
+    /// an older file is worse than one saying Pending. This says something else, which that column
+    /// cannot: the reader is already holding these bytes, and a re-fetch that fails must not be
+    /// what takes them away. Set when a request is re-armed off a copy it was reporting, and
+    /// cleared the moment a replacement is on disk, since the copy it names is then superseded.
+    /// </remarks>
+    public int? PreviousWorkDownloadFileId { get; set; }
+    public WorkDownloadFile? PreviousFile { get; set; }
+
     public DownloadStatus Status { get; set; } = DownloadStatus.Pending;
     public string? ErrorMessage { get; set; }
 

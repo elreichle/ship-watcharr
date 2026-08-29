@@ -1,18 +1,28 @@
 # Ship Watcharr
 
 A self-hosted dashboard for tracking fanwork about the ships you follow, scraping on behalf of
-its users. Multiple people can register accounts on one instance; each user separately connects
-their own account on the site being scraped, so scrapes run as them.
+its users. Multiple people can register accounts on one instance; the deployment holds **one**
+login for the site being scraped, entered by an admin, because scraped data is shared — see
+[The AO3 login is instance-level](#the-ao3-login-is-instance-level).
 
 [Archive of Our Own](https://archiveofourown.org) is the first site supported, and the only one
 today — but the seams are deliberately per-site rather than AO3-shaped, so a second source is an
 `IAo3Scraper` sibling and a credential store, not a rewrite. See
 [Key seams for future work](#key-seams-for-future-work).
 
-**Status: scaffold.** The scraping pipeline is wired end-to-end — scheduling, budgets, rate
-limiting, persistence — but **no scraper is registered**, so nothing is ingested yet. Writing the
-AO3 parser is what comes next. Tag verification against AO3 is the one part that does make real
-requests today. See [Extending the scaffold](#extending-the-scaffold).
+**Status: it ingests, and the dashboard over it is built.** The scraping pipeline is wired
+end-to-end — scheduling, budgets, rate limiting, persistence — and the AO3 ship-index scraper runs
+under it in three passes: an incremental one bounded by the ship's watermark, a resumable backfill
+into the back catalogue, and a monthly full sweep, the only pass allowed to conclude a work has
+*left* a tag. Over that sit reading status, half-star ratings and private notes, per-work detail
+pages fetched from the work's own page, queued downloads, in-app notifications and per-ship
+statistics. `docker compose up --build` has been run and works — see
+[Running via Docker Compose](#running-via-docker-compose).
+
+A work the sweep finds has left every tag you follow drops out of your feed, your saved filters'
+counts and your statistics — and stays open, writable and downloadable by id, so a sweep that
+marks one wrongly never costs you a rating, a note or a file. Anything you have marked stays
+listed either way, badged with the tag that let go.
 
 ## What this is for
 
@@ -40,34 +50,27 @@ reach about it.
 
 **What it does today.** Follow and unfollow relationship tags, with each one verified against AO3
 after the fact and synonyms folded into their canonical tag. Browse a paginated, sortable library
-of everything scraped for the ships you follow. Save named filter sets — AO3's filter sidebar,
-kept and reusable — and mark one as the default. See the scrape schedule behind each ship.
+of everything scraped for the ships you follow, and open any work's own page — including the
+publication date and complete tag list a listing blurb does not carry, fetched from the archive
+once and stored. Mark a work To read / Reading / Read / Dropped, rate it in half-stars, and keep
+a private note on it — none of which a
+re-scrape can overwrite. Save named filter sets — AO3's filter sidebar, kept and reusable,
+including criteria over your own reading status and rating — and mark one as the default. Request
+a work as EPUB/MOBI/PDF/HTML and have the server queue and fetch it, serving a copy it already
+holds at the current version without touching AO3. Get in-app notifications when a followed ship
+gains a work. Read statistics over a ship's corpus with your own reading laid over it. See the
+scrape schedule behind each ship, and what each one's periodic full re-read of its listing is
+doing.
 
 **Planned.** In no particular order:
 
-- **Per-work detail fetches** — the data a blurb doesn't carry, such as publication date and the
-  complete tag list, fetched from the work's own page and tracked by `Work.DetailFetchedAt` /
-  `Work.PublishedAt`.
-- **A Statistics tab** — one view with two lenses over the same works: the corpus as it stands
-  (a ship's size over time, rating mix, kudos and hits distributions, most prolific authors) with
-  your own reading laid over it (how much of a ship you've read, your ratings against the
-  archive's reception). The only planned item with no schema behind it yet.
-- **Notifications** when a watched ship gains new or updated works — `WatchedShip.NotificationsEnabled`
-  is the switch already modelled for it.
-- **Downloads** — works saved as files under the data directory, modelled by `Download` (your
-  request) over `WorkDownloadFile` (the shared file on disk, keyed by work, format and work
-  version, so a re-download after an update doesn't overwrite the copy you have).
 - **A second source beyond AO3.** The seams are already per-site rather than AO3-shaped; see
   [Key seams for future work](#key-seams-for-future-work).
 
-Every entity named above already exists, with its migration applied — what's missing is the
-scraping that would fill those tables and the UI over them. Statistics is the exception, and
-starts from nothing.
-
 **Non-goal: it never writes to AO3.** It reads. It will not leave kudos, comments or bookmarks,
 subscribe to anything, or post on your behalf, even though it holds a logged-in session that
-could do all four. The account you connect is for reading pages that require being logged in,
-and nothing else.
+could do all four. The account the instance logs in as is for reading pages that require being
+logged in, and nothing else.
 
 ## Architecture
 
@@ -84,10 +87,12 @@ and nothing else.
   1. *Dashboard login* — cookie-based ASP.NET Core Identity, multi-user, with one user
      flaggable as admin (`ApplicationUser.IsAdmin`; the first registered account gets it
      automatically).
-  2. *AO3 credentials* — each user's own AO3 username/password, stored per-user, encrypted at
-     rest with the Data Protection API, and never returned to the client after saving. The
-     encrypted session cookie AO3 issues after login is stored separately from the password,
-     so re-scraping doesn't require re-entering it every run.
+  2. *The AO3 login* — one username/password for the whole deployment (`Ao3InstanceCredential`,
+     a single row held to one by a check constraint), saved by an admin under **System →
+     Scraping**, encrypted at rest with the Data Protection API, and never returned to the client
+     after saving. The encrypted session cookie AO3 issues after login is cached beside it, so
+     re-scraping doesn't require logging in every run — but the password is the durable source of
+     truth, never the cookie. See [The AO3 login is instance-level](#the-ao3-login-is-instance-level).
 
 ### Key seams for future work
 
@@ -101,7 +106,7 @@ something site-neutral is worth doing at the point a second scraper actually lan
 | Scraper implementation | `IAo3Scraper` | `backend/Ao3Tracker.Api/Services/Scraping/IAo3Scraper.cs` |
 | Tag existence / synonyms | `IShipVerifier` | `backend/Ao3Tracker.Api/Services/Scraping/ShipVerifier.cs` |
 | Scraper HTTP access | `IRateLimitedHttpClient` | `backend/Ao3Tracker.Api/Services/Scraping/IRateLimitedHttpClient.cs` |
-| AO3 credential storage | `IAo3CredentialStore` | `backend/Ao3Tracker.Api/Services/Credentials/IAo3CredentialStore.cs` |
+| AO3 credential storage | `IAo3InstanceCredentialStore` | `backend/Ao3Tracker.Api/Services/Credentials/IAo3InstanceCredentialStore.cs` |
 | DB provider selection | `Database:Provider` branch | `backend/Ao3Tracker.Api/Program.cs` |
 
 ## Respectful scraping — read this before adding real scrapers
@@ -154,6 +159,26 @@ exists, without a restart. On a new instance that means saving one: either an em
 **Settings → Account**, or a contact under **System → Scraping**. Registering an admin is not
 enough on its own, because sign-up never asks for an address.
 
+### The AO3 login is instance-level
+
+There is one AO3 login per deployment, not one per user. Scraped work metadata is shared by
+everyone on the instance, so a per-user credential has no answer for whose session a shared scrape
+should log in with — ten watchers of one ship would still be one set of fetches, made as somebody.
+An admin saves it under **System → Scraping**; it is stored as a single `Ao3InstanceCredential`
+row, held to one by a check constraint.
+
+The password is the durable source of truth, Data-Protection-encrypted. The session cookie AO3
+issues is cached beside it and is only ever a cache: losing it costs one login, not the credential.
+Nothing reads either back out — every response from `/api/admin/scraping/ao3-credential` is status
+(who is configured, whether a session is cached), so a stolen dashboard session cannot exfiltrate
+the login.
+
+**With no login stored, scraping is held** — due jobs are left unrun rather than failed, nothing is
+recorded against them, and the Ships page says so instead of showing an unexplained empty library.
+Like the operator-contact gate above, it is re-checked every poll, so saving a login starts the
+scraping on the next tick without a restart. The two gates are separate concerns: the contact is
+how requests are *attributed*, the login is what they are *authorised* as.
+
 ## Data model
 
 The model splits into **global** scraped data, stored once and shared by everyone, and
@@ -171,18 +196,21 @@ Global (scraped from AO3):
   watermark, backfill cursor, full-sweep timestamps.
 - `ShipWorks` — "this work appeared in this ship's listing". Separate from tags because AO3 tag
   synonyms mean a work returned by the canonical tag may not carry it in its own blurb.
+  `MissingSinceAt` is when a full sweep first walked the whole listing without seeing it.
+- `Ao3InstanceCredentials` — the one AO3 login this deployment scrapes as, held to a single row by
+  a check constraint. `EncryptedPassword` + `EncryptedSessionCookie` are Data-Protection-encrypted,
+  never plaintext, never serialized back to the client. Instance-wide, not per-user.
 - `WorkDownloadFiles` — downloaded files on disk, keyed by (work, format, work version).
 
 Per-user:
 
 - `Users` / `AspNetUsers` — ASP.NET Identity, plus `IsAdmin`.
-- `Ao3Credentials` — one row per user; `EncryptedPassword` + `EncryptedSessionCookie` are
-  Data-Protection-encrypted, never plaintext, never serialized back to the client.
 - `WatchedShips` — a user's subscription to a `Ship`. Owns no scrape state, so adding or
   removing a watcher never affects what has been scraped.
 - `UserWorkStates` — reading status, half-star rating (1–10, check-constrained), free-text note.
   Kept strictly apart from `Works` so re-scrapes can overwrite metadata without touching it.
 - `Downloads` — a user's request for a file, pointing at a shared `WorkDownloadFile`.
+- `Notifications` — one per watcher per work a followed ship gained, with the read timestamp.
 - `SavedWorkFilters` / `SavedWorkFilterTags` / `SavedWorkFilterAuthors` — a named, reusable set of
   criteria, with its included/excluded tags and included authors. Every criterion is its own typed
   column rather than a serialized blob, because each one maps 1:1 onto a column of `Works` the
@@ -200,25 +228,30 @@ Scheduling:
 ## Interface: Sonarr-style navigation, Obsidian-compatible themes
 
 Navigation is a collapsible left sidebar, following Sonarr/Radarr's split — the library under
-**Dashboard** (Works, Filters, Ships, Schedules), per-user preferences under **Settings** (Account,
-Appearance), instance-wide administration under **System** (Scraping, Database). The hamburger
+**Dashboard** (Works, Notifications, Filters, Ships, Downloads, Statistics, Schedules), per-user
+preferences under **Settings** (Account, Appearance), instance-wide administration under
+**System** (Scraping, Database). The hamburger
 collapses it to a 48px icon rail where groups open as flyouts; below 700px it becomes an overlay
 drawer. The choice is remembered per browser.
 
-The four Dashboard views are one story told in four places:
+The Dashboard views are one story told in several places:
 
 | View | What it is | Endpoint |
 |---|---|---|
-| **Works** | Paginated, sortable list of everything scraped for the ships you follow | `GET /api/works` |
+| **Works** | Paginated, sortable list of everything scraped for the ships you follow, each row carrying your own state; a row opens a per-work detail page | `GET /api/works`, `GET /api/works/{id}`, `GET`/`PUT /api/works/{id}/state` |
+| **Notifications** | What your followed ships have gained, marked read per row or all at once | `GET /api/notifications`, `GET /api/notifications/unread-count`, `POST /api/notifications/mark-read`, `POST /api/notifications/mark-all-read` |
 | **Filters** | Named, reusable sets of criteria — AO3's filter sidebar, saved | `GET`/`POST`/`PUT`/`DELETE /api/saved-filters` |
-| **Ships** | Follow and unfollow relationship tags | `GET`/`POST`/`DELETE /api/ships` |
+| **Ships** | Follow and unfollow relationship tags, and what each one's scrape is doing — the back-catalogue walk, and the periodic full re-read that finds works which have left the tag | `GET`/`POST`/`DELETE /api/ships` |
+| **Downloads** | Files you have asked the server to fetch, what became of each request, and the file itself once it lands | `GET /api/downloads`, `POST /api/works/{id}/downloads`, `GET /api/downloads/{id}/file`, `DELETE /api/downloads/{id}` |
+| **Statistics** | A ship's corpus with your own reading laid over it, computed by query and stored nowhere | `GET /api/stats` |
 | **Schedules** | Read-only view of the scrape schedule behind each ship | `GET /api/scrape-jobs` |
 
 Following a tag creates the shared `Ship` if this instance has never seen it, subscribes you, and
 enables one `ScrapeJob` for it. Unfollowing removes *only* your subscription — the ship, its works
 and its run history stay for whoever else is watching, and the schedule switches off only when the
-last watcher leaves. On this build nothing is registered under the job's scraper key, so the Ships
-view says so rather than leaving you with a permanently empty library and no explanation.
+last watcher leaves. If nothing is registered under the job's scraper key — or the instance has no
+AO3 login yet — the Ships view says so, rather than leaving you with a permanently empty library
+and no explanation.
 
 ### Saved filters apply to the works list, and count against it
 
@@ -403,10 +436,18 @@ docker compose up --build
 ```
 
 The app is published at `http://localhost:8080` (or `$APP_PORT`), running on SQLite with no
-further setup. Everything the instance needs to persist — the SQLite db, the Data Protection
-key ring, and admin-configured settings — lives in the `app-data` named volume. **Do not
-delete it**, or every stored AO3 credential becomes unrecoverable and users will need to
-re-enter theirs.
+further setup. Migrations run on first boot, so there is no setup step between `up` and
+registering the first account — which becomes the admin.
+
+Everything the instance needs to persist — the SQLite db, the Data Protection key ring, the
+instance id, and the admin-editable `settings.json` — lives in the `app-data` named volume, owned
+by the image's non-root `app` user (uid 1654). **Do not delete it**: the stored AO3 login is
+encrypted with the key ring in it, so losing the volume loses the login along with every account
+and everything scraped.
+
+Note that `settings.json` deliberately wins over environment variables — a choice saved through
+the admin UI is the source of truth until it is changed there again. Setting `AO3_OPERATOR_CONTACT`
+in `.env` therefore has no effect once a contact has been saved under **System → Scraping**.
 
 To pre-configure PostgreSQL from first boot instead of using the admin UI (for people who
 know they want Postgres and don't want to click through settings), add the override file and
@@ -431,7 +472,13 @@ same double-underscore env var convention EF/ASP.NET Core uses, e.g. `Ao3HttpCli
 
 ## Extending the scaffold
 
-To add a real AO3 scraper:
+`Ao3ShipIndexScraper` is the worked example of everything below — it claims
+`Ao3ScraperKeys.ShipIndex`, and splits into three pieces on purpose: `Ao3BlurbParser` (HTML in,
+records out — no HTTP, no database, no clock), `WorkIngestor` (records in, rows out), and the
+scraper itself, which owns only the walking and the stopping rules. A second source should keep
+that split; it is what makes the parser testable against captured markup.
+
+To add another scraper:
 1. Implement `IAo3Scraper` in `Services/Scraping/`, using `IRateLimitedHttpClient` for all HTTP
    access — never a raw `HttpClient`, or the request goes out without rate limiting or the
    instance's User-Agent.
@@ -443,13 +490,30 @@ To add a real AO3 scraper:
 4. A `ScrapeJob` is created per ship the moment someone follows the tag, with its `ScraperKey`
    set to `Ao3ScraperKeys.ShipIndex` (`"ao3-ship-index"`). Return that same string from your
    scraper's `Key` and every job already sitting in the database starts running — no migration,
-   no re-following. Until then the worker logs one "unknown scraper key" warning per due tick and
-   reschedules. Registered keys are exposed at `GET /api/scrape-jobs/scrapers`.
+   no re-following. A key nothing claims makes the worker log one "unknown scraper key" warning
+   per due tick and reschedule a whole interval out, which looks exactly like a job that is
+   quietly doing nothing. Registered keys are exposed at `GET /api/scrape-jobs/scrapers`.
 
-## Note on this scaffold's testing
+## Note on this project's testing
 
-`docker compose up` has still not been run — review the Dockerfile/compose files before relying
-on them.
+`docker compose up --build` has been run, on a clean volume, and works: the image builds, the
+container boots, migrations apply on first boot, the built frontend is served from `wwwroot`, and
+an admin can register, set an operator contact, save the instance AO3 login and follow a ship. A
+`docker compose down && docker compose up` then finds the account, the session cookie, the
+followed ship, the saved contact and the AO3 login all still there — the login decrypted and used
+by the scrape worker on the next poll, which is what proves the Data Protection key ring survived
+the recreate rather than merely that a row did. The `app-data` volume was confirmed by looking
+inside the recreated container, not by reading the compose file: `ao3tracker.db`, `keys/`,
+`settings.json` and `instance-id`, all owned by `app`.
+
+Two things that run made it work and are worth knowing about. The runtime image ships a non-root
+`app` user and carries no `adduser`, so the Dockerfile uses the one it has. And there is now a
+`.dockerignore`: without it the build context was 456 MB and `COPY backend/ ./backend/` copied a
+running instance's `appdata/` — a real SQLite database and its key ring — straight into the image.
+
+That run used a throwaway AO3 login pointed at a closed local port
+(`Ao3HttpClient__BaseUrl`), so no fabricated credential was ever sent to the archive. Nothing in
+this project's testing has ever made a request to AO3.
 
 The entity model and both migration histories *have* been verified for real. The SQLite
 migration applies and the app boots on it; the PostgreSQL migration was applied against an
@@ -457,9 +521,10 @@ actual `postgres:17-alpine` instance, confirming the 23 tables of the schema as 
 that the half-star rating check constraint translates on both providers, and that every timestamp
 lands as `timestamp with time zone`.
 
-That check predates the saved-filter migration, which added three tables — the model is at 26
-now, and the PostgreSQL history has not been re-applied against a real server since. The SQLite
-one has.
+That check is now several migrations old: a fresh SQLite instance created by `docker compose up`
+applies 10 migrations and lands 27 application tables (29 with EF's two bookkeeping ones), and the
+PostgreSQL history has not been re-applied against a real server since. The SQLite one has, most
+recently inside the container.
 
 The politeness layer has unit tests (`backend/Ao3Tracker.Tests`) covering the budget and
 breaker, the jitter bounds — including that a `Max < Min` misconfiguration clamps to `Min`

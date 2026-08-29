@@ -344,6 +344,55 @@ public class ShipsControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task Reports_the_sweep_a_ship_is_in_the_middle_of()
+    {
+        // A sweep in flight beats the incremental pass on every tick until it reaches the end of
+        // the listing, so a ship can go days collecting no new works. The cursor is the whole of
+        // "is this ship being swept", and it lived nowhere a watcher could see it.
+        var emma = _host.SeedUser();
+        var shipId = Created(await _host.Ships(emma).WatchShip(new("Clarke Griffin/Lexa"), default)).ShipId;
+        var startedAt = new DateTime(2026, 8, 1, 9, 0, 0, DateTimeKind.Utc);
+
+        await using (var db = _host.NewContext())
+        {
+            var ship = await db.Ships.SingleAsync(s => s.Id == shipId);
+            ship.LastFullSweepStartedAt = startedAt;
+            ship.FullSweepNextPage = 12;
+            await db.SaveChangesAsync();
+        }
+
+        var listed = List(await _host.Ships(emma).GetWatchedShips(default)).Single();
+
+        Assert.Equal(12, listed.FullSweepNextPage);
+        Assert.Equal(startedAt, listed.LastFullSweepStartedAt);
+
+        // The sweep has not concluded anything, and the page has to be able to tell that apart from
+        // one that walked the listing to its end.
+        Assert.Null(listed.LastFullSweepCompletedAt);
+    }
+
+    [Fact]
+    public async Task Reports_the_last_sweep_of_a_ship_not_being_swept()
+    {
+        var emma = _host.SeedUser();
+        var shipId = Created(await _host.Ships(emma).WatchShip(new("Clarke Griffin/Lexa"), default)).ShipId;
+        var completedAt = new DateTime(2026, 8, 2, 9, 0, 0, DateTimeKind.Utc);
+
+        await using (var db = _host.NewContext())
+        {
+            var ship = await db.Ships.SingleAsync(s => s.Id == shipId);
+            ship.LastFullSweepStartedAt = completedAt.AddHours(-3);
+            ship.LastFullSweepCompletedAt = completedAt;
+            await db.SaveChangesAsync();
+        }
+
+        var listed = List(await _host.Ships(emma).GetWatchedShips(default)).Single();
+
+        Assert.Null(listed.FullSweepNextPage);
+        Assert.Equal(completedAt, listed.LastFullSweepCompletedAt);
+    }
+
+    [Fact]
     public async Task Reports_that_no_scraper_can_run_the_schedule()
     {
         // Honest about this build: jobs are scheduled, but nothing is registered under
@@ -389,6 +438,20 @@ public class ShipsControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task Reports_whether_an_ao3_login_is_configured()
+    {
+        // What the Ships page's held-scraping banner reads. Every user gets it, admin or not: the
+        // empty library is visible to all of them, so the reason has to be too.
+        var emma = _host.SeedUser();
+
+        Assert.False(Envelope(await _host.Ships(emma).GetWatchedShips(default)).Ao3LoginConfigured);
+
+        await _host.SaveAo3LoginAsync();
+
+        Assert.True(Envelope(await _host.Ships(emma).GetWatchedShips(default)).Ao3LoginConfigured);
+    }
+
+    [Fact]
     public async Task Reports_an_available_scraper_once_one_is_registered()
     {
         using var host = new LibraryTestHost(new StubScraper(Ao3ScraperKeys.ShipIndex));
@@ -396,6 +459,31 @@ public class ShipsControllerTests : IDisposable
         Created(await host.Ships(emma).WatchShip(new("Clarke Griffin/Lexa"), default));
 
         Assert.True(List(await host.Ships(emma).GetWatchedShips(default)).Single().ScraperAvailable);
+    }
+
+    [Fact]
+    public async Task Reports_where_the_backfill_stands_and_how_long_it_has_been_stuck()
+    {
+        // "Backfill failed" on its own tells an operator nothing they can act on. The page they are
+        // told to fix it from needs the page it gave up at and the streak behind it, and the run
+        // history is the only other place either number lives.
+        var emma = _host.SeedUser();
+        var shipId = Created(await _host.Ships(emma).WatchShip(new("Clarke Griffin/Lexa"), default)).ShipId;
+
+        await using (var db = _host.NewContext())
+        {
+            var ship = await db.Ships.SingleAsync(s => s.Id == shipId);
+            ship.BackfillState = ShipBackfillState.Failed;
+            ship.BackfillNextPage = 40;
+            ship.BackfillStalledRuns = 12;
+            await db.SaveChangesAsync();
+        }
+
+        var listed = List(await _host.Ships(emma).GetWatchedShips(default)).Single();
+
+        Assert.Equal("Failed", listed.BackfillState);
+        Assert.Equal(40, listed.BackfillNextPage);
+        Assert.Equal(12, listed.BackfillStalledRuns);
     }
 
     // ---- fixture -------------------------------------------------------------------------------
