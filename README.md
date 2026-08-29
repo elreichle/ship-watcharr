@@ -522,7 +522,7 @@ that the half-star rating check constraint translates on both providers, and tha
 lands as `timestamp with time zone`.
 
 That check is now several migrations old: a fresh SQLite instance created by `docker compose up`
-applies 10 migrations and lands 27 application tables (29 with EF's two bookkeeping ones), and the
+applies 13 migrations and lands 27 application tables (29 with EF's two bookkeeping ones), and the
 PostgreSQL history has not been re-applied against a real server since. The SQLite one has, most
 recently inside the container.
 
