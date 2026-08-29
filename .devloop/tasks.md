@@ -175,7 +175,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   have it read as "not fetched yet" rather than as empty or absent.
 
 ## T10 — Per-work detail fetch
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: T51 only. T9 is done, and **the fixture has landed**:
   `backend/Ao3Tracker.Tests/Fixtures/ao3-work-page.html`, saved by Emma on 2026-08-24 — work

@@ -685,3 +685,26 @@ twenty on page 1, every filter facet up by the same tenth. So the premise holds 
 **Rejected: retiring it as dead code.** It is unreachable *because* AO3 withholds those works, which
 is the assumption `LastKnownTotalWasAuthenticated` is built on — so the branch is precisely the
 alarm for the day that stops being true, and the day it fires is the day the flag goes wrong.
+
+## T10 — the detail fetch is a worker of its own, not an `IAo3Scraper`
+
+The task's notes asked for a new `IAo3Scraper` with a key in `Ao3ScraperKeys`, "registered in
+`Program.cs`, no scheduling changes". Unrunnable as written: `ScrapeJob` has a unique index on
+`ShipId`, and the only two writers create one job per ship always carrying `ShipIndex`, so a second
+key is never scheduled. Rejected the alternative — a composite unique key, two migrations, both job
+writers and ~10 tests — because it is also the wrong scope: a work's published date and tag list are
+per-work facts shared by every ship carrying the work, and a ship-scoped pass re-asks per tag.
+`WorkDetailWorker` is a sibling of `ScrapeWorker`/`DownloadWorker` behind the same gate, session and
+rate gate; no schema change.
+
+## T10 — a page this pass cannot read writes nothing, and is written off after three
+
+Selection is deterministic and only a read removes a work from the backlog, so an unreadable page
+would be re-asked every pass for ever — ten of them starve the feature, three answering non-OK trip
+the breaker and stop every pass. `WorkDetailAttempts` (in-memory, forgotten on restart, as
+`DownloadWorker`'s counter is) writes a work off after three unreadable *answers*; transport failures
+are the breaker's business and never counted. A tagless work page counts as unreadable rather than
+being stamped: `DetailFetchedAt` also puts the listing pass into add-only mode, so stamping one would
+leave no source that may ever drop a tag. A 404 is recorded as a success against the budget — it is
+the conclusive answer the pass exists to record.
+

@@ -658,3 +658,16 @@ Append-only. One entry per iteration, newest last.
 - ran: `~Restricted` → 5 (**2 before**); `dotnet test` → 888 (885); build + lint clean.
 - commit: 7059218; ad26602 redacts username + CSRF from all four fixtures
 - next: **T10**, unblocked by T51. The shell has network now; `spec.md`'s "no network" line is stale.
+
+## 2026-08-29 — T10 Per-work detail fetch — done
+
+- did: A parser for a work's own page, a pass spending one request per work on the backlog
+  (never-fetched, then revised-since), an ingest that reconciles tags — that page is the complete
+  observation T51 defers to — and a worker behind the ship walk's gate. **Not an `IAo3Scraper`**: a
+  `ScrapeJob` is one row per ship, so a new key is never scheduled (DECISIONS).
+- files: `Scraping/{Ao3WorkPageParser,Ao3WorkDetailScraper,WorkDetail{Worker,Attempts},WorkIngestor}.cs`,
+  `Models/Work.cs`, `Program.cs`, `DownloadFetcher.cs`, `Tests/Ao3WorkPage*`
+- ran: `~Ao3WorkPage` → 36 (**0 before**); `dotnet test` → 924 (888); build + lint clean; booted on
+  :5348. 8 mutations, each red in one place.
+- commit: 9dd0781
+- next: **T53**. Review: 5 in-diff, all fixed — chiefly an unreadable page starving the backlog.
