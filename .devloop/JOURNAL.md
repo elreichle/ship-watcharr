@@ -694,3 +694,15 @@ Append-only. One entry per iteration, newest last.
 - commit: d480e43
 - next: **T55**. The else arm also marks a *preserved* exact date approximate — asserted as current
   behaviour, written up in `BACKLOG.md`. No review: 77 lines, one new test file, no source touched.
+
+## 2026-08-29 — T55 A failed credential fetch leaves the AO3 login block loading forever — done
+
+- did: The AO3-login read got its own error state, kept apart from the form's `loginError`, rendered
+  with a `Try again` button in place of the spinner — `credential === null` was the only "not loaded"
+  signal and a rejected fetch never clears it, so a failed read showed an error *and* "Loading…".
+- files: `frontend/src/pages/AdminScrapingPage.tsx`
+- ran: `npm run build` → clean; `npm run lint` → the 2 known fast-refresh warnings; `dotnet test` →
+  930 passed. No live browser check: the entry carries no `verify: live` line.
+- commit: d4778fe
+- next: **T56**. `DownloadsPage`/`ShipsPage` have the identical defect (other pages guard theirs with
+  `!error &&`) — one line in `BACKLOG.md`, not folded in. No review: 27 lines, one file.

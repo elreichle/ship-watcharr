@@ -1397,7 +1397,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   the guard. Assert `UpdatedAtIsApproximate` too, since the same branch sets it.
 
 ## T55 — A failed credential fetch leaves the AO3 login block loading forever
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: The instance-AO3-login block reports a failed load the way the identity block above it
