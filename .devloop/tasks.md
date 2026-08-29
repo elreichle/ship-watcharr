@@ -1446,7 +1446,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   connection, so there is no seam to open the window. Say what was done about that either way.
 
 ## T57 — The feed's note editor drops text typed while a save is in flight
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: Text typed into a Works row's note editor after Save was pressed survives the write,

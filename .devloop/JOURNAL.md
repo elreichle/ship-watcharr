@@ -718,3 +718,14 @@ Append-only. One entry per iteration, newest last.
 - commit: 821c301
 - next: **T57**. `code-review medium` found 3 (all low, all folded in: an XML doc block that had
   drifted onto the wrong member, the clear-path hole above, a transaction caveat on the new seam).
+
+## 2026-08-29 — T57 The feed's note editor drops text typed while a save is in flight — done
+
+- did: `commitNote` captures a touch counter — bumped by typing in, opening, or closing any note
+  editor — and resets nothing if it moved during the write; `showNoteEditor` is the only door onto
+  `openNoteId`. Text typed after Save was replaced by the sent copy, and a reopened editor was shut.
+- files: `frontend/src/pages/WorksPage.tsx`
+- ran: `npm run build` → clean; `npm run lint` → the 2 known warnings; `dotnet test` → 934 passed
+- commit: 6c28ad5
+- next: **T58**. One counter, not the detail page's `draft === sent`: that guard cannot see the
+  close/reopen symptom, which is the second half of this task's `delivers`. 45 lines, review skipped.
