@@ -94,3 +94,8 @@ A human promotes an item into `tasks.md` between runs; the loop only adds here.
 - `ScrapeBudget.CanContinue` returns on the breaker before evaluating the cap checks, which are what
   set `HitRequestCap`/`HitTimeCap`. A run that spent its allowance on the iteration the breaker
   opened reports `Breaker` with both flags false. (T82's review.)
+- `ShipsController.EnsureScheduledAsync` schedules any ship whose verification is not `NotFoundOnAo3`,
+  so a follow arriving while a tag is unverified enables its job and wakes the worker — a typo'd tag
+  is walked before AO3 answers, and after T83 a rechecked one is too. Accept-on-trust as designed;
+  keying on `== Verified` would change what following an unknown tag does, so it is a decision, not a
+  fix. (T83's review.)

@@ -304,3 +304,16 @@ Append-only. One entry per iteration, newest last.
 - next: **T83** — and its notes are now half-answered: review found a denied ship is also pinned in
   whatever pass it was in, since the `Denied` return sits above `FinishAsync`. All 5 findings were
   outside this diff → BACKLOG.
+
+## 2026-08-29 — T83 A tag AO3 denied stays denied for ever — done
+
+- did: `POST /api/admin/ships/{id}/verification/recheck` puts a `NotFoundOnAo3` ship back to
+  `Pending` — admin-only, refused for any other state and for a ship nobody follows. `ShipVerifier`
+  re-enables the schedule the denial took away, in one `ExecuteUpdateAsync` whose WHERE carries the
+  watcher check so an unfollow cannot race it.
+- files: `Api/{Controllers/AdminShipsController,Dtos/ShipDtos}.cs`, `Api/Services/Scraping/
+  {ShipVerifier,Ao3ShipIndexScraper,ScrapeBudget}.cs`, `Tests/ShipVerifierTests.cs`, 4 in `frontend/`
+- ran: `~Verif` → 39 (3 mutations, 1 survived); `dotnet test` → 989; build clean; lint → 2 known.
+- commit: 5f01443
+- next: **T84**. Review's stale-advice finding fixed here; its first — a follow schedules any
+  unverified ship — is by design → BACKLOG.
