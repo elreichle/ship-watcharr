@@ -82,6 +82,7 @@ public class ShipsController : ControllerBase
                 w.RequestedTagName,
                 w.Ship.BackfillState,
                 w.Ship.BackfillNextPage,
+                w.Ship.BackfillResumePage,
                 w.Ship.BackfillStalledRuns,
                 w.Ship.VerificationState,
                 w.Ship.VerificationError,
@@ -118,6 +119,7 @@ public class ShipsController : ControllerBase
             r.VerificationError,
             r.RequestedTagName,
             r.BackfillNextPage,
+            r.BackfillResumePage,
             r.BackfillStalledRuns))];
     }
 

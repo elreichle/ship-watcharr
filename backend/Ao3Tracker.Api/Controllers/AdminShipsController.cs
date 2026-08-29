@@ -99,12 +99,17 @@ public class AdminShipsController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
-        // Where the *last run landed*, which is not the same as how deep the walk ever got: a ship on
-        // its way to Failed has had JumpCursorBackFrom halve its cursor once per run, so one written
-        // off after an outage at page 40 usually ends up parked at page 1. It is still the honest
-        // default — it is the only page this instance records — but it is the reason the choice
-        // exists, and the reason nothing here claims it is the page AO3 refused.
-        var fromPage = request.FromPage ?? ship.BackfillNextPage ?? 1;
+        // Where the walk got to, not where it retreated to. `BackfillNextPage` is where the *last
+        // run landed*, and a ship on its way to Failed has had JumpCursorBackFrom halve it once per
+        // stalled run — 39, 20, 10, 5, 2, 1 — so one written off after an outage at page 39 is
+        // parked at page 1, and defaulting to that would re-walk thirty-nine pages at the shared 5-8
+        // second gate for pages AO3 has already served. Nothing but a restart lowers
+        // `BackfillResumePage`, which is what makes it the honest default. It resumes *on* that page
+        // rather than after it: the page carrying the next link into unread listing is the one worth
+        // re-reading, and one page is a cheap thing to spend for that.
+        //
+        // The cursor is still the fallback, for a ship written off before any run read a page.
+        var fromPage = request.FromPage ?? ship.BackfillResumePage ?? ship.BackfillNextPage ?? 1;
 
         // Dropped unconditionally, not only when the cursor moves back. The floor is the oldest work
         // a *contiguous* walk has reached, and TrackBackfillFloor reports anything newer as the
@@ -119,6 +124,18 @@ public class AdminShipsController : ControllerBase
         ship.BackfillState = ShipBackfillState.InProgress;
         ship.BackfillNextPage = fromPage;
         ship.BackfillCompletedAt = null;
+
+        // A named page replaces it, in whichever direction. Naming a shallower one says the listing
+        // is not the length the walk believed; naming a deeper one says to stand ahead of anything a
+        // run reached. Both are overridden by the next page a run reads, and both have to survive a
+        // restarted walk that stalls again without reading anything — otherwise the restart after
+        // that one defaults straight back to the number this admin overrode, which for a deeper page
+        // means re-walking every page between the two at the shared gate.
+        //
+        // Not conditioned on the page differing from the default: the Ships page pre-fills its box
+        // with that default and posts it, so the one-click path arrives here as an explicit page
+        // equal to what is already stored, and this writes it back unchanged.
+        if (request.FromPage is not null) ship.BackfillResumePage = fromPage;
 
         // Not a tidy-up: it is the half that makes the restart work. Both of the scraper's own reset
         // sites sit on paths a Failed ship no longer reaches, so the counter is frozen at the value

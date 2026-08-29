@@ -1009,6 +1009,52 @@ public class Ao3ShipIndexScraperTests : IDisposable
     }
 
     [Fact]
+    public async Task Records_the_deepest_page_a_backfill_actually_read_and_never_walks_it_back()
+    {
+        // The cursor and the high-water mark are the same number right up until the walk stalls, and
+        // the whole point of the second one is what happens after that: the halving retreat drags
+        // the cursor back towards page 1 looking for a page the listing will answer for, and an
+        // admin's restart resuming from *that* would re-request every page AO3 has already served.
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1)], nextPage: true),
+            Page(2, [Blurb(2)], nextPage: true),
+            Page(3, [Blurb(3)], nextPage: true));
+
+        var shipId = await FollowAsync();
+        await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        var walked = await ReloadAsync(shipId);
+        Assert.Equal(4, walked.BackfillNextPage);
+        Assert.Equal(3, walked.BackfillResumePage);
+
+        // The listing loses everything past page 1 — an instance login lapsing does exactly this.
+        // Page 4 does not answer, nor does page 3 on the retreat, so the cursor is halved to 2.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1)]));
+
+        await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        var stalled = await ReloadAsync(shipId);
+        Assert.Equal(2, stalled.BackfillNextPage);
+        Assert.Equal(3, stalled.BackfillResumePage);
+    }
+
+    [Fact]
+    public async Task Clears_the_deepest_page_read_when_a_backfill_begins()
+    {
+        // Same rule as the stalled streak beside it: the number belongs to one backfill, so a row
+        // arriving at NotStarted carrying one from an earlier walk must not hand a brand-new walk a
+        // restart default pointing into a listing it has never read.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1)]));
+
+        var shipId = await FollowAsync();
+        await MutateAsync(shipId, s => s.BackfillResumePage = 40);
+
+        await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Equal(1, (await ReloadAsync(shipId)).BackfillResumePage);
+    }
+
+    [Fact]
     public async Task Clears_a_stalled_streak_when_a_backfill_begins()
     {
         // A streak counts *consecutive* runs of one backfill getting nowhere, so a walk that is
@@ -2413,6 +2459,13 @@ public class Ao3ShipIndexScraperTests : IDisposable
     {
         await using var db = _host.NewContext();
         (await db.Ships.SingleAsync(s => s.Id == shipId)).BackfillStalledRuns = runs;
+        await db.SaveChangesAsync();
+    }
+
+    private async Task MutateAsync(int shipId, Action<Ship> change)
+    {
+        await using var db = _host.NewContext();
+        change(await db.Ships.SingleAsync(s => s.Id == shipId));
         await db.SaveChangesAsync();
     }
 

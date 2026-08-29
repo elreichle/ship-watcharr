@@ -589,6 +589,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.Property<int?>("BackfillNextPage")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("BackfillResumePage")
+                        .HasColumnType("integer");
+
                     b.Property<int>("BackfillStalledRuns")
                         .HasColumnType("integer");
 

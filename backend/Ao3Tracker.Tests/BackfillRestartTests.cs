@@ -88,6 +88,68 @@ public class BackfillRestartTests : IDisposable
     }
 
     [Fact]
+    public async Task Restarts_a_failed_backfill_from_the_deepest_page_a_run_actually_read()
+    {
+        // The cursor is not the record of what AO3 has served. A ship on its way to Failed has had
+        // its cursor halved once per stalled run — 39, 20, 10, 5, 2, 1 — so defaulting to it sends a
+        // walk that had genuinely read thirty-nine pages back through all of them at 5-8 seconds
+        // apiece, which is this instance charging the archive twice for the same pages.
+        var shipId = await FollowAsync();
+        await FailBackfillAtAsync(shipId, page: 1, resumePage: 39);
+
+        var body = Restarted(await Admin().RestartBackfill(shipId, new(null), default));
+
+        Assert.Equal(39, body.BackfillNextPage);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(39, ship.BackfillNextPage);
+
+        // And it survives the restart, so a walk that stalls and is written off a second time still
+        // has somewhere honest to resume from.
+        Assert.Equal(39, ship.BackfillResumePage);
+    }
+
+    [Theory]
+    [InlineData(4)]
+    [InlineData(60)]
+    public async Task A_page_the_admin_names_becomes_where_the_next_restart_resumes(int named)
+    {
+        // Naming a page is an admin saying where the walk now stands, and it has to survive a
+        // restarted walk that stalls again without reading anything — which is exactly what a ship
+        // restarted onto a page AO3 will not answer does. Carrying the old number across instead
+        // would have the next restart default straight back to what this admin overrode: shallower,
+        // that is the listing-shrank case failing for the twelfth time again; deeper, it is pages 39
+        // to 59 re-requested at the shared gate, the cost this whole change exists to remove.
+        var shipId = await FollowAsync();
+        await FailBackfillAtAsync(shipId, page: 1, resumePage: 39);
+
+        var body = Restarted(await Admin().RestartBackfill(shipId, new(named), default));
+
+        Assert.Equal(named, body.BackfillNextPage);
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(named, ship.BackfillNextPage);
+        Assert.Equal(named, ship.BackfillResumePage);
+    }
+
+    [Fact]
+    public async Task The_one_click_restart_the_Ships_page_sends_keeps_the_page_the_walk_read_to()
+    {
+        // The Ships page pre-fills its box with the same default this endpoint would pick and posts
+        // whatever is in it, so the common path arrives as an explicit page equal to what is already
+        // stored rather than as no page at all. Anything that discarded a named page would throw the
+        // number away on the one path it exists for, and a ship written off twice would be back to
+        // re-walking from page 1.
+        var shipId = await FollowAsync();
+        await FailBackfillAtAsync(shipId, page: 1, resumePage: 39);
+
+        var body = Restarted(await Admin().RestartBackfill(shipId, new(39), default));
+
+        Assert.Equal(39, body.BackfillNextPage);
+        Assert.Equal(39, (await ReloadAsync(shipId)).BackfillResumePage);
+    }
+
+    [Fact]
     public async Task Restarts_a_failed_backfill_from_the_page_the_admin_names()
     {
         // The case the choice exists for: a listing that shrank, where resuming at the old cursor
@@ -313,13 +375,15 @@ public class BackfillRestartTests : IDisposable
     /// page nothing would answer for, and the counter frozen at the value it gave up on — which is
     /// what the scraper does, because neither of its reset sites is on a path a Failed ship reaches.
     /// </summary>
-    private Task FailBackfillAtAsync(int shipId, int page) => MutateAsync(shipId, s =>
-    {
-        s.BackfillState = ShipBackfillState.Failed;
-        s.BackfillStartedAt = new DateTime(2023, 1, 1, 12, 0, 0, DateTimeKind.Utc);
-        s.BackfillNextPage = page;
-        s.BackfillStalledRuns = Ao3ShipIndexScraper.MaxStalledBackfillRuns;
-    });
+    private Task FailBackfillAtAsync(int shipId, int page, int? resumePage = null) =>
+        MutateAsync(shipId, s =>
+        {
+            s.BackfillState = ShipBackfillState.Failed;
+            s.BackfillStartedAt = new DateTime(2023, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+            s.BackfillNextPage = page;
+            s.BackfillResumePage = resumePage;
+            s.BackfillStalledRuns = Ao3ShipIndexScraper.MaxStalledBackfillRuns;
+        });
 
     private async Task MutateAsync(int shipId, Action<Ship> change)
     {

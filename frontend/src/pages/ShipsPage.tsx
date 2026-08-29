@@ -26,6 +26,20 @@ interface Status {
 }
 
 /**
+ * The page a restart should resume from.
+ *
+ * Not the cursor. A stalling walk steps its cursor backwards once a run looking for a page the
+ * listing will answer for, so by the time a ship is written off the cursor is usually far below the
+ * pages AO3 has already served — and resuming there would have this instance ask for every one of
+ * them again at 5-8 seconds apiece. `backfillResumePage` is the number nothing but a restart lowers.
+ * Re-reading that one page is deliberate: it is the page whose next link points into listing nobody
+ * has walked.
+ */
+function restartPage(ship: WatchedShip): number {
+  return ship.backfillResumePage ?? ship.backfillNextPage ?? 1;
+}
+
+/**
  * What is actually happening to this ship. Ordered by what blocks what: a tag AO3 has never
  * confirmed can't be scraped, so its verification state outranks anything the schedule says.
  */
@@ -63,6 +77,15 @@ function describeStatus(ship: WatchedShip, verificationEnabled: boolean): Status
   const label = BACKFILL_LABELS[ship.backfillState];
   const page = ship.backfillNextPage ?? 1;
 
+  // Said only where the cursor is *behind* what was read, which is exactly the retreat this line
+  // exists to make visible. A forward walk leaves the cursor one past the deepest page and a retreat
+  // can land it exactly on it; neither is a walk that lost ground, and saying the same page twice
+  // would just make the ordinary row longer.
+  const readTo =
+    ship.backfillResumePage != null && ship.backfillResumePage > page
+      ? ` It had read as far as page ${ship.backfillResumePage}.`
+      : '';
+
   // Both of these lived only in the run history, which is a different page. From here a ship stuck
   // on a page AO3 will not answer has looked exactly like one quietly working through its listing.
   //
@@ -75,8 +98,8 @@ function describeStatus(ship: WatchedShip, verificationEnabled: boolean): Status
       tone: 'warning',
       detail:
         `${ship.backfillStalledRuns} runs in a row got nothing AO3 would answer, so this instance ` +
-        `stopped asking; its cursor is at page ${page}. New works still arrive; the older ones are ` +
-        'on hold.',
+        `stopped asking; its cursor is at page ${page}.${readTo} New works still arrive; the older ` +
+        'ones are on hold.',
     };
   }
 
@@ -87,7 +110,7 @@ function describeStatus(ship: WatchedShip, verificationEnabled: boolean): Status
       detail:
         `${ship.backfillStalledRuns} ` +
         `${ship.backfillStalledRuns === 1 ? 'run has' : 'runs in a row have'} got no further ` +
-        `through the listing; its cursor is at page ${page}. It keeps trying for a while yet.`,
+        `through the listing; its cursor is at page ${page}.${readTo} It keeps trying for a while yet.`,
     };
   }
 
@@ -301,15 +324,15 @@ export function ShipsPage() {
  * The way back out of a written-off backfill.
  *
  * The page is editable rather than fixed because the two reasons a backfill gives up want different
- * answers: after an outage the cursor is exactly where to resume, and after a listing that shrank it
- * is the one page that will fail again. The stored cursor is the default, so the common case is one
- * click.
+ * answers: after an outage the deepest page read is exactly where to resume, and after a listing
+ * that shrank it is the one page that will fail again. `restartPage` is the default, so the common
+ * case is one click.
  *
  * Restarting does not make the ship due — it resumes on its next scheduled run, and saying so here
  * is what stops the button looking broken when nothing happens for an hour.
  */
 function BackfillRestart({ ship, onRestarted }: { ship: WatchedShip; onRestarted: () => void }) {
-  const [page, setPage] = useState(String(ship.backfillNextPage ?? 1));
+  const [page, setPage] = useState(String(restartPage(ship)));
   const [restarting, setRestarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

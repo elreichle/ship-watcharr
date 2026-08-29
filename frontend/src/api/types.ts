@@ -39,9 +39,15 @@ export interface WatchedShip {
   /**
    * The listing page the back-catalogue walk asks for next, or null before it has started. Where
    * the last run landed rather than how deep the walk got: a stalling ship's cursor is dragged
-   * backwards once per run, so a written-off one is often parked well above where it read to.
+   * backwards once per run, so a written-off one is usually parked well below where it read to.
    */
   backfillNextPage: number | null;
+  /**
+   * Where a restart resumes the current backfill — the deepest page a run has read, or the page an
+   * admin last named. Null before either. The backwards drag cannot touch it, which is what makes
+   * it the right default: resuming at `backfillNextPage` re-asks AO3 for pages already served.
+   */
+  backfillResumePage: number | null;
   /**
    * Consecutive runs that got no further through the listing. Above zero the ship is spending
    * requests on a page AO3 will not answer; at the scraper's limit the backfill is `Failed`.

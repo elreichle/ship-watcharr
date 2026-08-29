@@ -22,6 +22,10 @@ namespace Ao3Tracker.Api.Dtos;
 /// null before it has started. Where the last run *landed*, not how deep the walk ever got — the
 /// halving retreat moves it backwards. Shown so that "stuck" and "gave up" can name a page rather
 /// than nothing, and so a restart has a default.</param>
+/// <param name="BackfillResumePage">Where a restart resumes the backfill under way — the deepest
+/// page a run has read, or the page an admin last named. Null before either. Nothing but a restart
+/// lowers it, so shown beside the cursor it is the only thing on this page that makes the halving
+/// retreat visible to an operator at all.</param>
 /// <param name="BackfillStalledRuns">Consecutive runs that got no further through the listing. Non-
 /// zero means the ship is spending requests on a page AO3 will not answer, which the run history
 /// knew and this page did not.</param>
@@ -41,6 +45,7 @@ public record WatchedShipDto(
     string? VerificationError,
     string? RequestedTagName,
     int? BackfillNextPage,
+    int? BackfillResumePage,
     int BackfillStalledRuns);
 
 /// <summary>

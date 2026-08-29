@@ -78,6 +78,34 @@ public class Ship
     /// <summary>Next listing page to walk, 1-based. Survives across runs so a capped run resumes.</summary>
     public int? BackfillNextPage { get; set; }
 
+    /// <summary>
+    /// Where an admin's restart resumes the backfill under way, or null before anything has been
+    /// read or asked for. Written by two things and nothing else: every page a run reads raises it,
+    /// and a page an admin names on a restart replaces it outright.
+    ///
+    /// Not a duplicate of <see cref="BackfillNextPage"/>: that is where the *last run landed*, and
+    /// Ao3ShipIndexScraper.JumpCursorBackFrom halves it once per stalled run, so a ship written off
+    /// after genuinely reading page 39 is stored sitting on page 1 (39 → 20 → 10 → 5 → 2 → 1).
+    /// Nothing lowers this one except an admin saying so, which is what makes it the record of what
+    /// AO3 has already served: re-walking those pages at the shared 5-8 second gate would be this
+    /// instance charging the archive again for work it has already done.
+    ///
+    /// An admin's page replaces it rather than only raising it because a restart is a statement
+    /// about where the walk now stands, in both directions. A shallower page says the listing is
+    /// not the length the walk believed; a deeper one says to skip ahead of anything a run reached.
+    /// Either way it must survive a walk that stalls again without reading a page, or the restart
+    /// after that one silently discards the admin's choice.
+    ///
+    /// A column rather than a MAX over this ship's <c>ScrapeRun.LastPageFetched</c> because the run
+    /// history is prunable and this must outlive it, and because a MAX has nowhere to put the half
+    /// of this that no run ever fetched.
+    ///
+    /// Belongs to one backfill, so it is cleared when a backfill begins. A restart is a
+    /// continuation of the same backfill — it leaves <see cref="BackfillStartedAt"/> alone — so it
+    /// keeps this, which is what stops a second write-off losing the number again.
+    /// </summary>
+    public int? BackfillResumePage { get; set; }
+
     /// <summary>Oldest updated-time seen so far. A non-monotonic reading means pages shifted underneath us.</summary>
     public DateTime? BackfillMinUpdatedAtSeen { get; set; }
 

@@ -614,7 +614,23 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 // backfill does and for a stronger reason: a sweep that resumed after a page it had
                 // not ingested would conclude that page's works had left the tag.
                 SetCursor(ship, context.Mode, page + 1);
-                if (context.Mode == ScrapeRunMode.Backfill) TrackBackfillFloor(ship, page, listing);
+
+                if (context.Mode == ScrapeRunMode.Backfill)
+                {
+                    TrackBackfillFloor(ship, page, listing);
+
+                    // The cursor above is where the *next* run resumes and can be dragged backwards
+                    // by the halving retreat; the walk only ever raises this one, so it stays the
+                    // record of what AO3 has already served this backfill and is what an admin's
+                    // restart resumes from. Written here rather than beside the request for the same
+                    // reason the cursor is: a page whose works are not committed has not been read.
+                    //
+                    // Math.Max rather than a plain assignment because the walk revisits pages: the
+                    // retreat and the halving jump both put it below where it has been, and pages it
+                    // re-reads on the way back up must not lower this.
+                    ship.BackfillResumePage = Math.Max(page, ship.BackfillResumePage ?? 0);
+                }
+
                 await _db.SaveChangesAsync(ct);
             }
 
@@ -1163,6 +1179,12 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             ship.BackfillState = ShipBackfillState.InProgress;
             ship.BackfillStartedAt = _time.GetUtcNow().UtcDateTime;
             ship.BackfillNextPage ??= 1;
+
+            // Belongs to one backfill, so a walk that is beginning has read nothing by definition.
+            // Same reasoning as the streak below, and the same rows it protects against: one left
+            // over from an earlier walk would give a restart of this one a default pointing into a
+            // listing it has never read.
+            ship.BackfillResumePage = null;
 
             // Part of starting, not a tidy-up. A streak counts *consecutive* runs of one backfill
             // getting nowhere, so a walk that is beginning has no streak by definition — and a ship
