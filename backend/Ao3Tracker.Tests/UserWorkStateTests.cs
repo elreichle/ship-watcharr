@@ -334,6 +334,100 @@ public class UserWorkStateTests : IDisposable
             State(await _host.NewWorksRequest(emma).GetWorkState(1, default)));
     }
 
+    // ---- two of this reader's requests at once -------------------------------------------------
+
+    [Fact]
+    public async Task Re_inserts_a_state_whose_row_a_concurrent_clear_removed()
+    {
+        // Every control on a feed row sends a whole-state PUT, and clicking the rating you already
+        // gave sends the all-cleared state that deletes the row. So a rating and a status set at
+        // once can leave the second write with no row to update, which is not an error: this caller
+        // asked for a state, and a state is what it must end up with.
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+        await _host.NewWorksRequest(emma).SetWorkState(1, new("Reading", null, null), default);
+
+        _host.ChangeWorkStatesBeforeThe("UPDATE", db => db.UserWorkStates.RemoveRange(db.UserWorkStates));
+
+        var saved = State(await _host.NewWorksRequest(emma).SetWorkState(1, new("Read", 9, "mine"), default));
+
+        Assert.True(_host.WasRaced);
+        Assert.Equal(new WorkStateDto("Read", 9, "mine"), saved);
+        Assert.Equal(saved, State(await _host.NewWorksRequest(emma).GetWorkState(1, default)));
+    }
+
+    [Fact]
+    public async Task Writes_a_state_onto_the_row_a_concurrent_insert_won()
+    {
+        // The mirror image: both requests find nothing, both insert, and the unique index on
+        // (UserId, WorkId) refuses the loser. PUT replaces, so the loser's state belongs on the
+        // winning row rather than dropped with the insert that lost.
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+
+        _host.ChangeWorkStatesBeforeThe("INSERT INTO", db => db.UserWorkStates.Add(new UserWorkState
+        {
+            UserId = emma.Id,
+            WorkId = 1,
+            Status = ReadingStatus.ToRead,
+        }));
+
+        var saved = State(await _host.NewWorksRequest(emma).SetWorkState(1, new("Read", 9, "mine"), default));
+
+        Assert.True(_host.WasRaced);
+        Assert.Equal(new WorkStateDto("Read", 9, "mine"), saved);
+
+        await using var db = _host.NewContext();
+        Assert.Equal(1, await db.UserWorkStates.CountAsync());
+    }
+
+    [Fact]
+    public async Task Reports_a_clear_that_a_concurrent_clear_beat_to_it_as_a_success()
+    {
+        // The caller asked for an absence and an absence is what holds, so losing this race is
+        // still this request getting what it asked for.
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+        await _host.NewWorksRequest(emma).SetWorkState(1, new("Reading", null, null), default);
+
+        _host.ChangeWorkStatesBeforeThe("DELETE FROM", db => db.UserWorkStates.RemoveRange(db.UserWorkStates));
+
+        var saved = State(await _host.NewWorksRequest(emma).SetWorkState(1, new(null, null, null), default));
+
+        Assert.True(_host.WasRaced);
+        Assert.Equal(WorkStateDto.Cleared, saved);
+
+        await using var db = _host.NewContext();
+        Assert.Empty(db.UserWorkStates);
+    }
+
+    [Fact]
+    public async Task Clears_the_row_a_lost_clear_left_behind_rather_than_reporting_an_absence()
+    {
+        // Three of this reader's requests at once, which is what the re-insert above makes possible:
+        // one clear wins, the set that lost its update puts a row back, and the second clear then
+        // matches nothing. Answering "cleared" there would be reporting an absence over a row that
+        // exists — the one thing this caller asked not to be true.
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+        await _host.NewWorksRequest(emma).SetWorkState(1, new("Reading", null, null), default);
+
+        _host.ChangeWorkStatesBeforeThe("DELETE FROM", db =>
+        {
+            db.UserWorkStates.RemoveRange(db.UserWorkStates);
+            db.SaveChanges();
+            db.UserWorkStates.Add(new UserWorkState { UserId = emma.Id, WorkId = 1, Status = ReadingStatus.Read });
+        });
+
+        var saved = State(await _host.NewWorksRequest(emma).SetWorkState(1, new(null, null, null), default));
+
+        Assert.True(_host.WasRaced);
+        Assert.Equal(WorkStateDto.Cleared, saved);
+
+        await using var db = _host.NewContext();
+        Assert.Empty(db.UserWorkStates);
+    }
+
     // ---- fixture -------------------------------------------------------------------------------
 
     /// <summary>Follows a tag through the real endpoint, returning the ship it resolved to.</summary>

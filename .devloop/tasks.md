@@ -1419,7 +1419,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   variables only.
 
 ## T56 — A concurrent clear turns another edit into a 500
-- status: todo
+- status: in_progress
 - attempts: 0
 - blocked-by: none
 - delivers: Two of one reader's state writes for one work, in flight together, never answer 500 —

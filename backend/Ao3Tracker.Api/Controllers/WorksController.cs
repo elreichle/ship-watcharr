@@ -40,6 +40,14 @@ public class WorksController : ControllerBase
     /// <summary>Matches <c>UserWorkState.Note</c>'s column length.</summary>
     private const int MaxNoteLength = 4000;
 
+    /// <summary>
+    /// How many times <see cref="SetWorkState"/> will re-read and re-try a write another of this
+    /// same reader's requests got in front of. Two writers can collide at most once each, so the
+    /// third pass is already past what the situation this covers can produce — a write still losing
+    /// then has some other fault, and letting it out is how that fault keeps its own cause.
+    /// </summary>
+    private const int MaxWriteAttempts = 3;
+
     private readonly AppDbContext _db;
 
     public WorksController(AppDbContext db)
@@ -392,69 +400,92 @@ public class WorksController : ControllerBase
 
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
 
-        var stored = await WorkQueries.StatesOf(_db, userId).FirstOrDefaultAsync(s => s.WorkId == id, ct);
+        Task<UserWorkState?> StoredAsync() =>
+            WorkQueries.StatesOf(_db, userId).FirstOrDefaultAsync(s => s.WorkId == id, ct);
+
+        var stored = await StoredAsync();
 
         if (status == ReadingStatus.None && request.Rating is null && note is null)
         {
-            if (stored is null) return Ok(WorkStateDto.Cleared);
-
-            _db.UserWorkStates.Remove(stored);
-
-            try
+            for (var attempt = 1; ; attempt++)
             {
-                await _db.SaveChangesAsync(ct);
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                // A second clear from this same reader removed the row between the read above and
-                // this write. The state it asked for is the state that now holds, so this request
-                // succeeded — reporting the 500 an unhandled concurrency failure would produce
-                // would be describing someone else's win as this caller's error.
-                _db.Entry(stored).State = EntityState.Detached;
+                // Nothing to remove is the state this asked for, whether the read above found
+                // nothing or the re-read below did.
+                if (stored is null) break;
+
+                _db.UserWorkStates.Remove(stored);
+
+                try
+                {
+                    await _db.SaveChangesAsync(ct);
+                    break;
+                }
+                catch (DbUpdateConcurrencyException) when (attempt < MaxWriteAttempts)
+                {
+                    // The DELETE matched nothing: the row read above went away before this write ran.
+                    // Another clear from this same reader removing it is the ordinary
+                    // case and leaves nothing to do — but the set path below re-inserts after losing
+                    // its own update, so a row can be back, and returning a cleared state over a row
+                    // that exists would report the one thing this caller asked not to be true.
+                    _db.Entry(stored).State = EntityState.Detached;
+                    stored = await StoredAsync();
+                }
             }
 
             return Ok(WorkStateDto.Cleared);
         }
 
         var now = DateTime.UtcNow;
-        var isInsert = stored is null;
 
-        stored ??= new UserWorkState { UserId = userId, WorkId = id, CreatedAt = now };
-        if (isInsert) _db.UserWorkStates.Add(stored);
-
-        stored.Status = status;
-        stored.Rating = request.Rating;
-        stored.Note = note;
-        stored.UpdatedAt = now;
-
-        try
+        // Two requests from this same reader for this same work can be in flight together — a rating
+        // and a status set from one feed row — so whether there is a row here is settled by the read
+        // above and can stop being true before the write below runs. Both ways of being wrong are
+        // recoverable and neither is this caller's error, because PUT replaces: it asked for a
+        // state, and a state is what has to hold when this returns. A lost insert means a row now
+        // exists to write onto; a lost update means the row this state was to sit in was cleared by
+        // the branch above in the other request, so this state needs a row of its own. So the answer
+        // to both is one thing — take what is there now and go round again.
+        for (var attempt = 1; ; attempt++)
         {
-            await _db.SaveChangesAsync(ct);
-        }
-        catch (DbUpdateException) when (isInsert)
-        {
-            // Two requests from this same reader for this same work, in flight together — a rating
-            // and a status set from one feed row — each found no row and each inserted one. The
-            // unique index on (UserId, WorkId) caught the loser. Same shape as the ship-insert race
-            // in ShipsController.ResolveShipAsync, with one difference: a Ship has nothing to merge
-            // and this does, because PUT replaces, so what this request asked for is written onto
-            // the row that won rather than discarded with the losing insert.
-            _db.Entry(stored).State = EntityState.Detached;
+            var isInsert = stored is null;
 
-            var winner = await WorkQueries.StatesOf(_db, userId).FirstOrDefaultAsync(s => s.WorkId == id, ct);
+            stored ??= new UserWorkState { UserId = userId, WorkId = id, CreatedAt = now };
+            if (isInsert) _db.UserWorkStates.Add(stored);
 
-            // No winner means the write failed for some reason other than the race this catch is
-            // for. Rethrowing keeps that a 500 carrying its own cause rather than a confusing
-            // null-reference further up.
-            if (winner is null) throw;
+            stored.Status = status;
+            stored.Rating = request.Rating;
+            stored.Note = note;
+            stored.UpdatedAt = now;
 
-            winner.Status = status;
-            winner.Rating = request.Rating;
-            winner.Note = note;
-            winner.UpdatedAt = now;
+            try
+            {
+                await _db.SaveChangesAsync(ct);
+                break;
+            }
+            catch (DbUpdateConcurrencyException) when (!isInsert && attempt < MaxWriteAttempts)
+            {
+                // The UPDATE matched nothing: the row was removed between the read and here. Every
+                // control on a feed row sends a whole-state PUT and clicking the rating you already
+                // gave sends the all-cleared state, so the request that removed it is an ordinary
+                // one, not a pathology.
+                _db.Entry(stored).State = EntityState.Detached;
+                stored = await StoredAsync();
+            }
+            catch (DbUpdateException) when (isInsert && attempt < MaxWriteAttempts)
+            {
+                // The unique index on (UserId, WorkId) caught this insert, so the other request
+                // inserted first. Same shape as the ship-insert race in
+                // ShipsController.ResolveShipAsync, with one difference: a Ship has nothing to merge
+                // and this does, so what this request asked for is written onto the row that won
+                // rather than discarded with the insert that lost.
+                _db.Entry(stored).State = EntityState.Detached;
+                stored = await StoredAsync();
 
-            await _db.SaveChangesAsync(ct);
-            stored = winner;
+                // No winner means the write failed for some reason other than the race this catch is
+                // for. Rethrowing keeps that a 500 carrying its own cause rather than a confusing
+                // null-reference further up.
+                if (stored is null) throw;
+            }
         }
 
         return Ok(new WorkStateDto(stored.Status.ToString(), stored.Rating, stored.Note));

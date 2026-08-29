@@ -36,7 +36,10 @@ internal sealed class LibraryTestHost : IDisposable
     private readonly ServiceProvider _provider;
     private readonly IServiceScope _request;
 
-    /// <summary>The hook behind <see cref="ClaimDownloadsWhileTheFileIsRead"/>; inert until armed.</summary>
+    /// <summary>
+    /// The hook behind <see cref="ClaimDownloadsWhileTheFileIsRead"/> and
+    /// <see cref="ChangeWorkStatesBeforeThe"/>; inert until armed.
+    /// </summary>
     private readonly ClaimingInterceptor _claimer = new();
 
     /// <summary>Scopes handed out one per simulated request; disposed with the fixture.</summary>
@@ -388,7 +391,7 @@ internal sealed class LibraryTestHost : IDisposable
     /// test that raced a real worker against it would assert a timing rather than a rule. It fires
     /// once, so what follows the claim is the ordinary code path.
     /// </remarks>
-    public void ClaimDownloadsWhileTheFileIsRead() => _claimer.Arm(() =>
+    public void ClaimDownloadsWhileTheFileIsRead() => _claimer.Arm("WorkDownloadFiles", () =>
     {
         using var db = NewContext();
 
@@ -396,6 +399,44 @@ internal sealed class LibraryTestHost : IDisposable
 
         db.SaveChanges();
     });
+
+    /// <summary>
+    /// Whether the armed action has run — the difference between a test that was inside the window
+    /// and one whose fragment matched nothing and asserted the uncontended path twice.
+    /// </summary>
+    public bool WasRaced => _claimer.Fired;
+
+    /// <summary>
+    /// Writes to the state table the way a second request from the same reader does, in the window
+    /// between <see cref="WorksController.SetWorkState"/>'s read of a row and the write named by
+    /// <paramref name="write"/> — which is where the row it read stops being the row it is about to
+    /// change.
+    /// </summary>
+    /// <param name="write">The SQL verb of the write to get in front of: UPDATE, INSERT INTO, DELETE FROM.</param>
+    /// <remarks>
+    /// Same reason as <see cref="ClaimDownloadsWhileTheFileIsRead"/>: both halves are inside one
+    /// controller call, so no second request can be timed into the gap. Armed against the write
+    /// rather than the read because the read is what has to have already happened — firing before
+    /// it would only hand the controller the state this leaves behind, which is no race at all.
+    /// <para>
+    /// The action gets a context of its own, which the interceptor is not attached to, so what it
+    /// does cannot re-enter this — but that context shares this fixture's one connection, and unlike
+    /// <see cref="ClaimDownloadsWhileTheFileIsRead"/> this fires from inside a save rather than a
+    /// read. It is independent of the save it interrupts only because a state write is a single
+    /// command, for which EF opens no transaction. Give <c>UserWorkState</c> a cascade or an owned
+    /// entity and the action would be running inside the very transaction it is meant to race, so
+    /// check that before reusing this against another table.
+    /// </para>
+    /// </remarks>
+    public void ChangeWorkStatesBeforeThe(string write, Action<AppDbContext> change) =>
+        _claimer.Arm($"{write} \"UserWorkStates\"", () =>
+        {
+            using var db = NewContext();
+
+            change(db);
+
+            db.SaveChanges();
+        });
 
     /// <summary>A context of its own, so persistence assertions are real round-trips.</summary>
     public AppDbContext NewContext() => new SqliteAppDbContext(
@@ -762,14 +803,28 @@ internal sealed class FixedClock : TimeProvider
 }
 
 /// <summary>
-/// Runs one action just before a query that reads stored download files, so a test can be inside
-/// the window between a controller's read and its write.
+/// Runs one action just before the first command whose text matches, so a test can be inside the
+/// window between a controller's read and its write.
 /// </summary>
 internal sealed class ClaimingInterceptor : DbCommandInterceptor
 {
+    private string? _match;
     private Action? _armed;
 
-    public void Arm(Action onFileLookup) => _armed = onFileLookup;
+    /// <summary>Whether the armed action has run, so a test can assert it was actually raced.</summary>
+    public bool Fired { get; private set; }
+
+    /// <param name="match">
+    /// A substring of the command to get in front of. It must not appear in anything the app runs
+    /// earlier in the same call — the *first* matching command is the one this fires on, and there
+    /// is no signal if that is the wrong one.
+    /// </param>
+    public void Arm(string match, Action onRead)
+    {
+        _match = match;
+        _armed = onRead;
+        Fired = false;
+    }
 
     public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
         DbCommand command,
@@ -777,10 +832,11 @@ internal sealed class ClaimingInterceptor : DbCommandInterceptor
         InterceptionResult<DbDataReader> result,
         CancellationToken cancellationToken = default)
     {
-        if (_armed is { } claim && command.CommandText.Contains("WorkDownloadFiles"))
+        if (_armed is { } claim && command.CommandText.Contains(_match!, StringComparison.Ordinal))
         {
             // Cleared first: what the action itself runs must not re-enter this.
             _armed = null;
+            Fired = true;
             claim();
         }
 
