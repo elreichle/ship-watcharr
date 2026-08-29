@@ -1211,7 +1211,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   conclude, so it belongs in T28's table either way; T28's `blocked-by` is this task alone.
 
 ## T48 — "Anonymous" in a title must not survive the markup change T26 defends against
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: `SaysAnonymous` reads the byline and not the heading it sits in, so no reshaping of

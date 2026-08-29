@@ -592,3 +592,16 @@ Append-only. One entry per iteration, newest last.
 - commit: 911beea
 - next: **T10**, but its blocker T51 is still todo — re-check the index. The run pointed
   `Ao3HttpClient__BaseUrl` at a closed local port so a fake credential never reached AO3.
+
+## 2026-08-29 — T48 The byline starts at "by", not at the title's link — done
+
+- did: `BylineWords` begins at the *last* "by" in the heading, so the title is excluded by the
+  separator, not by happening to be a non-author anchor — the thing the reshaping T26 defends
+  against removes. No separator, no byline words, no authority to say a work has no creators.
+- files: `Api/Services/Scraping/Ao3BlurbParser.cs`, `Tests/Ao3BlurbParserTests.cs`
+- ran: `dotnet test --filter ~Ao3BlurbParser` → 50 (46 before); `--filter ~Author` → 17;
+  `dotnet test` → 879 (875 before); `npm run build` + lint → clean, two known warnings. No review:
+  66 lines, all private.
+- commit: 58cf917
+- next: **T49.** The task's own `~Author` filter does not match the tests it added — the byline
+  tests are named for the heading, not the author; `~Ao3BlurbParser` is the filter that covers them.
