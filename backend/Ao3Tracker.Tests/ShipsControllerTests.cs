@@ -344,6 +344,55 @@ public class ShipsControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task Reports_the_sweep_a_ship_is_in_the_middle_of()
+    {
+        // A sweep in flight beats the incremental pass on every tick until it reaches the end of
+        // the listing, so a ship can go days collecting no new works. The cursor is the whole of
+        // "is this ship being swept", and it lived nowhere a watcher could see it.
+        var emma = _host.SeedUser();
+        var shipId = Created(await _host.Ships(emma).WatchShip(new("Clarke Griffin/Lexa"), default)).ShipId;
+        var startedAt = new DateTime(2026, 8, 1, 9, 0, 0, DateTimeKind.Utc);
+
+        await using (var db = _host.NewContext())
+        {
+            var ship = await db.Ships.SingleAsync(s => s.Id == shipId);
+            ship.LastFullSweepStartedAt = startedAt;
+            ship.FullSweepNextPage = 12;
+            await db.SaveChangesAsync();
+        }
+
+        var listed = List(await _host.Ships(emma).GetWatchedShips(default)).Single();
+
+        Assert.Equal(12, listed.FullSweepNextPage);
+        Assert.Equal(startedAt, listed.LastFullSweepStartedAt);
+
+        // The sweep has not concluded anything, and the page has to be able to tell that apart from
+        // one that walked the listing to its end.
+        Assert.Null(listed.LastFullSweepCompletedAt);
+    }
+
+    [Fact]
+    public async Task Reports_the_last_sweep_of_a_ship_not_being_swept()
+    {
+        var emma = _host.SeedUser();
+        var shipId = Created(await _host.Ships(emma).WatchShip(new("Clarke Griffin/Lexa"), default)).ShipId;
+        var completedAt = new DateTime(2026, 8, 2, 9, 0, 0, DateTimeKind.Utc);
+
+        await using (var db = _host.NewContext())
+        {
+            var ship = await db.Ships.SingleAsync(s => s.Id == shipId);
+            ship.LastFullSweepStartedAt = completedAt.AddHours(-3);
+            ship.LastFullSweepCompletedAt = completedAt;
+            await db.SaveChangesAsync();
+        }
+
+        var listed = List(await _host.Ships(emma).GetWatchedShips(default)).Single();
+
+        Assert.Null(listed.FullSweepNextPage);
+        Assert.Equal(completedAt, listed.LastFullSweepCompletedAt);
+    }
+
+    [Fact]
     public async Task Reports_that_no_scraper_can_run_the_schedule()
     {
         // Honest about this build: jobs are scheduled, but nothing is registered under

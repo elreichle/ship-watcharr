@@ -53,6 +53,19 @@ export interface WatchedShip {
    * requests on a page AO3 will not answer; at the scraper's limit the backfill is `Failed`.
    */
   backfillStalledRuns: number;
+  /**
+   * The listing page the sweep under way asks for next, or null when none is in flight — which is
+   * the whole of "is this ship being swept". A sweep displaces the ship's pass for new works for as
+   * many ticks as the walk takes, so this is what explains a quiet ship.
+   */
+  fullSweepNextPage: number | null;
+  /**
+   * When the most recent sweep started walking page 1, finished or not. A start with no completion
+   * after it and nothing in flight is a sweep that was abandoned.
+   */
+  lastFullSweepStartedAt: string | null;
+  /** When a sweep last reached the end of the listing. Null until one has. */
+  lastFullSweepCompletedAt: string | null;
 }
 
 /** What an admin's restart left on a ship whose backfill this instance had given up on. */

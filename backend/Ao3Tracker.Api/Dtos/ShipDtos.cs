@@ -29,6 +29,17 @@ namespace Ao3Tracker.Api.Dtos;
 /// <param name="BackfillStalledRuns">Consecutive runs that got no further through the listing. Non-
 /// zero means the ship is spending requests on a page AO3 will not answer, which the run history
 /// knew and this page did not.</param>
+/// <param name="FullSweepNextPage">The listing page the sweep under way will ask for next, or null
+/// when no sweep is in flight — which is the whole of "is this ship being swept". A sweep displaces
+/// the ship's incremental pass for as many ticks as it takes, so without this a ship can spend days
+/// collecting no new works with nothing on this page saying why.</param>
+/// <param name="LastFullSweepStartedAt">When the most recent sweep began walking page 1. Also what
+/// the next sweep is spaced from, finished or not — see <c>ScrapeWorker.FullSweepIsDue</c>. Left
+/// standing by an abandoned sweep, which is how one can be read here: a start with no completion
+/// after it and nothing in flight.</param>
+/// <param name="LastFullSweepCompletedAt">When a sweep last walked the listing to its end and was
+/// entitled to conclude what had left the tag. Null until one has, and never written by a sweep
+/// that concluded nothing.</param>
 public record WatchedShipDto(
     int ShipId,
     string TagName,
@@ -46,7 +57,10 @@ public record WatchedShipDto(
     string? RequestedTagName,
     int? BackfillNextPage,
     int? BackfillResumePage,
-    int BackfillStalledRuns);
+    int BackfillStalledRuns,
+    int? FullSweepNextPage,
+    DateTime? LastFullSweepStartedAt,
+    DateTime? LastFullSweepCompletedAt);
 
 /// <summary>
 /// The ships list, wrapped so it can carry one instance-wide fact alongside them.

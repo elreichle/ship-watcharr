@@ -60,6 +60,41 @@ function canRestartBackfill(ship: WatchedShip): boolean {
   );
 }
 
+/**
+ * The sweep, in one line — or null for a ship that has never had one.
+ *
+ * Beside the status rather than inside it, because the two are independent: a ship whose back
+ * catalogue was given up on can be mid-sweep, and a single status slot would have to drop one of
+ * those to say the other. The sweep is also the only thing in the product that can leave a ship
+ * collecting no new works for days at a time — a sweep in flight beats the incremental pass on
+ * every tick until the walk reaches the end of the listing — and until now nothing outside the run
+ * history said so.
+ */
+function describeSweep(ship: WatchedShip): string | null {
+  if (ship.fullSweepNextPage !== null) {
+    return (
+      `Re-reading the whole listing to find works that have left the tag — next up is page ` +
+      `${ship.fullSweepNextPage}. Its pass for new works waits until this finishes.`
+    );
+  }
+
+  const started = ship.lastFullSweepStartedAt;
+  if (started === null) return null;
+
+  const completed = ship.lastFullSweepCompletedAt;
+
+  // A sweep only writes its completion alongside a conclusion, and its start is left standing when
+  // it is abandoned — so a start newer than the last completion is a walk that did not get there.
+  if (completed !== null && new Date(completed) >= new Date(started)) {
+    return `Listing last re-read in full on ${formatDate(completed)}.`;
+  }
+
+  return (
+    `A full re-read of the listing started ${formatDate(started)} and did not finish; ` +
+    'the next one is due an interval after that, not after this ship next runs.'
+  );
+}
+
 function describeStatus(ship: WatchedShip, verificationEnabled: boolean): Status {
   if (ship.verificationState === 'NotFoundOnAo3') {
     // Not "add it again": following the same name resolves to this same denied ship, which leaves
@@ -276,6 +311,7 @@ export function ShipsPage() {
             <tbody>
               {ships.map((ship) => {
                 const status = describeStatus(ship, verificationEnabled);
+                const sweep = describeSweep(ship);
                 return (
                   <tr key={ship.shipId}>
                     <td className="ship-tag">
@@ -292,6 +328,7 @@ export function ShipsPage() {
                     <td>
                       <span className={status.tone}>{status.label}</span>
                       {status.detail && <span className="ship-status-detail">{status.detail}</span>}
+                      {sweep !== null && <span className="ship-status-detail">{sweep}</span>}
                       {/* Admin-only, because a restart spends requests on behalf of everyone
                           watching the tag — and because it is the only thing in the product that
                           moves a ship out of Failed. */}

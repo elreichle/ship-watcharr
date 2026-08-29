@@ -84,6 +84,9 @@ public class ShipsController : ControllerBase
                 w.Ship.BackfillNextPage,
                 w.Ship.BackfillResumePage,
                 w.Ship.BackfillStalledRuns,
+                w.Ship.FullSweepNextPage,
+                w.Ship.LastFullSweepStartedAt,
+                w.Ship.LastFullSweepCompletedAt,
                 w.Ship.VerificationState,
                 w.Ship.VerificationError,
 
@@ -120,7 +123,10 @@ public class ShipsController : ControllerBase
             r.RequestedTagName,
             r.BackfillNextPage,
             r.BackfillResumePage,
-            r.BackfillStalledRuns))];
+            r.BackfillStalledRuns,
+            r.FullSweepNextPage,
+            r.LastFullSweepStartedAt,
+            r.LastFullSweepCompletedAt))];
     }
 
     [HttpPost]
