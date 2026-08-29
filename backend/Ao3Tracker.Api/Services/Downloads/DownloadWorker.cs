@@ -84,7 +84,17 @@ public class DownloadWorker : BackgroundService
     {
         _logger.LogInformation("Download worker starting, polling every {PollInterval}", PollInterval);
 
-        await ReleaseInterruptedFetchesAsync(stoppingToken);
+        try
+        {
+            await ReleaseInterruptedFetchesAsync(stoppingToken);
+        }
+        catch (Exception ex) when (!ScrapeCancellation.IsShutdown(ex, stoppingToken))
+        {
+            // The same rule as the loop below, stated again because this runs before it and so is
+            // not covered by it: tidying up after a restart is worth nothing next to starting, and
+            // an exception escaping here would stop the host before the queue was drained once.
+            _logger.LogError(ex, "Could not tidy up after a restart");
+        }
 
         while (true)
         {
@@ -160,23 +170,36 @@ public class DownloadWorker : BackgroundService
         var partials = DownloadPaths.Absolute(_paths.DataDirectory, DownloadPaths.PartialsRoot);
         if (!Directory.Exists(partials)) return;
 
+        string[] abandoned;
+
+        try
+        {
+            abandoned = Directory.GetFiles(partials);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // A directory this process cannot read at all — a volume mounted with the wrong
+            // ownership, or a permissions change an image update brought with it. Saying so is the
+            // whole of what can be done about it: the files behind it are wasted space, and wasted
+            // space is not a reason to refuse to start.
+            _logger.LogWarning(ex, "Could not read the partial downloads directory {Path}", partials);
+
+            return;
+        }
+
         var discarded = 0;
 
-        foreach (var path in Directory.GetFiles(partials))
+        foreach (var path in abandoned)
         {
             try
             {
                 File.Delete(path);
                 discarded++;
             }
-            catch (IOException ex)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // One undeletable file is not worth failing startup over, and saying so is what
                 // stops the directory growing unnoticed.
-                _logger.LogWarning(ex, "Could not delete the abandoned partial download {Path}", path);
-            }
-            catch (UnauthorizedAccessException ex)
-            {
                 _logger.LogWarning(ex, "Could not delete the abandoned partial download {Path}", path);
             }
         }

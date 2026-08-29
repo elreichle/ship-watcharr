@@ -807,6 +807,78 @@ public class DownloadWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task Starts_even_when_the_partials_directory_cannot_be_read()
+    {
+        // The sweep above runs before the drain loop, and so outside the guard that keeps the loop
+        // alive. A directory this process cannot enumerate — a volume mounted with the wrong
+        // ownership, a permissions change an image update brought with it — therefore used to
+        // escape ExecuteAsync, and a BackgroundService that throws stops the host: the API would
+        // refuse to boot over rubbish nothing reads. What this pins is the sweep itself surviving;
+        // the guard ExecuteAsync now wraps the call in is a second line behind it.
+        var emma = await ReaderWithAWorkAsync();
+        var id = await QueueAsync(emma);
+        await SetStatusAsync(id, DownloadStatus.Downloading);
+
+        var partials = Path.Combine(
+            _host.DataDirectory, DownloadPaths.PartialsRoot.Replace('/', Path.DirectorySeparatorChar));
+
+        Directory.CreateDirectory(partials);
+        await File.WriteAllTextAsync(Path.Combine(partials, "abandoned.part"), "half an epub");
+
+        // Nothing to test where the mode bits do not bite — under Windows, or as root. This
+        // codebase's own runs are neither.
+        if (!TryMakeUnreadable(partials)) return;
+
+        try
+        {
+            await _host.NewDownloadWorker().ReleaseInterruptedFetchesAsync(default);
+        }
+        finally
+        {
+            // Restored whatever happened, or the fixture cannot delete its own temp directory.
+            AllowOwnerAccess(partials);
+        }
+
+        // And the half that could still be done was: the re-queue runs before the sweep, so a
+        // sweep that cannot read its directory must not cost the reader their stranded request.
+        Assert.Equal(DownloadStatus.Pending, (await DownloadAsync()).Status);
+    }
+
+    /// <summary>
+    /// Takes every permission off a directory, and says whether that actually stopped this process
+    /// reading it — it does not under Windows, which has no mode bits, nor as root, which ignores
+    /// them.
+    /// </summary>
+    private static bool TryMakeUnreadable(string directory)
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return false;
+
+        File.SetUnixFileMode(directory, UnixFileMode.None);
+
+        try
+        {
+            Directory.GetFiles(directory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return true;
+        }
+
+        AllowOwnerAccess(directory);
+
+        return false;
+    }
+
+    /// <summary>Gives the owner a directory back, where there are mode bits to give.</summary>
+    private static void AllowOwnerAccess(string directory)
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return;
+
+        File.SetUnixFileMode(
+            directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+    }
+
+    [Fact]
     public async Task Re_queues_a_fetch_a_restart_interrupted()
     {
         // The other side of the rule above. Downloading survives a crash, nothing holds it after a
