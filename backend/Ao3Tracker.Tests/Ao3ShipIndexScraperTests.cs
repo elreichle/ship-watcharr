@@ -320,8 +320,10 @@ public class Ao3ShipIndexScraperTests : IDisposable
     [Fact]
     public async Task Leaves_the_tags_total_alone_when_the_listing_was_filtered()
     {
-        // An incremental pass with a watermark adds work_search[revised_at] to the URL, so AO3's
-        // heading counts the *filter's* result set. A ship that backfilled to 4,317 works read 2
+        // An incremental pass with a watermark adds work_search[date_from] to the URL, so AO3's
+        // heading counts the *filter's* result set — the captured filter form is where that
+        // parameter comes from, and ao3-empty-listing.html is a capture of exactly this case: a
+        // date bound the tag has nothing newer than, and a heading reading "0 Works in". A ship that backfilled to 4,317 works read 2
         // after one quiet pass — and LastKnownTotalWorks is the figure a full sweep checks itself
         // against before concluding works have left the tag, so a 2 there reads as an emptied tag.
         _host.Http.Responds = Pages(Page(1, [Blurb(1, updatedAt: Jan(9))], total: 2));
@@ -336,6 +338,11 @@ public class Ao3ShipIndexScraperTests : IDisposable
         var ship = await ReloadAsync(shipId);
         Assert.Equal(4317, ship.LastKnownTotalWorks);
         Assert.Equal(Jan(1), ship.LastKnownTotalWorksAt);
+
+        // And the flag the skip reads must be true of the request it sat beside, not merely of the
+        // code's intention to have sent one: a bound AO3 discards leaves this heading counting the
+        // tag, and the skip refusing a figure it could have trusted.
+        Assert.Contains("work_search%5Bdate_from%5D=", _host.Http.Requested[0]);
     }
 
     [Fact]
@@ -519,7 +526,8 @@ public class Ao3ShipIndexScraperTests : IDisposable
     public async Task Records_the_tags_total_from_a_backfill_of_a_ship_that_has_a_watermark()
     {
         // The gate is on the filter, not on the mode. A backfill asks for the whole listing
-        // whatever the ship's watermark says, so its heading is the tag's total and must land.
+        // whatever the ship's watermark says, so its heading is the tag's total and must land —
+        // asserted against the URL as well, since it is the absent bound that entitles it.
         _host.Http.Responds = Pages(Page(1, [Blurb(1)], total: 4317));
 
         var shipId = await FollowAsync();
@@ -527,6 +535,7 @@ public class Ao3ShipIndexScraperTests : IDisposable
 
         await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
 
+        Assert.DoesNotContain("date_from", _host.Http.Requested[0]);
         Assert.Equal(4317, (await ReloadAsync(shipId)).LastKnownTotalWorks);
     }
 
@@ -539,10 +548,38 @@ public class Ao3ShipIndexScraperTests : IDisposable
 
         await _host.ScrapeAsync(shipId);
 
-        // A day's slack either side of the watermark, so the server-side filter can only ever
-        // return more than needed — the exact cut is made against the watermark in memory.
-        Assert.Contains("revised_at", _host.Http.Requested[0]);
-        Assert.Contains("2023-01-04", Uri.UnescapeDataString(_host.Http.Requested[0]));
+        // The whole URL, because "revised_at" appears in it twice over: this pass sorts by it, and
+        // the bound it used to send was work_search[revised_at] — the advanced search's key at
+        // /works/search, which the tag listing discards without a word, so a substring assertion
+        // on the name passed for as long as AO3 served the unfiltered tag. work_search[date_from]
+        // is the key the listing's own filter form offers (ao3-empty-listing.html, under "Date
+        // Updated"), and a day's slack keeps it wider than the watermark either way — the exact
+        // cut is made against the watermark in memory.
+        var segment = (await ReloadAsync(shipId)).TagUrlSegment;
+
+        Assert.Equal(
+            $"{LibraryTestHost.TagUrl(segment)}"
+                + "?work_search%5Bsort_column%5D=revised_at&work_search%5Bdate_from%5D=2023-01-04",
+            _host.Http.Requested[0]);
+        Assert.DoesNotContain("work_search%5Brevised_at%5D", _host.Http.Requested[0]);
+    }
+
+    [Fact]
+    public async Task Asks_for_the_whole_tag_when_it_has_nothing_to_exclude()
+    {
+        // The other half of the same rule, and the reason the bound is a function rather than a
+        // condition inside BuildUrl: with no watermark there is no date to name, and a first pass
+        // that sent one would be asking AO3 to hide the back catalogue it is there to read.
+        _host.Http.Responds = Pages(Page(1, [Blurb(1)]));
+        var shipId = await FollowAsync();
+
+        await _host.ScrapeAsync(shipId);
+
+        var segment = (await ReloadAsync(shipId)).TagUrlSegment;
+
+        Assert.Equal(
+            $"{LibraryTestHost.TagUrl(segment)}?work_search%5Bsort_column%5D=revised_at",
+            _host.Http.Requested[0]);
     }
 
     // ---- the backfill walk ---------------------------------------------------------------------------

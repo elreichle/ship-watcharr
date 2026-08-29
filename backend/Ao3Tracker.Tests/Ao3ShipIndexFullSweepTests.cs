@@ -284,9 +284,9 @@ public class Ao3ShipIndexFullSweepTests : IDisposable
     public async Task Asks_for_the_listing_in_posting_order_and_asks_for_all_of_it()
     {
         // Two requirements of one URL. The sort order is what keeps a multi-run sweep reading the
-        // same listing it started on; the absence of a revised_at bound is what makes it a sweep
-        // rather than another incremental pass, and is also what entitles its heading to be read
-        // as the tag's own total.
+        // same listing it started on; the absence of a date bound is what makes it a sweep rather
+        // than another incremental pass, and is also what entitles its heading to be read as the
+        // tag's own total.
         var shipId = await AShipHoldingAsync(1);
         await SetWatermarkAsync(shipId, Jan(1));
 
@@ -301,6 +301,7 @@ public class Ao3ShipIndexFullSweepTests : IDisposable
 
         var url = Assert.Single(urls);
         Assert.Contains("work_search%5Bsort_column%5D=created_at", url);
+        Assert.DoesNotContain("date_from", url);
         Assert.DoesNotContain("revised_at", url);
     }
 

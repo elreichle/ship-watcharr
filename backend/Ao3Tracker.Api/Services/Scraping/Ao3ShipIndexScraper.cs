@@ -167,7 +167,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         // Whether this run's requests narrow the listing to a date range, read from the same place
         // BuildUrl reads it so that changing when the filter applies cannot leave this behind. Both
         // its inputs are fixed for the length of a run, so every page of the run answers the same.
-        var listingWasFiltered = RevisedAtBound(context.Mode, watermark) is not null;
+        var listingWasFiltered = DateFromBound(context.Mode, watermark) is not null;
 
         var page = startPage;
         var pagesFetched = 0;
@@ -943,7 +943,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// serving an empty 200, so the walk only got above page 1 because a page advertised more — one
     /// this run read, or one an earlier run read before leaving the cursor here.
     ///
-    /// Under a <c>revised_at</c> bound that argument does not hold: the Next link comes off a result
+    /// Under a date bound that argument does not hold: the Next link comes off a result
     /// count that can race the blurbs, so one work leaving the window between the two requests
     /// answers page 2 with a well-formed empty listing. Held against it, a quiet incremental pass
     /// stops with <see cref="ScrapeStopReason.Error"/> — which may not move the watermark — and the
@@ -964,7 +964,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// <see cref="FilteredHeadingSaysThisIsAll"/>, which is where reading it the other way round
     /// cost a run's worth of works).
     ///
-    /// A backfill is never filtered (<see cref="RevisedAtBound"/> gates on
+    /// A backfill is never filtered (<see cref="DateFromBound"/> gates on
     /// <see cref="ScrapeRunMode.Incremental"/>), so nothing the waiver reaches is a walk that could
     /// conclude <see cref="ShipBackfillState.Complete"/>.</item>
     /// <item>A Next link: the page says itself that there is more after it.</item>
@@ -972,7 +972,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// that heading is comparable with (see
     /// <see cref="HeadingCountsMoreThanTheRunWasServed"/>). An unfiltered heading counts the tag,
     /// so any positive count over zero readable blurbs is the contradiction. A
-    /// <c>revised_at</c>-filtered request's heading counts the filter's result set instead (see
+    /// date-filtered request's heading counts the filter's result set instead (see
     /// <see cref="RecordTotal"/>), so it is compared against this run's own tally of blurbs — and
     /// a quiet incremental pass, whose request matched nothing, is served a heading counting zero
     /// and stays the healthy case it has always been.</item>
@@ -1094,8 +1094,8 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
         if (page > 1) query.Add($"page={page.ToString(CultureInfo.InvariantCulture)}");
 
-        if (RevisedAtBound(mode, watermark) is { } bound)
-            query.Add($"work_search%5Brevised_at%5D={Uri.EscapeDataString(bound)}");
+        if (DateFromBound(mode, watermark) is { } bound)
+            query.Add($"work_search%5Bdate_from%5D={Uri.EscapeDataString(bound)}");
 
         return $"{_options.BaseUrl.TrimEnd('/')}/tags/{segment}/works?{string.Join('&', query)}";
     }
@@ -1123,20 +1123,35 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         mode == ScrapeRunMode.FullSweep ? "created_at" : "revised_at";
 
     /// <summary>
-    /// The <c>work_search[revised_at]</c> bound a run's requests carry, or null when they ask for
+    /// The <c>work_search[date_from]</c> bound a run's requests carry, or null when they ask for
     /// the whole tag.
     ///
     /// Asking AO3 to exclude what we already have is what keeps a routine pass to one request on a
     /// large tag. Day-granular, and deliberately given a day's slack, so it can only ever return
     /// *more* than needed — the exact cut is made client-side against the watermark.
     ///
+    /// The parameter is the listing's own, read off captured markup rather than remembered:
+    /// <c>ao3-empty-listing.html</c>'s <c>form#work-filters</c> offers <c>work_search[date_from]</c>
+    /// and <c>work_search[date_to]</c> under the heading "Date Updated" — the same
+    /// <c>revised_at</c> this pass sorts by — and carries no <c>revised_at</c> field at all. What
+    /// this sent before was <c>work_search[revised_at]={"&gt; date"}</c>, the advanced search's
+    /// syntax at <c>/works/search</c>: a different endpoint, and Rails discards the unknown nested
+    /// key here without a word, so a routine pass asked for a window and was served the whole tag.
+    /// Nothing ever failed over it, because the pass reads a newest-first listing and cuts at the
+    /// watermark itself; what was lost was the request this bound exists to make smaller.
+    ///
+    /// <c>date_from</c> is an inclusive lower bound where <c>&gt; date</c> excluded the day it
+    /// named, so the same arithmetic now returns a day more. That is the direction this bound is
+    /// allowed to be wrong in, and it is left as it was rather than tightened by a day: no
+    /// boundary is decided here.
+    ///
     /// One function rather than a condition in <see cref="BuildUrl"/>, because a second caller
     /// needs the same answer: a filtered listing's heading counts the filter's result set, not the
     /// tag, and <see cref="RecordTotal"/> has to know which it is looking at.
     /// </summary>
-    private static string? RevisedAtBound(ScrapeRunMode mode, DateTime? watermark) =>
+    private static string? DateFromBound(ScrapeRunMode mode, DateTime? watermark) =>
         mode == ScrapeRunMode.Incremental && watermark is { } since
-            ? $"> {since.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}"
+            ? since.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
             : null;
 
     // ---- ship state --------------------------------------------------------------------------
@@ -1351,7 +1366,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// Stores AO3's "N Works in ..." heading as the tag's total — from an unfiltered listing only.
     ///
     /// The heading counts whatever result set the request produced, so an incremental pass carrying
-    /// a <c>revised_at</c> bound prints the number of works revised since the watermark, which on a
+    /// a <c>date_from</c> bound prints the number of works revised since the watermark, which on a
     /// quiet tag is a single digit. Written to <see cref="Ship.LastKnownTotalWorks"/> that is not
     /// merely wrong, it is wrong in the direction that matters: the field is documented as the
     /// figure a full sweep checks itself against before concluding works have left the tag, and a
