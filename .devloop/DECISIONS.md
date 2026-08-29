@@ -482,3 +482,16 @@ to, which is the one thing `WorkQueries` exists to prevent. The retention clause
 **`StatsQueries.PerShip` restates the rule per ship** (review finding): counting a work under a tag
 it left contradicted that tag's own feed. Applied to the flattened rows — inside the `SelectMany` a
 correlated EXISTS makes the query need SQL APPLY, which SQLite does not have.
+
+## 2026-08-29 — T85/T86: the sweep, from the clock to the page
+
+**`ScrapeWorker` reads the injected `TimeProvider`, and `ScrapeRun.StartedAt` with it.** The rule
+that forced it is T15's sweep interval, which compared the wall clock against a date the scraper
+had stamped from the fixture's — untestable, and wrong in the direction that re-sweeps for ever.
+Stamping `StartedAt` from the same clock (review finding) keeps one row on one clock; the run
+history orders by it. `FullSweepIsDue`'s `Ship.CreatedAt` fallback is deliberately left outside the
+seam rather than putting a clock through every writer of a Ship row, and says so.
+
+**The sweep is its own line on the Ships page, not part of the status label.** The two are
+independent — a ship whose back catalogue was given up on can be mid-sweep — and one slot would
+have dropped one to say the other.

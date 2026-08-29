@@ -330,3 +330,28 @@ Append-only. One entry per iteration, newest last.
   (`PerShip` counted a work under a tag it left; a tooltip's reason was false), 1 → BACKLOG.
 - commit: 484033f
 - next: **T85**.
+
+## 2026-08-29 — T85 The worker schedules against a clock no test can move — done
+
+- did: `ScrapeWorker` reads the injected `TimeProvider` for all seven scheduling decisions;
+  `NextRunAfter` takes the instant; `ScrapeRun.StartedAt` is stamped from it too, so a run's dates
+  are one clock. The tests that fought the wall clock arrange against the fixture's.
+- files: `Api/Services/Scraping/ScrapeWorker.cs`, `Tests/{Ao3ShipIndexFullSweepTests,
+  Ao3ShipIndexScraperTests,JitterTests,LibraryTestHost,ScrapeWorker*}.cs`
+- ran: `~ScrapeWorker` → 22; `dotnet test` → 1005; review → 5 findings, all fixed (the medium one:
+  `StartedAt` was still the wall clock) in a second commit, since T86 was already on top.
+- commit: 76bbd65 (+ d971afb)
+- next: **T86**. `FullSweepIsDue`'s `Ship.CreatedAt` fallback is knowingly outside the seam.
+
+## 2026-08-29 — T86 Nothing in the UI says a ship is being swept — done
+
+- did: `WatchedShipDto` carries `FullSweepNextPage` and both sweep dates; the Ships page renders
+  them as their own line beside the backfill state — in flight with its page, else the last full
+  re-read, else that one was abandoned.
+- files: `Api/Controllers/ShipsController.cs`, `Api/Dtos/ShipDtos.cs`,
+  `Tests/ShipsControllerTests.cs`, `frontend/src/{api/types.ts,pages/ShipsPage.tsx}`
+- ran: `~ShipsController` → 30; `dotnet test` → 1005; build clean; lint → 2 known; live: throwaway
+  instance on a free port, sweep set by hand in its DB, `/api/ships` served all three fields.
+- ran: review → 3 findings, 1 fixed (a duplicated `<param>`), 2 pre-existing → BACKLOG.
+- commit: 81dd904
+- next: the finish check — definition of done, README included.

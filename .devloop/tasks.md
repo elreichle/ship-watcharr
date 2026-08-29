@@ -2095,7 +2095,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   seen again.
 
 ## T85 — The worker schedules against a clock no test can move
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: `ScrapeWorker` reading time through the injected `TimeProvider` rather than
@@ -2115,7 +2115,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   the worker has always read the wall clock — so this is a seam to fix, not a defect to repair.
 
 ## T86 — Nothing in the UI says a ship is being swept
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: The ship's sweep state — last swept, and whether a sweep is walking now — on the Ships

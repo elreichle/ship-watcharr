@@ -100,3 +100,4 @@ A human promotes an item into `tasks.md` between runs; the loop only adds here.
   keying on `== Verified` would change what following an unknown tag does, so it is a decision, not a
   fix. (T83's review.)
 - The Ships page's per-ship work count is instance-wide and excludes works a sweep marked missing, while T84 keeps such a work in the reader's feed and ship stats row once they have marked it — the two numbers describe different questions and say so nowhere.
+- Unfollowing deletes the reader's notifications with an `ExecuteDeleteAsync` that commits before the `SaveChangesAsync` removing the subscription, so a cancelled request loses them for good while the follow stands — and the sidebar's unread badge is not refreshed by the unfollow either. (T86's review.)
