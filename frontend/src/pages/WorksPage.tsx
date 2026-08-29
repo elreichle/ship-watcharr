@@ -74,6 +74,11 @@ export function WorksPage() {
   // its own token is still the newest: two edits to one row in flight together otherwise let the
   // slower, older answer land last and undo the newer one.
   const stateWriteTokens = useRef(new Map<number, number>());
+  // The tail of each row's write chain, so two edits to one row are never in flight together. The
+  // token above only decides which *response* may repaint the row; the requests themselves are
+  // whole-state replacements, so letting them overlap lets the older one land last and leaves the
+  // database holding the edit the row has already stopped showing.
+  const stateWriteChains = useRef(new Map<number, Promise<unknown>>());
   // Bumped by every touch of a note editor — typing in one, opening one, closing one. A save
   // captures it and refuses to reset anything if it has moved since: the write is not instant, and
   // what the reader did during it outranks what the request carried.
@@ -196,23 +201,38 @@ export function WorksPage() {
     applyState(work.id, next);
     setStateErrors(({ [work.id]: _cleared, ...rest }) => rest);
 
-    return api
-      .setWorkState(work.id, next)
-      .then((saved) => {
-        if (isCurrent()) applyState(work.id, saved);
-        return true;
-      })
-      .catch((err) => {
-        if (isCurrent()) {
-          applyState(work.id, previous);
-          setStateErrors((errors) => ({
-            ...errors,
-            [work.id]:
-              err instanceof ApiError ? err.message : 'Could not save that — nothing changed.',
-          }));
-        }
-        return false;
-      });
+    // Queued behind this row's last write rather than sent now, so the archive of record ends up
+    // agreeing with the row: the reader's last edit is the last one the server sees. A failed
+    // predecessor still lets this one go — the reader asked for it, and abandoning it silently
+    // would be the same lost edit by another route.
+    const previousWrite = stateWriteChains.current.get(work.id) ?? Promise.resolve();
+    const write = previousWrite.then(() =>
+      api
+        .setWorkState(work.id, next)
+        .then((saved) => {
+          if (isCurrent()) applyState(work.id, saved);
+          return true;
+        })
+        .catch((err) => {
+          if (isCurrent()) {
+            applyState(work.id, previous);
+            setStateErrors((errors) => ({
+              ...errors,
+              [work.id]:
+                err instanceof ApiError ? err.message : 'Could not save that — nothing changed.',
+            }));
+          }
+          return false;
+        }),
+    );
+
+    stateWriteChains.current.set(work.id, write);
+    // Only the tail is worth keeping: once this write is the last one done for the row, the map
+    // entry is a reference to a settled promise that nothing will ever chain onto again.
+    void write.then(() => {
+      if (stateWriteChains.current.get(work.id) === write) stateWriteChains.current.delete(work.id);
+    });
+    return write;
   };
 
   const openNoteEditor = (work: WorkListItem) => {

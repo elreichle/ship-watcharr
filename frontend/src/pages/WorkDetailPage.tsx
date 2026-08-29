@@ -54,6 +54,11 @@ export function WorkDetailPage() {
   // two edits in flight together otherwise let the slower, older answer land last and undo the
   // newer one. The same rule the feed's rows follow, for the same reason.
   const stateWriteToken = useRef(0);
+  // The tail of this page's write chain, so two edits are never in flight together. The token above
+  // only decides which *response* may repaint the page; the requests themselves are whole-state
+  // replacements, so letting them overlap lets the older one land last and leaves the database
+  // holding the edit the page has already stopped showing.
+  const stateWriteChain = useRef<Promise<unknown> | null>(null);
 
   useEffect(() => {
     let current = true;
@@ -71,6 +76,9 @@ export function WorkDetailPage() {
     // without this the load path's own guard would be the only one and the write path would have
     // none.
     stateWriteToken.current += 1;
+    // A different work's writes have no order to keep with this one's, and making them wait would
+    // only hold this page's first edit behind a request that has left the page.
+    stateWriteChain.current = null;
 
     if (!Number.isInteger(workId) || workId <= 0) {
       setNotFound(true);
@@ -115,21 +123,30 @@ export function WorkDetailPage() {
     applyState(next);
     setStateError(null);
 
-    return api
-      .setWorkState(work.id, next)
-      .then((saved) => {
-        if (isCurrent()) applyState(saved);
-        return true;
-      })
-      .catch((err) => {
-        if (isCurrent()) {
-          applyState(previous);
-          setStateError(
-            err instanceof ApiError ? err.message : 'Could not save that — nothing changed.',
-          );
-        }
-        return false;
-      });
+    // Queued behind the last write rather than sent now, so the server ends up holding the
+    // reader's last edit rather than whichever request happened to arrive last. A failed
+    // predecessor still lets this one go — the reader asked for it, and abandoning it silently
+    // would be the same lost edit by another route.
+    const write = (stateWriteChain.current ?? Promise.resolve()).then(() =>
+      api
+        .setWorkState(work.id, next)
+        .then((saved) => {
+          if (isCurrent()) applyState(saved);
+          return true;
+        })
+        .catch((err) => {
+          if (isCurrent()) {
+            applyState(previous);
+            setStateError(
+              err instanceof ApiError ? err.message : 'Could not save that — nothing changed.',
+            );
+          }
+          return false;
+        }),
+    );
+
+    stateWriteChain.current = write;
+    return write;
   };
 
   const commitNote = (note: string | null) => {
