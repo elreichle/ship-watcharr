@@ -480,6 +480,10 @@ public sealed class DownloadFetcher : IDownloadFetcher
     /// not a way around anything: the instance is logged in and the page is one this account may
     /// read either way.
     /// </remarks>
-    private string WorkPageUrl(long workId) =>
-        $"{_options.BaseUrl.TrimEnd('/')}/works/{workId}?view_adult=true";
+    /// <summary>
+    /// Shared with the detail pass, which reads the same page for what a blurb does not carry — so
+    /// the <c>view_adult</c> parameter that keeps AO3 from answering with its content interstitial
+    /// is decided in one place. See <see cref="Ao3WorkPageUrl"/>.
+    /// </summary>
+    private string WorkPageUrl(long workId) => Ao3WorkPageUrl.For(_options.BaseUrl, workId);
 }

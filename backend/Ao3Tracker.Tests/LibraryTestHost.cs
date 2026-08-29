@@ -179,6 +179,14 @@ internal sealed class LibraryTestHost : IDisposable
         services.AddScoped<IWorkIngestor, WorkIngestor>();
         services.AddScoped<Ao3ShipIndexScraper>();
 
+        // The per-work detail pass, over the same database and the same fake archive as the walk it
+        // is a sibling of. Registered by its interface because that is how its worker resolves it.
+        services.AddScoped<IAo3WorkDetailScraper, Ao3WorkDetailScraper>();
+
+        // Shared across passes the way the real singleton is, so a test can watch a work that never
+        // reads be written off and stay written off.
+        services.AddSingleton<WorkDetailAttempts>();
+
         configure?.Invoke(services);
 
         _provider = services.BuildServiceProvider();
@@ -329,6 +337,29 @@ internal sealed class LibraryTestHost : IDisposable
         return await scope.ServiceProvider.GetRequiredService<IDownloadFetcher>()
             .FetchAsync(downloadId, budget ?? new ScrapeBudget(new Ao3HttpClientOptions()));
     }
+
+    /// <summary>
+    /// One pass over the detail backlog, in a scope of its own the way its worker runs them — but
+    /// without the worker's gates in front of it, so a test can exercise what the pass does to rows
+    /// rather than what holds it. The budget is overridable for the same reason the ship walk's is:
+    /// starving a pass must not mean waiting out five hundred fake requests.
+    /// </summary>
+    public async Task<WorkDetailPassResult> FetchWorkDetailsAsync(ScrapeBudget? budget = null)
+    {
+        using var scope = _provider.CreateScope();
+
+        return await scope.ServiceProvider.GetRequiredService<IAo3WorkDetailScraper>()
+            .RunAsync(budget ?? new ScrapeBudget(new Ao3HttpClientOptions()));
+    }
+
+    /// <summary>
+    /// One pass of the detail worker, without a host or a timer — the same call its loop makes, and
+    /// the only way to reach the gates it applies before reading anything.
+    /// </summary>
+    public WorkDetailWorker NewWorkDetailWorker() => new(
+        _provider.GetRequiredService<IServiceScopeFactory>(),
+        _provider.GetRequiredService<ILogger<WorkDetailWorker>>(),
+        _provider.GetRequiredService<IOptions<Ao3HttpClientOptions>>());
 
     /// <summary>
     /// Parses a listing and writes it, without a scrape around it. Lets a test exercise what

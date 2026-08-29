@@ -182,6 +182,15 @@ builder.Services.AddScoped<IWorkIngestor, WorkIngestor>();
 builder.Services.AddScoped<IAo3Scraper, Ao3ShipIndexScraper>();
 builder.Services.AddScoped<ScraperRegistry>();
 
+// The per-work detail pass, which is not an IAo3Scraper and so not in the registry: a ScrapeJob is
+// one row per ship walking one tag's listing, and a work's publication date and full tag list are
+// neither ship-scoped nor paginated. See Ao3WorkDetailScraper for the whole of that reasoning.
+builder.Services.AddScoped<IAo3WorkDetailScraper, Ao3WorkDetailScraper>();
+
+// Singleton, because it is what one pass remembers for the next: the works whose page this process
+// has asked for and could not read. See WorkDetailAttempts for why it is memory and not a column.
+builder.Services.AddSingleton<WorkDetailAttempts>();
+
 // ---- Ship verification (confirms a followed tag exists on AO3, and folds synonyms into
 // their canonical tag). Shares the rate-limited client, so it cannot outpace scraping. ----
 builder.Services.AddScoped<IShipVerifier, Ao3ShipVerifier>();
@@ -202,6 +211,10 @@ builder.Services.AddHostedService<ShipVerificationWorker>();
 // Shares the rate gate with the two above, so a queue of downloads cannot outpace scraping or be
 // outpaced by it — one instance, one stream of requests to AO3.
 builder.Services.AddHostedService<DownloadWorker>();
+
+// The same gate again, and the same rate limiter: reading a work's own page is one more request
+// this instance makes to AO3, and the least urgent of the three.
+builder.Services.AddHostedService<WorkDetailWorker>();
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();

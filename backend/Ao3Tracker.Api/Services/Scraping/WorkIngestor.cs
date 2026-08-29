@@ -24,6 +24,17 @@ public interface IWorkIngestor
         IReadOnlyList<Ao3WorkBlurb> blurbs,
         bool announceToWatchers = false,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Writes what a work's own page said about it: its publication date, its complete tag list, and
+    /// the fact that the page was read at all.
+    /// </summary>
+    /// <returns>
+    /// False where the work is not in this library — a work can be unfollowed, merged away or
+    /// deleted between a detail pass selecting it and the page arriving, and none of that is a
+    /// failure worth recording against the fetch.
+    /// </returns>
+    Task<bool> IngestDetailAsync(long workId, Ao3WorkPage page, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -73,7 +84,7 @@ public sealed class WorkIngestor : IWorkIngestor
         // hundred round-trips for a page that could take a few.
         var existingWorks = await LoadExistingWorksAsync(unique, ct);
         var existingLinks = await LoadExistingShipLinksAsync(ship, unique, ct);
-        var tagsByKey = await ResolveTagsAsync(unique, now, ct);
+        var tagsByKey = await ResolveTagsAsync([.. unique.SelectMany(b => b.Tags)], now, ct);
         var pseudsByKey = await ResolvePseudsAsync(unique, now, ct);
         var seriesById = await ResolveSeriesAsync(unique, now, ct);
 
@@ -118,6 +129,68 @@ public sealed class WorkIngestor : IWorkIngestor
         if (notified.Count > 0) await CapNotificationsAsync(notified, ct);
 
         return new IngestResult(unique.Count, added, updated);
+    }
+
+    /// <summary>
+    /// The other side of <see cref="ApplyTags"/>'s rule: the observation that is complete.
+    /// </summary>
+    /// <remarks>
+    /// <para>A work's own page carries its whole tag list, so this reconciles — adding what the page
+    /// shows and removing what it does not — where a listing blurb, which carries an abbreviated
+    /// one, may only add once a page has been read. That is the whole of what
+    /// <see cref="Work.DetailFetchedAt"/> decides, and this is the only writer of it.</para>
+    /// <para><b>An empty tag list deletes nothing.</b> AO3 requires a fandom of every work, so a page
+    /// that parsed with no tags is a markup change rather than a work that lost them, and the same
+    /// rule that lets this method delete at all — a source may delete only within a scope it observed
+    /// completely — is what says an empty read observed nothing. <see cref="Ao3WorkDetailScraper"/>
+    /// does not call this for such a page at all, precisely so that the stamp below cannot be written
+    /// from one: <see cref="Work.DetailFetchedAt"/> is also what puts the listing pass into add-only
+    /// mode, and a work stamped from a tagless page would have no source left that may drop a tag.
+    /// The guard stays because this is a public method and the rule is its own, not its caller's.</para>
+    /// <para>Only the tags: the rating, the categories and the stats are on the page too, and are
+    /// left to the listing pass that already writes them. A detail fetch happens once per work and
+    /// then not again until the work is revised, while a listing pass re-reads a work's kudos every
+    /// six hours — so writing those here would put a stale copy in front of a fresh one.</para>
+    /// </remarks>
+    public async Task<bool> IngestDetailAsync(long workId, Ao3WorkPage page, CancellationToken ct = default)
+    {
+        // The joins come with it for the reason LoadExistingWorksAsync gives: lazy loading is off,
+        // so an un-included collection reads as empty, and reconciling against that would delete
+        // every tag the work has.
+        var work = await _db.Works
+            .Include(w => w.Tags)
+            .FirstOrDefaultAsync(w => w.Id == workId, ct);
+
+        if (work is null) return false;
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        var tagsByKey = await ResolveTagsAsync(page.Tags, now, ct);
+
+        if (page.Tags.Count > 0)
+        {
+            var desired = page.Tags
+                .Select(t => tagsByKey.GetValueOrDefault(TagKey(t.Type, t.Name)))
+                .Where(t => t is not null)
+                .Select(t => t!.Id)
+                .ToHashSet();
+
+            Reconcile(
+                work.Tags, desired, wt => wt.TagId,
+                id => new WorkTag { WorkId = work.Id, TagId = id }, _db.WorkTags);
+        }
+
+        // A date the page did not carry leaves whatever an earlier fetch managed to read, the same
+        // way an unreadable blurb date leaves UpdatedAt alone. Null here is this parse's shortfall,
+        // not a claim that the work has no publication date.
+        if (page.PublishedAt is { } published) work.PublishedAt = published;
+
+        // Written even when nothing above it was: the expensive thing — the request — happened, and
+        // a page read but not stamped is a page re-fetched on every pass for ever. What the fetch
+        // could not read is reported as a parse warning by the pass that made it.
+        work.DetailFetchedAt = now;
+
+        await _db.SaveChangesAsync(ct);
+        return true;
     }
 
     // ---- the work row ------------------------------------------------------------------------
@@ -484,11 +557,16 @@ public sealed class WorkIngestor : IWorkIngestor
             .ToDictionaryAsync(sw => sw.WorkId, ct);
     }
 
+    /// <summary>
+    /// Get-or-create over the shared tag vocabulary, for a whole page of blurbs or for one work's
+    /// own page — hence a flat list of tags rather than the blurbs they came off. Both sources
+    /// resolve through here, which is what stops the same tag becoming two rows depending on which
+    /// pass saw it first.
+    /// </summary>
     private async Task<Dictionary<(Ao3TagType, string), Tag>> ResolveTagsAsync(
-        List<Ao3WorkBlurb> blurbs, DateTime now, CancellationToken ct)
+        IReadOnlyList<Ao3BlurbTag> tags, DateTime now, CancellationToken ct)
     {
-        var wanted = blurbs
-            .SelectMany(b => b.Tags)
+        var wanted = tags
             .Select(t => (t.Type, Name: Truncate(t.Name, MaxTagNameLength)!))
             .DistinctBy(t => TagKey(t.Type, t.Name))
             .ToList();

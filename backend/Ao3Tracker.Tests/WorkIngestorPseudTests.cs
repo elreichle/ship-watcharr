@@ -231,9 +231,10 @@ public class WorkIngestorPseudTests : IDisposable
     }
 
     /// <summary>
-    /// What T10's detail fetch will do to a work: record tags the listing blurb never carried, and
-    /// stamp <see cref="Work.DetailFetchedAt"/>. Written here rather than through that scraper
-    /// because the rule under test is the ingestor's and holds whatever wrote the column.
+    /// What a detail fetch does to a work: record tags the listing blurb never carried, and stamp
+    /// <see cref="Work.DetailFetchedAt"/>. Written by hand rather than through
+    /// <c>IngestDetailAsync</c> because the rule under test is the blurb path's and holds whatever
+    /// wrote the column — see <c>Ao3WorkPageDetailFetchTests</c> for the two together.
     /// </summary>
     private async Task DetailFetchAsync(long workId, params string[] freeforms)
     {

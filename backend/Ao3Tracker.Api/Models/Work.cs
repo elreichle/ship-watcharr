@@ -58,9 +58,10 @@ public class Work
     public bool UpdatedAtIsApproximate { get; set; }
 
     /// <summary>
-    /// Null until fetched. AO3 search blurbs do not carry the published date at all — only a
-    /// work's own page has it — so scrapes never populate this. It is filled lazily, once, the
-    /// first time a user opens the work's detail view.
+    /// Null until fetched. AO3 search blurbs do not carry the published date at all — only a work's
+    /// own page has it — so no listing pass can populate this. <c>Ao3WorkDetailScraper</c> fills it
+    /// in the background, one request per work, and until it has the detail page says so rather
+    /// than showing a date it does not have.
     /// </summary>
     public DateTime? PublishedAt { get; set; }
 
@@ -78,8 +79,10 @@ public class Work
     public DateTime LastScrapedAt { get; set; }
 
     /// <summary>
-    /// Last time the work's own page was fetched. Guards the lazy published-date fetch:
-    /// refetch only when null, or when <see cref="UpdatedAt"/> has moved past it.
+    /// Last time the work's own page was fetched. Two things read it: <c>Ao3WorkDetailScraper</c>,
+    /// which asks for a page only when this is null or <see cref="UpdatedAt"/> has moved past it,
+    /// and <c>WorkIngestor.ApplyTags</c>, for which it decides whether a listing blurb's tag list is
+    /// still the whole of what anyone has observed.
     /// </summary>
     public DateTime? DetailFetchedAt { get; set; }
 
