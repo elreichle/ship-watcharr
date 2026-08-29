@@ -67,7 +67,7 @@ public class ScrapeWorkerModeChoiceTests
             // Swept just now, so no sweep is owed. Without this the arm under test is only reached
             // because a freshly followed ship is younger than the sweep interval — true today, and
             // not the thing these cases are about.
-            ship.LastFullSweepStartedAt = DateTime.UtcNow;
+            ship.LastFullSweepStartedAt = host.Clock.Now.UtcDateTime;
             await db.SaveChangesAsync();
         }
 

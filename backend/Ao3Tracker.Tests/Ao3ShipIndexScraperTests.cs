@@ -2667,7 +2667,11 @@ public class Ao3ShipIndexScraperTests : IDisposable
         var ship = await db.Ships.SingleAsync(s => s.Id == shipId);
         ship.BackfillState = ShipBackfillState.Complete;
         ship.BackfillCompletedAt = Jan(1);
-        ship.LastFullSweepStartedAt = DateTime.UtcNow;
+
+        // The fixture's own clock, like every other date here: the worker measures the sweep
+        // interval against it, so a wall-clock stamp beside a Jan(...) backfill would leave which
+        // pass these runs get depending on which of two clocks the fixture happened to be nearer.
+        ship.LastFullSweepStartedAt = _host.Clock.Now.UtcDateTime;
         await db.SaveChangesAsync();
     }
 

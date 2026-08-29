@@ -59,6 +59,19 @@ public class ScrapeWorker : BackgroundService
     private readonly Ao3HttpClientOptions _httpOptions;
     private readonly ScrapeWakeSignal _wake;
 
+    /// <summary>
+    /// The clock every scheduling decision reads: what is due, which pass a due job gets, when a
+    /// run started and when it went stale.
+    /// </summary>
+    /// <remarks>
+    /// Injected rather than read off the wall, because the scrapers this worker drives already read
+    /// it — <c>Ao3ShipIndexScraper</c> stamps <see cref="Ship.LastFullSweepStartedAt"/> from it —
+    /// and a rule comparing one clock against a date written by another cannot be tested at all: a
+    /// fixture whose clock sits in the past would find every sweep it had just stamped due again on
+    /// the next tick, which is the real bug that shape hides.
+    /// </remarks>
+    private readonly TimeProvider _time;
+
     /// <summary>Last logged scraping-enabled state; null until the first check. See RunDueJobsAsync.</summary>
     private bool? _scrapingEnabled;
 
@@ -69,13 +82,18 @@ public class ScrapeWorker : BackgroundService
         IServiceScopeFactory scopeFactory,
         ILogger<ScrapeWorker> logger,
         IOptions<Ao3HttpClientOptions> httpOptions,
-        ScrapeWakeSignal wake)
+        ScrapeWakeSignal wake,
+        TimeProvider time)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
         _httpOptions = httpOptions.Value;
         _wake = wake;
+        _time = time;
     }
+
+    /// <summary>Now, from the injected clock — see <see cref="_time"/>.</summary>
+    private DateTime UtcNow => _time.GetUtcNow().UtcDateTime;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -118,7 +136,7 @@ public class ScrapeWorker : BackgroundService
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-            var cutoff = DateTime.UtcNow - StaleRunThreshold;
+            var cutoff = UtcNow - StaleRunThreshold;
             var stale = await db.ScrapeRuns
                 .Where(r => r.Status == ScrapeRunStatus.Running)
                 .Where(r => (r.HeartbeatAt ?? r.StartedAt) < cutoff)
@@ -129,7 +147,7 @@ public class ScrapeWorker : BackgroundService
             foreach (var run in stale)
             {
                 run.Status = ScrapeRunStatus.Interrupted;
-                run.CompletedAt = DateTime.UtcNow;
+                run.CompletedAt = UtcNow;
                 run.StopReason = ScrapeStopReason.Interrupted;
                 run.ErrorMessage ??= "Run did not complete — the application stopped while it was in progress.";
             }
@@ -179,7 +197,7 @@ public class ScrapeWorker : BackgroundService
             _scrapingEnabled = true;
         }
 
-        var now = DateTime.UtcNow;
+        var now = UtcNow;
 
         // Ids, not entities: each job is run in a scope of its own below, and an entity tracked by
         // this scope's context has no business being written through that one.
@@ -314,10 +332,10 @@ public class ScrapeWorker : BackgroundService
     /// poll tick. Ten watched ships then queue ten scrapes behind the shared rate-limit gate at
     /// once, which is the load spike this is meant to avoid.
     /// </summary>
-    internal static DateTime NextRunAfter(TimeSpan interval)
+    internal static DateTime NextRunAfter(TimeSpan interval, DateTime now)
     {
         var multiplier = 1 + ((Random.Shared.NextDouble() * 2 - 1) * ScheduleJitterFactor);
-        return DateTime.UtcNow + (interval * multiplier);
+        return now + (interval * multiplier);
     }
 
     private async Task RunJobAsync(IServiceProvider services, int jobId, CancellationToken ct)
@@ -342,7 +360,7 @@ public class ScrapeWorker : BackgroundService
         if (scraper is null)
         {
             _logger.LogWarning("ScrapeJob {JobId} references unknown scraper key {ScraperKey}", job.Id, job.ScraperKey);
-            job.NextRunAt = NextRunAfter(job.Interval);
+            job.NextRunAt = NextRunAfter(job.Interval, UtcNow);
             await db.SaveChangesAsync(ct);
             return;
         }
@@ -351,7 +369,7 @@ public class ScrapeWorker : BackgroundService
         // the cheap newest-first pass, or the sweep when one is owed.
         var mode = job.Ship.BackfillState is ShipBackfillState.NotStarted or ShipBackfillState.InProgress
             ? ScrapeRunMode.Backfill
-            : FullSweepIsDue(job.Ship, DateTime.UtcNow)
+            : FullSweepIsDue(job.Ship, UtcNow)
                 ? ScrapeRunMode.FullSweep
                 : ScrapeRunMode.Incremental;
 
@@ -359,7 +377,7 @@ public class ScrapeWorker : BackgroundService
         {
             _logger.LogWarning(
                 "Scraper {ScraperKey} does not support {Mode} for ScrapeJob {JobId}", job.ScraperKey, mode, job.Id);
-            job.NextRunAt = NextRunAfter(job.Interval);
+            job.NextRunAt = NextRunAfter(job.Interval, UtcNow);
             await db.SaveChangesAsync(ct);
             return;
         }
@@ -369,7 +387,7 @@ public class ScrapeWorker : BackgroundService
             ScrapeJobId = job.Id,
             Status = ScrapeRunStatus.Running,
             Mode = mode,
-            HeartbeatAt = DateTime.UtcNow,
+            HeartbeatAt = UtcNow,
         };
         db.ScrapeRuns.Add(run);
         await db.SaveChangesAsync(ct);
@@ -432,10 +450,10 @@ public class ScrapeWorker : BackgroundService
             run.HitRequestCap = budget.HitRequestCap;
             run.HitTimeCap = budget.HitTimeCap;
 
-            run.CompletedAt = DateTime.UtcNow;
+            run.CompletedAt = UtcNow;
             run.HeartbeatAt = run.CompletedAt;
             job.LastRunAt = run.CompletedAt;
-            job.NextRunAt = NextRunAfter(job.Interval);
+            job.NextRunAt = NextRunAfter(job.Interval, UtcNow);
 
             await PersistCompletionAsync(db, run, job, ct);
         }

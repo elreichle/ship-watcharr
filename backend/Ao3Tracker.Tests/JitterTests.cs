@@ -140,7 +140,7 @@ public class JitterTests
         var interval = TimeSpan.FromHours(6);
         var before = DateTime.UtcNow;
 
-        var runs = Enumerable.Range(0, 500).Select(_ => ScrapeWorker.NextRunAfter(interval)).ToList();
+        var runs = Enumerable.Range(0, 500).Select(_ => ScrapeWorker.NextRunAfter(interval, before)).ToList();
 
         var offsets = runs.Select(r => (r - before).TotalHours).ToList();
 

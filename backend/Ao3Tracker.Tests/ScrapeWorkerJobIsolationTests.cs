@@ -64,7 +64,7 @@ public class ScrapeWorkerJobIsolationTests : IDisposable
         // later, and asks for the same page again.
         Assert.NotNull(job.LastRunAt);
         Assert.NotNull(job.NextRunAt);
-        Assert.True(job.NextRunAt > DateTime.UtcNow);
+        Assert.True(job.NextRunAt > _host.Clock.Now.UtcDateTime);
     }
 
     [Fact]

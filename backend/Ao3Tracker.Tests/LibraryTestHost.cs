@@ -254,7 +254,8 @@ internal sealed class LibraryTestHost : IDisposable
         _provider.GetRequiredService<IServiceScopeFactory>(),
         _provider.GetRequiredService<ILogger<ScrapeWorker>>(),
         _provider.GetRequiredService<IOptions<Ao3HttpClientOptions>>(),
-        ScrapeWake);
+        ScrapeWake,
+        Clock);
 
     /// <summary>
     /// One poll of the download worker, without a host or a timer — the same call its loop makes.

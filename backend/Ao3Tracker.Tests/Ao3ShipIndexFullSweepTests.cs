@@ -310,10 +310,12 @@ public class Ao3ShipIndexFullSweepTests : IDisposable
     [Fact]
     public async Task The_worker_sweeps_a_ship_whose_listing_was_last_walked_in_full_long_enough_ago()
     {
-        var modes = await ModesTheWorkerChoseAsync(ship =>
+        // Two intervals back rather than one and a day: the per-ship stagger adds up to a whole
+        // interval on top, so this is the shortest gap that is due whatever id the ship was given.
+        var modes = await ModesTheWorkerChoseAsync((ship, now) =>
         {
             ship.BackfillState = ShipBackfillState.Complete;
-            ship.BackfillCompletedAt = DateTime.UtcNow - ScrapeWorker.FullSweepInterval - TimeSpan.FromDays(1);
+            ship.BackfillCompletedAt = now - (ScrapeWorker.FullSweepInterval * 2) - TimeSpan.FromDays(1);
         });
 
         Assert.Equal([ScrapeRunMode.FullSweep], modes);
@@ -322,11 +324,11 @@ public class Ao3ShipIndexFullSweepTests : IDisposable
     [Fact]
     public async Task The_worker_reads_the_newest_end_of_a_ship_swept_recently_enough()
     {
-        var modes = await ModesTheWorkerChoseAsync(ship =>
+        var modes = await ModesTheWorkerChoseAsync((ship, now) =>
         {
             ship.BackfillState = ShipBackfillState.Complete;
-            ship.BackfillCompletedAt = DateTime.UtcNow - TimeSpan.FromDays(365);
-            ship.LastFullSweepStartedAt = DateTime.UtcNow - TimeSpan.FromDays(1);
+            ship.BackfillCompletedAt = now - TimeSpan.FromDays(365);
+            ship.LastFullSweepStartedAt = now - TimeSpan.FromDays(1);
         });
 
         Assert.Equal([ScrapeRunMode.Incremental], modes);
@@ -338,11 +340,11 @@ public class Ao3ShipIndexFullSweepTests : IDisposable
         // A sweep that got nowhere is abandoned rather than completed, so it leaves a start and no
         // completion. Measured from the completion it never reached, such a ship would be due a
         // sweep on every tick and would never run an incremental pass again.
-        var modes = await ModesTheWorkerChoseAsync(ship =>
+        var modes = await ModesTheWorkerChoseAsync((ship, now) =>
         {
             ship.BackfillState = ShipBackfillState.Complete;
-            ship.BackfillCompletedAt = DateTime.UtcNow - TimeSpan.FromDays(365);
-            ship.LastFullSweepStartedAt = DateTime.UtcNow - TimeSpan.FromDays(1);
+            ship.BackfillCompletedAt = now - TimeSpan.FromDays(365);
+            ship.LastFullSweepStartedAt = now - TimeSpan.FromDays(1);
             ship.LastFullSweepCompletedAt = null;
         });
 
@@ -354,11 +356,11 @@ public class Ao3ShipIndexFullSweepTests : IDisposable
     {
         // A part-walked sweep is worth nothing until it reaches the end of the listing, so leaving
         // one for a tick is leaving it for ever.
-        var modes = await ModesTheWorkerChoseAsync(ship =>
+        var modes = await ModesTheWorkerChoseAsync((ship, now) =>
         {
             ship.BackfillState = ShipBackfillState.Complete;
-            ship.BackfillCompletedAt = DateTime.UtcNow;
-            ship.LastFullSweepStartedAt = DateTime.UtcNow;
+            ship.BackfillCompletedAt = now;
+            ship.LastFullSweepStartedAt = now;
             ship.FullSweepNextPage = 7;
         });
 
@@ -370,13 +372,64 @@ public class Ao3ShipIndexFullSweepTests : IDisposable
     {
         // The sweep never displaces the backfill: a ship that has not read its listing once has
         // nothing for a sweep to check, and both walks would be spending the same requests.
-        var modes = await ModesTheWorkerChoseAsync(ship =>
+        var modes = await ModesTheWorkerChoseAsync((ship, now) =>
         {
             ship.BackfillState = ShipBackfillState.InProgress;
-            ship.LastFullSweepStartedAt = DateTime.UtcNow - TimeSpan.FromDays(365);
+            ship.LastFullSweepStartedAt = now - TimeSpan.FromDays(365);
         });
 
         Assert.Equal([ScrapeRunMode.Backfill], modes);
+    }
+
+    [Fact]
+    public async Task The_worker_sweeps_again_only_once_the_clock_has_passed_the_interval()
+    {
+        // The rule this seam exists for: the sweep the worker starts stamps LastFullSweepStartedAt
+        // from the same clock the worker then measures against, so a swept ship is not due again
+        // until that clock moves. Read off the wall by one side and the fixture by the other, this
+        // could not be asserted at all — every stamped sweep would be due on the next tick.
+        var stub = new StubScraper(Ao3ScraperKeys.ShipIndex, ScrapeStopReason.Watermark);
+        using var host = new LibraryTestHost(stub);
+
+        Assert.IsType<CreatedAtActionResult>(
+            (await host.Ships(host.SeedUser()).WatchShip(new(Lexa), CancellationToken.None)).Result);
+        await host.SaveAo3LoginAsync();
+
+        await using (var db = host.NewContext())
+        {
+            var ship = await db.Ships.SingleAsync();
+            ship.BackfillState = ShipBackfillState.Complete;
+            ship.LastFullSweepStartedAt = host.Clock.Now.UtcDateTime;
+            await db.SaveChangesAsync();
+        }
+
+        var worker = host.NewScrapeWorker();
+
+        await MakeDueAsync(host);
+        await worker.RunDueJobsAsync(CancellationToken.None);
+
+        // A day short of the interval — before the stagger is even counted — so nothing here can
+        // be due yet.
+        host.Clock.Now = host.Clock.Now.Add(ScrapeWorker.FullSweepInterval - TimeSpan.FromDays(1));
+        await MakeDueAsync(host);
+        await worker.RunDueJobsAsync(CancellationToken.None);
+
+        Assert.Equal([ScrapeRunMode.Incremental, ScrapeRunMode.Incremental], stub.ModesRun);
+
+        // Two intervals on, which clears the widest stagger any ship id can draw.
+        host.Clock.Now = host.Clock.Now.Add(ScrapeWorker.FullSweepInterval * 2);
+        await MakeDueAsync(host);
+        await worker.RunDueJobsAsync(CancellationToken.None);
+
+        Assert.Equal(ScrapeRunMode.FullSweep, stub.ModesRun.Last());
+    }
+
+    /// <summary>Makes the ship's job due again, as waiting out its interval would.</summary>
+    private static async Task MakeDueAsync(LibraryTestHost host)
+    {
+        await using var db = host.NewContext();
+        (await db.ScrapeJobs.SingleAsync()).NextRunAt = null;
+        await db.SaveChangesAsync();
     }
 
     [Fact]
@@ -445,7 +498,11 @@ public class Ao3ShipIndexFullSweepTests : IDisposable
     /// The modes the worker chose for one due job, with a stub scraper standing in for the walk —
     /// the choice is the worker's and is what these tests are about.
     /// </summary>
-    private async Task<IReadOnlyList<ScrapeRunMode>> ModesTheWorkerChoseAsync(Action<Ship> arrange)
+    /// <param name="arrange">Handed the ship and the instant the worker will read as now, so a
+    /// test says "a sweep two intervals ago" rather than racing the wall clock the worker used to
+    /// read — see the remarks on <c>ScrapeWorker._time</c>.</param>
+    private static async Task<IReadOnlyList<ScrapeRunMode>> ModesTheWorkerChoseAsync(
+        Action<Ship, DateTime> arrange)
     {
         var stub = new StubScraper(Ao3ScraperKeys.ShipIndex, ScrapeStopReason.Watermark);
         using var host = new LibraryTestHost(stub);
@@ -456,7 +513,7 @@ public class Ao3ShipIndexFullSweepTests : IDisposable
 
         await using (var db = host.NewContext())
         {
-            arrange(await db.Ships.SingleAsync());
+            arrange(await db.Ships.SingleAsync(), host.Clock.Now.UtcDateTime);
             await db.SaveChangesAsync();
         }
 
