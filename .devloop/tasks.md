@@ -423,7 +423,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   gets an explanation, not an empty chart.
 
 ## T20 — Docker, actually run
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: T4, T14, T17, T19
 - delivers: `docker compose up --build` producing a working instance on a clean machine: it boots,

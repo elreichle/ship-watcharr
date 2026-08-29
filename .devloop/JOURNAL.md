@@ -579,3 +579,16 @@ Append-only. One entry per iteration, newest last.
   carries no `verify: live`, the marker the skill makes deciding.
 - commit: c598c0f
 - next: **T20** — blockers T4, T14, T17, T19 all done. Review found 5, all in this diff, all fixed.
+
+## 2026-08-29 — T20 Docker, actually run — done
+
+- did: Ran `docker compose up --build` for the first time. The runtime stage built an `appuser` with
+  an `adduser` the aspnet:10.0 image lacks (it ships `app`, uid 1654), and with no `.dockerignore`
+  the context copied the dev instance's `appdata/` into the image. Both fixed; README corrected.
+- files: `Dockerfile`, `.dockerignore`, `README.md`
+- ran: fresh-volume `up --build` → boots, migrates, serves UI, admin + contact + AO3 login + ship;
+  `down && up` → all survives and the worker **decrypts** the stored login. `dotnet test` → 875;
+  `npm run build` clean; `npm run lint` → two known warnings.
+- commit: 911beea
+- next: **T10**, but its blocker T51 is still todo — re-check the index. The run pointed
+  `Ao3HttpClient__BaseUrl` at a closed local port so a fake credential never reached AO3.
