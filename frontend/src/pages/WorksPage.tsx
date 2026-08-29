@@ -74,6 +74,19 @@ export function WorksPage() {
   // its own token is still the newest: two edits to one row in flight together otherwise let the
   // slower, older answer land last and undo the newer one.
   const stateWriteTokens = useRef(new Map<number, number>());
+  // Bumped by every touch of a note editor — typing in one, opening one, closing one. A save
+  // captures it and refuses to reset anything if it has moved since: the write is not instant, and
+  // what the reader did during it outranks what the request carried.
+  const noteEditorTouches = useRef(0);
+
+  /**
+   * The only door onto `openNoteId`. Opening, closing and switching all go through here so that the
+   * counter cannot be bumped in one of them and forgotten in the next.
+   */
+  const showNoteEditor = (workId: number | null) => {
+    noteEditorTouches.current += 1;
+    setOpenNoteId(workId);
+  };
 
   // The URL is the source of truth for the query, so a filtered page can be linked and the back
   // button steps through filter changes rather than leaving the app.
@@ -115,7 +128,7 @@ export function WorksPage() {
 
     // A different page of works is a different set of rows: an open note editor and a failed write
     // both belong to rows that are about to be replaced.
-    setOpenNoteId(null);
+    showNoteEditor(null);
     setNoteDrafts({});
     setSavingNoteId(null);
     setStateErrors({});
@@ -203,7 +216,7 @@ export function WorksPage() {
   };
 
   const openNoteEditor = (work: WorkListItem) => {
-    setOpenNoteId(work.id);
+    showNoteEditor(work.id);
     setNoteDrafts((drafts) =>
       // Seeded from the stored note only when nothing is held for this row: a draft that is still
       // here is text the reader typed and never saved, and it outranks what the server has.
@@ -221,13 +234,20 @@ export function WorksPage() {
    */
   const commitNote = (work: WorkListItem, note: string | null) => {
     const workId = work.id;
+    // What the editor looked like when Save was pressed. The textarea stays editable through the
+    // round trip and the editor can be closed and reopened during it, so resetting on success
+    // unconditionally makes the reader watch their own characters vanish, or the box they just
+    // reopened slam shut, with nothing said.
+    const touchesAtSend = noteEditorTouches.current;
+
     setSavingNoteId(workId);
     saveState(work, { ...work.state, note })
       .then((saved) => {
         if (!saved) return;
-        // Both guarded on the row this save was started for. The write is not instant, and the
-        // reader may have closed this editor and opened another one meanwhile — closing theirs and
-        // dropping their draft is the loss this editor is supposed to prevent.
+        // Untouched since the click, and still the row this save was started for: only then is
+        // closing the editor and dropping its draft the reader's own last instruction, rather than
+        // an undo of whatever they went on to do.
+        if (noteEditorTouches.current !== touchesAtSend) return;
         setOpenNoteId((open) => (open === workId ? null : open));
         setNoteDrafts(({ [workId]: _saved, ...rest }) => rest);
       })
@@ -435,7 +455,7 @@ export function WorksPage() {
                           className="link"
                           aria-expanded={openNoteId === work.id}
                           onClick={() =>
-                            openNoteId === work.id ? setOpenNoteId(null) : openNoteEditor(work)
+                            openNoteId === work.id ? showNoteEditor(null) : openNoteEditor(work)
                           }
                         >
                           {work.state.note === null ? 'Add note' : 'Note'}
@@ -468,9 +488,10 @@ export function WorksPage() {
                             maxLength={MAX_NOTE_LENGTH}
                             rows={4}
                             autoFocus
-                            onChange={(e) =>
-                              setNoteDrafts((drafts) => ({ ...drafts, [work.id]: e.target.value }))
-                            }
+                            onChange={(e) => {
+                              noteEditorTouches.current += 1;
+                              setNoteDrafts((drafts) => ({ ...drafts, [work.id]: e.target.value }));
+                            }}
                           />
                         </label>
                         <div className="button-row">
@@ -483,7 +504,11 @@ export function WorksPage() {
                           >
                             Save note
                           </button>
-                          <button type="button" className="link" onClick={() => setOpenNoteId(null)}>
+                          <button
+                            type="button"
+                            className="link"
+                            onClick={() => showNoteEditor(null)}
+                          >
                             Close
                           </button>
                           {work.state.note !== null && (
