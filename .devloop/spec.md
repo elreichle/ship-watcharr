@@ -206,7 +206,10 @@ Note: `/usr/bin/dotnet` is runtime-only. Non-interactive shells must prefix `PAT
 ## Loop policy
 
 - branch: `devloop/dashboard-completion` (cut from `ao3-ship-index-scraper`, itself 2 ahead of `main`)
-- commit per task: yes — one commit per verified-green task. Never push, never open a PR.
+- commit per task: yes — one commit per verified-green task.
+- pushing: allowed. The branch tracks `origin/devloop/dashboard-completion`, and an iteration may
+  push it once its task and journal commits are in. Fast-forward only — never `--force`, never to
+  `main`, and still never open a PR.
 - off-limits paths:
   - `backend/Ao3Tracker.Api/appdata/` — the dev instance on :5110 holds that SQLite database
     open. Never read, write, delete, or point a test at it.
