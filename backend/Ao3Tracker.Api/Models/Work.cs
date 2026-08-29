@@ -58,6 +58,18 @@ public class Work
     public bool UpdatedAtIsApproximate { get; set; }
 
     /// <summary>
+    /// When this instance first saw the work standing at the <see cref="UpdatedAt"/> it holds now —
+    /// our clock, unlike <see cref="UpdatedAt"/>, which is AO3's. Null for a row last written before
+    /// this column existed, which is "no revision has been observed" and reads as no constraint.
+    ///
+    /// Distinct from <see cref="LastScrapedAt"/>, which every re-scrape moves whether or not
+    /// anything changed. Only a <em>move</em> writes this, and that is what makes it usable as
+    /// "anything read before this moment describes the previous version" — which is how a download
+    /// knows a cached work page predates the version it is fetching for.
+    /// </summary>
+    public DateTime? UpdatedAtObservedAt { get; set; }
+
+    /// <summary>
     /// Null until fetched. AO3 search blurbs do not carry the published date at all — only a work's
     /// own page has it — so no listing pass can populate this. <c>Ao3WorkDetailScraper</c> fills it
     /// in the background, one request per work, and until it has the detail page says so rather

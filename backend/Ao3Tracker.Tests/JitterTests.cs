@@ -21,6 +21,7 @@ public class JitterTests
             Options.Create(options),
             userAgents: null!,   // not reached: these tests exercise delay maths only
             sessions: null!,     // likewise
+            TimeProvider.System,
             NullLogger<RateLimitedAo3HttpClient>.Instance);
 
     [Fact]

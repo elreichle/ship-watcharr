@@ -882,6 +882,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                     b.Property<bool>("UpdatedAtIsApproximate")
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTime?>("UpdatedAtObservedAt")
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("Warnings")
                         .HasColumnType("INTEGER");
 

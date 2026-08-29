@@ -30,6 +30,15 @@ namespace Ao3Tracker.Api.Services.Scraping;
 /// requests, which have no use for them; the login flow is the only caller that reads this, because
 /// establishing a session is exactly "keep what the response set".
 /// </param>
+/// <param name="FetchedAt">
+/// When this content actually came off the wire. It travels with the content for the same reason
+/// <paramref name="Authenticated"/> does: a page served from cache is the page the <em>caching</em>
+/// request was given, and this is the only thing in the response that says how old that is.
+///
+/// A caller reads it to ask whether the page can be evidence about something it learned since — a
+/// download whose work was revised after this moment is reading the previous version's page. Null
+/// where nothing stamped it, which is every request that does not go through the cache.
+/// </param>
 public record ScrapeHttpResponse(
     string Content,
     HttpStatusCode StatusCode,
@@ -37,7 +46,8 @@ public record ScrapeHttpResponse(
     string? FinalUrl = null,
     bool Authenticated = false,
     IReadOnlyList<string>? SetCookieHeaders = null,
-    string? Location = null)
+    string? Location = null,
+    DateTime? FetchedAt = null)
 {
     public IReadOnlyList<string> SetCookies => SetCookieHeaders ?? [];
 }
@@ -80,6 +90,22 @@ public interface IRateLimitedHttpClient
     /// one is not. Every scraper uses this and nothing else.
     /// </summary>
     Task<ScrapeHttpResponse> GetAsync(string url, CancellationToken ct = default);
+
+    /// <summary>
+    /// The same request as <see cref="GetAsync"/>, but reading past any cached copy — and replacing
+    /// it with what comes back, so the next caller is not left re-fetching the same page.
+    /// </summary>
+    /// <remarks>
+    /// For the caller that has evidence the cached copy is too old to answer its question. The
+    /// cache holds a page for <see cref="Ao3HttpClientOptions.CacheDuration"/>, and a work can be
+    /// revised inside that window; a download reading its address off the stale copy would fetch
+    /// the previous version's file and store it as the current one.
+    ///
+    /// It costs a real request, so it is asked for on evidence rather than by default. The common
+    /// case the cache exists for — a second format of the same unchanged work — must keep going
+    /// through <see cref="GetAsync"/>.
+    /// </remarks>
+    Task<ScrapeHttpResponse> GetFreshAsync(string url, CancellationToken ct = default);
 
     /// <summary>
     /// A GET that deliberately carries no stored session and is never cached — the login flow's

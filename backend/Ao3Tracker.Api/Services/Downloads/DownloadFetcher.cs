@@ -113,6 +113,34 @@ public sealed class DownloadFetcher : IDownloadFetcher
         var pageUrl = WorkPageUrl(work.Id);
         var page = await GetPageAsync(pageUrl, budget, ct);
 
+        // A cached page read before the work was revised is the *previous* version's page, and the
+        // address on it is the previous version's file — which this would then store keyed to the
+        // version the row holds now, reporting the old bytes as a copy of the new work. Nothing on
+        // the page says so: AO3 stamps its own clock into the address, which cannot be compared
+        // against Work.UpdatedAt. What can be compared is when this instance saw the revision
+        // against when the copy in front of us came off the wire.
+        if (ReadBeforeTheCurrentVersion(page, work))
+        {
+            // The re-read is a real request, unlike the cache hit that got us here, so it is the
+            // budget's to allow. Released rather than failed when it is not: there is nothing wrong
+            // with this request, and the next drain starts it again — by which time the cached copy
+            // may well have expired on its own.
+            if (!budget.CanContinue(out reason))
+            {
+                _logger.LogInformation(
+                    "Download {DownloadId} left queued: its work page is older than the version being "
+                    + "fetched and this drain stopped on {Reason}", download.Id, reason);
+
+                return await ReleaseAsync(download, ct);
+            }
+
+            _logger.LogInformation(
+                "The cached page for work {WorkId} was read at {FetchedAt}, before this instance saw "
+                + "the version it now stands at. Reading it again.", work.Id, page.FetchedAt);
+
+            page = await GetPageAsync(pageUrl, budget, ct, fresh: true);
+        }
+
         if (page.StatusCode != HttpStatusCode.OK)
         {
             return await FailAsync(
@@ -428,13 +456,14 @@ public sealed class DownloadFetcher : IDownloadFetcher
     /// against an archive that is plainly down. A cache hit counts as neither — nothing left this
     /// process, which is what makes a second format of the same work cheap.
     /// </remarks>
-    private async Task<ScrapeHttpResponse> GetPageAsync(string url, ScrapeBudget budget, CancellationToken ct)
+    private async Task<ScrapeHttpResponse> GetPageAsync(
+        string url, ScrapeBudget budget, CancellationToken ct, bool fresh = false)
     {
         ScrapeHttpResponse page;
 
         try
         {
-            page = await _http.GetAsync(url, ct);
+            page = fresh ? await _http.GetFreshAsync(url, ct) : await _http.GetAsync(url, ct);
         }
         catch
         {
@@ -475,6 +504,22 @@ public sealed class DownloadFetcher : IDownloadFetcher
 
         return result;
     }
+
+    /// <summary>
+    /// Whether the page in front of us was read before this instance saw the version being fetched.
+    /// </summary>
+    /// <remarks>
+    /// Only ever true of a cached copy — a page just read off the wire cannot predate anything
+    /// already recorded — but the comparison is made on the timestamps rather than on
+    /// <see cref="ScrapeHttpResponse.FromCache"/>, because it is the timestamps that decide it.
+    ///
+    /// False whenever either stamp is missing, which is the direction that keeps the cache doing its
+    /// job: a work whose revision this instance has never watched move, or a response nothing
+    /// stamped, is no evidence that the page is stale, and treating "unknown" as stale would put a
+    /// request behind every download of an unchanged work.
+    /// </remarks>
+    private static bool ReadBeforeTheCurrentVersion(ScrapeHttpResponse page, Work work) =>
+        work.UpdatedAtObservedAt is { } observed && page.FetchedAt is { } read && read < observed;
 
     /// <summary>
     /// The work's own page — where the download addresses are.

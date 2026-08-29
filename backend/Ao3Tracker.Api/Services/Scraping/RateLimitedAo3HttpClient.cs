@@ -44,6 +44,7 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
     private readonly Ao3HttpClientOptions _options;
     private readonly Ao3UserAgentProvider _userAgents;
     private readonly IAo3SessionCache _sessions;
+    private readonly TimeProvider _time;
     private readonly ILogger<RateLimitedAo3HttpClient> _logger;
 
     public RateLimitedAo3HttpClient(
@@ -53,6 +54,7 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
         IOptions<Ao3HttpClientOptions> options,
         Ao3UserAgentProvider userAgents,
         IAo3SessionCache sessions,
+        TimeProvider time,
         ILogger<RateLimitedAo3HttpClient> logger)
     {
         _httpClient = httpClient;
@@ -61,10 +63,22 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
         _options = options.Value;
         _userAgents = userAgents;
         _sessions = sessions;
+        _time = time;
         _logger = logger;
     }
 
-    public async Task<ScrapeHttpResponse> GetAsync(string url, CancellationToken ct = default)
+    public Task<ScrapeHttpResponse> GetAsync(string url, CancellationToken ct = default) =>
+        GetAsync(url, readFromCache: true, ct);
+
+    public Task<ScrapeHttpResponse> GetFreshAsync(string url, CancellationToken ct = default) =>
+        GetAsync(url, readFromCache: false, ct);
+
+    /// <param name="readFromCache">
+    /// Whether a cached copy may answer this. False reads past it and still writes what comes back,
+    /// so one caller with evidence that the copy is stale replaces it for everyone rather than
+    /// leaving the next caller to find the same stale page and fetch again.
+    /// </param>
+    private async Task<ScrapeHttpResponse> GetAsync(string url, bool readFromCache, CancellationToken ct)
     {
         var session = await _sessions.GetUsableAsync(ct);
         var cookie = session?.SessionCookie;
@@ -75,7 +89,7 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
         // archive is willing to show this account.
         var cacheKey = CacheKey(url, authenticated: cookie is not null);
 
-        if (_cache.TryGetValue<ScrapeHttpResponse>(cacheKey, out var cached) && cached is not null)
+        if (readFromCache && _cache.TryGetValue<ScrapeHttpResponse>(cacheKey, out var cached) && cached is not null)
         {
             _logger.LogDebug("Cache hit for {Url}", url);
             return cached with { FromCache = true };
@@ -91,7 +105,14 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
         // Dropped rather than carried: no scraper reads them, and a shared process-wide cache is no
         // place to keep cookie material for fifteen minutes for no purpose. It also makes the
         // interface's "empty for ordinary scraping requests" true rather than nearly true.
-        response = response with { SetCookieHeaders = null };
+        //
+        // Stamped in the same breath, and before anything is cached: the copy that goes into the
+        // cache must carry when it came off the wire, not when it was later handed out.
+        response = response with
+        {
+            SetCookieHeaders = null,
+            FetchedAt = _time.GetUtcNow().UtcDateTime,
+        };
 
         var reading = cookie is null ? null : await ReadSessionStateAsync(response, ct);
         if (reading is not null)

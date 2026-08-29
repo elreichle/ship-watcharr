@@ -248,6 +248,7 @@ public class Ao3DownloadTransportTests : IDisposable
             options,
             userAgents,
             _sessions,
+            TimeProvider.System,
             NullLogger<RateLimitedAo3HttpClient>.Instance);
     }
 }

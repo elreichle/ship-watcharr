@@ -679,6 +679,20 @@ internal sealed class FakeAo3Http : IRateLimitedHttpClient
     public Func<string, ScrapeHttpResponse>? Responds { get; set; }
 
     /// <summary>
+    /// Page fetches that deliberately read past the cache, in order. They are in
+    /// <see cref="Requested"/> too — a re-read is a page request and costs one — and here as well,
+    /// so a test can say which of the two it was.
+    /// </summary>
+    public List<string> FreshRequested { get; } = [];
+
+    /// <summary>
+    /// What a cache-bypassing read answers, when that is not what the cached copy said. Null means
+    /// "whatever <see cref="Responds"/> says", which is right for every test that has no second
+    /// version of the work.
+    /// </summary>
+    public Func<string, ScrapeHttpResponse>? RespondsFresh { get; set; }
+
+    /// <summary>
     /// What AO3's login page answers. Defaults to the real capture, so a test that is about
     /// something else still authenticates through the actual parser rather than around it.
     /// </summary>
@@ -703,6 +717,16 @@ internal sealed class FakeAo3Http : IRateLimitedHttpClient
         if (Fails is not null) throw Fails;
 
         return Task.FromResult(Responds?.Invoke(url)
+            ?? new ScrapeHttpResponse("", HttpStatusCode.OK, FromCache: false, FinalUrl: url));
+    }
+
+    public Task<ScrapeHttpResponse> GetFreshAsync(string url, CancellationToken ct = default)
+    {
+        Requested.Add(url);
+        FreshRequested.Add(url);
+        if (Fails is not null) throw Fails;
+
+        return Task.FromResult((RespondsFresh ?? Responds)?.Invoke(url)
             ?? new ScrapeHttpResponse("", HttpStatusCode.OK, FromCache: false, FinalUrl: url));
     }
 

@@ -34,6 +34,14 @@ public class DownloadWorkerTests : IDisposable
     private const string EpubUrl =
         "https://ao3.test/downloads/1/we_chose_to_wait.epub?updated_at=1767140797";
 
+    /// <summary>
+    /// The address the <em>previous</em> version's page carried. Same work, same slug, a different
+    /// stamp — because the stamp is AO3's own and moves with the revision, which is exactly why a
+    /// page read before the revision offers a file this library must not store as the current one.
+    /// </summary>
+    private const string PreviousEpubUrl =
+        "https://ao3.test/downloads/1/we_chose_to_wait.epub?updated_at=1766000000";
+
     private static readonly byte[] FileBody = "EPUB bytes"u8.ToArray();
 
     private LibraryTestHost _host = new();
@@ -890,6 +898,118 @@ public class DownloadWorkerTests : IDisposable
         Assert.False(await _host.DownloadWake.WaitAsync(TimeSpan.Zero));
     }
 
+    // ---- a page the work has moved past --------------------------------------------------------
+
+    [Fact]
+    public async Task Reads_the_work_page_again_when_the_cached_copy_predates_the_version_it_is_fetching()
+    {
+        // The failure this exists for: a reader downloads a work, which puts its page in the
+        // response cache for fifteen minutes; an incremental pass moves the work on inside that
+        // window; the reader asks for it again. There is no file at the new version, so a fetch
+        // runs — and reads the address off the copy of the page from before the revision. Stored,
+        // those bytes are the previous version sitting under a row saying they are the current one,
+        // which is the exact failure keying the file by version exists to prevent.
+        var emma = await ReaderWithAWorkAsync();
+
+        var cachedAt = _host.Clock.Now.UtcDateTime;
+        await MoveWorkOnAsync(1, FirstVersion.AddDays(1), observedAt: cachedAt.AddMinutes(5));
+
+        _host.Http.Responds = _ => WorkPage(PreviousEpubUrl) with { FromCache = true, FetchedAt = cachedAt };
+        _host.Http.RespondsFresh = _ => WorkPage(EpubUrl);
+
+        await QueueAsync(emma);
+        await DrainAsync();
+
+        // Read, recognised as older than the revision, and read again off the wire.
+        Assert.Equal(2, _host.Http.Requested.Count);
+        Assert.Equal("https://ao3.test/works/1?view_adult=true", Assert.Single(_host.Http.FreshRequested));
+
+        // And the file fetched is the one the current page offered, not the one the stale copy did.
+        Assert.Equal(EpubUrl, Assert.Single(_host.Http.FilesRequested));
+
+        var file = await FileAsync();
+        Assert.Equal(FirstVersion.AddDays(1), file.WorkUpdatedAt);
+        Assert.Equal(DownloadStatus.Complete, (await DownloadAsync()).Status);
+    }
+
+    [Fact]
+    public async Task Answers_from_the_cached_page_when_the_work_has_not_moved_since_it_was_read()
+    {
+        // The case the cache exists for — a second format of the same unchanged work inside the
+        // fifteen-minute window — and it has to stay a cache hit. Re-reading on every download
+        // would put a rate-gated request in front of each one and buy nothing: a page read after
+        // the last revision this instance saw is a page about the version being fetched.
+        var emma = await ReaderWithAWorkAsync();
+
+        var observedAt = _host.Clock.Now.UtcDateTime;
+        await MoveWorkOnAsync(1, FirstVersion, observedAt);
+
+        _host.Http.Responds = _ => WorkPage(EpubUrl)
+            with { FromCache = true, FetchedAt = observedAt.AddMinutes(1) };
+
+        await QueueAsync(emma);
+        await DrainAsync();
+
+        Assert.Empty(_host.Http.FreshRequested);
+        Assert.Single(_host.Http.Requested);
+        Assert.Equal(DownloadStatus.Complete, (await DownloadAsync()).Status);
+    }
+
+    [Fact]
+    public async Task Fails_rather_than_storing_the_previous_version_when_the_page_read_again_is_gone()
+    {
+        // "Fetches the current version's bytes, or fails" — and a failure here is the acceptable
+        // half. What is not acceptable is falling back to the address the stale page carried.
+        var emma = await ReaderWithAWorkAsync();
+
+        var cachedAt = _host.Clock.Now.UtcDateTime;
+        await MoveWorkOnAsync(1, FirstVersion.AddDays(1), observedAt: cachedAt.AddMinutes(5));
+
+        _host.Http.Responds = _ => WorkPage(PreviousEpubUrl) with { FromCache = true, FetchedAt = cachedAt };
+        _host.Http.RespondsFresh = url => new ScrapeHttpResponse("Not found", HttpStatusCode.NotFound, false, url);
+
+        await QueueAsync(emma);
+        await DrainAsync();
+
+        var download = await DownloadAsync();
+        Assert.Equal(DownloadStatus.Failed, download.Status);
+        Assert.Contains("404", download.ErrorMessage);
+
+        Assert.Empty(_host.Http.FilesRequested);
+        Assert.Empty(await FilesAsync());
+    }
+
+    [Fact]
+    public async Task Leaves_a_request_queued_when_the_drain_cannot_afford_to_read_the_page_again()
+    {
+        // The cache hit that got here cost AO3 nothing and so left the budget untouched, but the
+        // re-read is a real request and has to be paid for. Released rather than fetched off the
+        // stale copy: a drain that ran out is a reason to come back, never a reason to store the
+        // previous version's bytes.
+        var emma = await ReaderWithAWorkAsync();
+
+        var cachedAt = _host.Clock.Now.UtcDateTime;
+        await MoveWorkOnAsync(1, FirstVersion.AddDays(1), observedAt: cachedAt.AddMinutes(5));
+
+        var budget = new ScrapeBudget(
+            maxRequests: 10, maxConsecutiveFailures: 5, maxDuration: TimeSpan.FromMinutes(10), _host.Clock);
+
+        // The wall-clock allowance runs out while the page is being read, which is the one way to
+        // stand between the cache hit and the re-read it asks for.
+        _host.Http.Responds = _ =>
+        {
+            _host.Clock.Now = _host.Clock.Now.AddMinutes(20);
+            return WorkPage(PreviousEpubUrl) with { FromCache = true, FetchedAt = cachedAt };
+        };
+
+        var downloadId = await QueueAsync(emma);
+
+        Assert.Equal(DownloadFetchOutcome.Held, await _host.FetchDownloadAsync(downloadId, budget));
+        Assert.Empty(_host.Http.FreshRequested);
+        Assert.Empty(_host.Http.FilesRequested);
+        Assert.Equal(DownloadStatus.Pending, (await DownloadAsync()).Status);
+    }
+
     // ---- seeding -------------------------------------------------------------------------------
 
     /// <summary>A reader watching one ship carrying <paramref name="works"/> works, with a login stored.</summary>
@@ -1006,12 +1126,18 @@ public class DownloadWorkerTests : IDisposable
     }
 
     /// <summary>The author updates the work, which is what makes a stored copy a stale one.</summary>
-    private async Task MoveWorkOnAsync(long workId, DateTime updatedAt)
+    /// <param name="observedAt">
+    /// When this instance saw the move — our clock, which the ingestor stamps alongside AO3's. Left
+    /// to now, the way a pass that has just run would leave it; given explicitly by a test that
+    /// needs a page read on one side of it or the other.
+    /// </param>
+    private async Task MoveWorkOnAsync(long workId, DateTime updatedAt, DateTime? observedAt = null)
     {
         await using var db = _host.NewContext();
 
         var work = await db.Works.FirstAsync(w => w.Id == workId);
         work.UpdatedAt = updatedAt;
+        work.UpdatedAtObservedAt = observedAt ?? _host.Clock.Now.UtcDateTime;
 
         await db.SaveChangesAsync();
     }

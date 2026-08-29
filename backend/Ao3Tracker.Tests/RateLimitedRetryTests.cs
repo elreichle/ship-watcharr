@@ -170,6 +170,7 @@ public class RateLimitedRetryTests : IDisposable
             options,
             userAgents,
             _sessions,
+            TimeProvider.System,
             NullLogger<RateLimitedAo3HttpClient>.Instance);
     }
 }

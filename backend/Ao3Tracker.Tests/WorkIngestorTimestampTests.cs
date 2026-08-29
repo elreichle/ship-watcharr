@@ -67,6 +67,65 @@ public class WorkIngestorTimestampTests : IDisposable
         Assert.False(work.UpdatedAtIsApproximate);
     }
 
+    [Fact]
+    public async Task Stamps_the_moment_a_revision_moved_and_leaves_it_alone_when_it_did_not()
+    {
+        // The column exists to be read as "everything fetched before this moment describes the
+        // previous version" — which is how a download tells a cached work page apart from a current
+        // one. Written on every pass instead of on every move it would be LastScrapedAt under
+        // another name, and that reading would be false of an unchanged work the moment anything
+        // re-scraped it.
+        var shipId = await FollowAsync();
+
+        _host.Clock.Now = new DateTimeOffset(2026, 2, 1, 12, 0, 0, TimeSpan.Zero);
+        await _host.IngestAsync(shipId, Page(1, [Blurb(1, updatedAt: Jan(9))]).Html);
+
+        Assert.Equal(_host.Clock.Now.UtcDateTime, (await WorkAsync()).UpdatedAtObservedAt);
+
+        // Re-read at a later hour, same revision. Kudos and hits move on a pass like this; the
+        // version does not, and neither may this.
+        var firstSeen = _host.Clock.Now.UtcDateTime;
+        _host.Clock.Now = _host.Clock.Now.AddHours(1);
+        await _host.IngestAsync(shipId, Page(1, [Blurb(1, updatedAt: Jan(9))]).Html);
+
+        var unchanged = await WorkAsync();
+        Assert.Equal(firstSeen, unchanged.UpdatedAtObservedAt);
+        Assert.Equal(_host.Clock.Now.UtcDateTime, unchanged.LastScrapedAt);
+
+        // The author posts a chapter. Now it moves, to the moment this instance saw it move rather
+        // than to AO3's own stamp — they are different clocks and only ours can be compared against
+        // when this instance fetched something.
+        _host.Clock.Now = _host.Clock.Now.AddHours(1);
+        await _host.IngestAsync(shipId, Page(1, [Blurb(1, updatedAt: Jan(11))]).Html);
+
+        Assert.Equal(_host.Clock.Now.UtcDateTime, (await WorkAsync()).UpdatedAtObservedAt);
+    }
+
+    [Fact]
+    public async Task Does_not_stamp_a_revision_off_a_blurb_whose_date_could_not_be_read()
+    {
+        // The unreadable-date arm leaves UpdatedAt alone, so nothing moved and there is nothing to
+        // record. Stamping here would say a revision was observed at a moment when the pass could
+        // not read one, and a download would then re-read a page that was perfectly current.
+        var shipId = await FollowAsync();
+
+        _host.Clock.Now = new DateTimeOffset(2026, 2, 1, 12, 0, 0, TimeSpan.Zero);
+        await _host.IngestAsync(shipId, Page(1, [Blurb(1, updatedAt: Jan(9))]).Html);
+
+        var stamped = (await WorkAsync()).UpdatedAtObservedAt;
+
+        _host.Clock.Now = _host.Clock.Now.AddHours(1);
+        await _host.IngestAsync(shipId, Page(1, [Blurb(1, undated: true)]).Html);
+
+        Assert.Equal(stamped, (await WorkAsync()).UpdatedAtObservedAt);
+    }
+
+    private async Task<Api.Models.Work> WorkAsync()
+    {
+        await using var db = _host.NewContext();
+        return await db.Works.SingleAsync();
+    }
+
     private async Task<int> FollowAsync()
     {
         var result = await _host.Ships(_host.SeedUser())

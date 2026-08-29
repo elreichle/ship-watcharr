@@ -224,6 +224,12 @@ public sealed class WorkIngestor : IWorkIngestor
         // timestamp with MinValue would drag the ship's watermark backwards and re-ingest the tag.
         if (blurb.UpdatedAt > DateTime.MinValue)
         {
+            // Stamped only when the revision actually moved, which is the whole value of the column:
+            // written on every pass it would be LastScrapedAt under another name, and nothing could
+            // read it as "everything fetched before this moment describes the previous version".
+            // That reading is what lets a download tell a cached work page from a current one.
+            if (work.UpdatedAt != blurb.UpdatedAt) work.UpdatedAtObservedAt = now;
+
             work.UpdatedAt = blurb.UpdatedAt;
             work.UpdatedAtIsApproximate = blurb.UpdatedAtIsApproximate;
         }
