@@ -14,7 +14,12 @@ public class Ao3LoginPageTests
 {
     private static readonly string Capture = Fixtures.Load(Fixtures.LoginPage);
 
-    /// <summary>The token AO3 actually served, present in both of the page's forms.</summary>
+    /// <summary>
+    /// The token in the captured page, standing where the one AO3 served stood — in the head's
+    /// meta and in both of the page's forms. Redacted in the fixture rather than kept real: a
+    /// token is the one thing on a saved page that was a live credential, and a capture outlives
+    /// whatever the repository's visibility is today. Nothing here needs it to be the real one.
+    /// </summary>
     private const string CapturedToken =
         "FIXTURE-AUTHENTICITY-TOKEN-REDACTED";
 

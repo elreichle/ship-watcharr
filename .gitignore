@@ -38,6 +38,11 @@ yarn-error.log*
 # this checkout or be read by anyone else, it belongs somewhere tracked instead.
 .scratch/
 
+# The database EF's design-time factory writes to when a migration command runs. Not the app's
+# data and not anyone's: it holds the schema and the migration history and nothing else, which
+# is exactly why a checked-in copy is only ever stale. See the design-time factory in Data/.
+backend/Ao3Tracker.Api/design-time.db
+
 # Local runtime data: SQLite db, Data Protection keys, admin-persisted settings.json
 # Named "appdata" (not "data") specifically to avoid colliding with Data/ (the C# source
 # folder) on case-insensitive filesystems (Windows/macOS) — git would otherwise silently
