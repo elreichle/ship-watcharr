@@ -708,3 +708,12 @@ being stamped: `DetailFetchedAt` also puts the listing pass into add-only mode, 
 leave no source that may ever drop a tag. A 404 is recorded as a success against the budget — it is
 the conclusive answer the pass exists to record.
 
+
+## 2026-08-29 — T56: the races are pinnable after all, and the clear path had to move with them
+
+T6 recorded that neither state race could be tested — one SQLite connection, no seam. There is one:
+`LibraryTestHost`'s `ClaimingInterceptor`, armed on the *write* command rather than a read, runs a
+second request's write between the controller's read and its own. All four collisions are now
+pinned, and `WasRaced` makes a fragment that matches nothing a failure instead of a green vacuum.
+Rejected: leaving the clear path alone. Re-inserting after a lost update means a losing clear can
+now find a row where it assumed absence, so it retries too rather than reporting a false absence.

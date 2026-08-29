@@ -20,3 +20,4 @@ A journal `next:` is for *this* handoff; a lesson is what would have saved a pas
 - A browser-saved AO3 capture carries the account's username and CSRF token: scrub both before committing, but the greeting username is what `Ao3LoginPage` reads, so update its three assertions too.
 - `ScrapeJob` is one row per ship (unique index, key always `ShipIndex`): a new `IAo3Scraper` key cannot be scheduled without a migration and both job writers.
 - A queue drained in a fixed order needs a give-up counter, or one item that never completes starves every item behind it — `DownloadWorker._attempts` is the in-memory pattern.
+- To sit between a controller's read and its write, arm `LibraryTestHost`'s interceptor on the *write* command text — armed on the read it fires too early and the test passes vacuously.

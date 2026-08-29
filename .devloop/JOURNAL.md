@@ -706,3 +706,15 @@ Append-only. One entry per iteration, newest last.
 - commit: d4778fe
 - next: **T56**. `DownloadsPage`/`ShipsPage` have the identical defect (other pages guard theirs with
   `!error &&`) — one line in `BACKLOG.md`, not folded in. No review: 27 lines, one file.
+
+## 2026-08-29 — T56 A concurrent clear turns another edit into a 500 — done
+
+- did: `SetWorkState`'s read-then-write is a bounded retry (3): a lost insert writes onto the winner,
+  a lost update re-inserts, and the clear branch retries too — since a re-insert can now put a row
+  under a clear that assumed absence. The update loss was a bare 500 with the edit lost.
+- files: `backend/Ao3Tracker.Api/Controllers/WorksController.cs`,
+  `backend/Ao3Tracker.Tests/LibraryTestHost.cs`, `backend/Ao3Tracker.Tests/UserWorkStateTests.cs`
+- ran: `dotnet test` → 934 passed; `npm run build` → clean; `npm run lint` → the 2 known warnings
+- commit: 821c301
+- next: **T57**. `code-review medium` found 3 (all low, all folded in: an XML doc block that had
+  drifted onto the wrong member, the clear-path hole above, a transaction caveat on the new seam).
