@@ -43,6 +43,22 @@ public static class Ao3Origin
             StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Whether a URL addresses the archive's dedicated download host: exactly <c>download.</c>
+    /// prefixed to the configured authority, same scheme. AO3 serves every download by 302ing
+    /// there (verified against the live archive, 2026-09-05), so the redirect walk may continue
+    /// onto it — carrying the instance's identity, never its session, whose reach is decided by
+    /// <see cref="IsTheConfiguredArchive(Uri, Uri)"/> alone and does not widen with this.
+    /// </summary>
+    public static bool IsTheArchivesDownloadHost(Uri candidate, Uri configured) =>
+        IsWeb(candidate)
+        && IsWeb(configured)
+        && string.Equals(candidate.Scheme, configured.Scheme, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(
+            candidate.Authority,
+            "download." + configured.Authority,
+            StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Whether a URL addresses the web at all.
     /// </summary>
     /// <remarks>

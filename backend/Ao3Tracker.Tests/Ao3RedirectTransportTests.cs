@@ -157,6 +157,45 @@ public class Ao3RedirectTransportTests : IDisposable
     }
 
     [Fact]
+    public async Task A_download_redirected_to_the_archives_download_host_is_followed_without_the_session()
+    {
+        // How AO3 actually serves every download: /downloads/… on the archive 302s to the same
+        // path on download.<archive>, which serves the file with no session at all (verified live
+        // 2026-09-05). Refusing that hop refuses every download, so the walk may take it — but the
+        // session's rule does not move: it travels to the configured origin and nowhere else.
+        _sessions.Session = new Ao3Session("_otwarchive_session=abc123", DateTime.UtcNow, null);
+        _archive.Answers = request => request.RequestUri!.Host == "download.ao3.test"
+            ? File("EPUB bytes"u8.ToArray())
+            : Redirect("https://download.ao3.test/downloads/1/work.epub");
+
+        using var destination = new MemoryStream();
+        var result = await Client().DownloadAsync("https://ao3.test/downloads/1/work.epub", destination);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("EPUB bytes"u8.ToArray(), destination.ToArray());
+
+        Assert.Equal(2, _archive.Received.Count);
+        Assert.Equal("_otwarchive_session=abc123", _archive.Received[0].Cookie);
+        Assert.Null(_archive.Received[1].Cookie);
+    }
+
+    [Fact]
+    public async Task A_lookalike_of_the_download_host_is_still_off_the_archive()
+    {
+        // The download-host allowance is one exact authority, not a naming convention: a host
+        // merely containing the archive's name gets nothing — no visit, no bytes, no session.
+        _sessions.Session = new Ao3Session("_otwarchive_session=abc123", DateTime.UtcNow, null);
+        _archive.Answers = _ => Redirect("https://download.ao3.test.evil.test/downloads/1/work.epub");
+
+        using var destination = new MemoryStream();
+        var result = await Client().DownloadAsync("https://ao3.test/downloads/1/work.epub", destination);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(HttpStatusCode.Found, result.StatusCode);
+        Assert.Single(_archive.Received);
+    }
+
+    [Fact]
     public async Task A_download_redirected_off_the_archive_writes_nothing()
     {
         // The T72 reviewer's reproduction: an origin-checked download link whose response 302s

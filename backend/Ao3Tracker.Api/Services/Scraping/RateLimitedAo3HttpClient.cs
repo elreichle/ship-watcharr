@@ -485,7 +485,14 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
 
             var target = request.RequestUri is { } from ? new Uri(from, location) : location;
 
-            if (archive is null || !Ao3Origin.IsTheConfiguredArchive(target, archive))
+            // The download host is the one place beyond the configured origin a hop may go — AO3
+            // serves every download through it. The cookie condition above is deliberately
+            // narrower, so the session stays home even on the hop that is followed.
+            var mayFollow = archive is not null
+                && (Ao3Origin.IsTheConfiguredArchive(target, archive)
+                    || Ao3Origin.IsTheArchivesDownloadHost(target, archive));
+
+            if (!mayFollow)
             {
                 _logger.LogWarning(
                     "AO3 redirected {Url} off the configured archive, to {Target}. Not following it.",
