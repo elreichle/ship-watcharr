@@ -53,11 +53,6 @@ A human promotes an item into `tasks.md` between runs; the loop only adds here.
 - A refused state write reverts the row to the value it held when the reader clicked, which may
   itself be an optimistic value an earlier refused write left there — so two failures in a row can
   leave the row showing state the server never accepted. Predates T68 and is untouched by it.
-- The download transport sets `Cookie` by hand and follows redirects, and .NET forwards a
-  hand-set header across a cross-origin redirect — the T72 reviewer reproduced this on this
-  machine. So an origin-checked AO3 link that 302s off-archive still sends the instance's
-  session there, and `LandedOnTheFile` accepts the response for its extension. Predates T72 and
-  is the transport's to fix (`AllowAutoRedirect = false` plus a per-hop origin check).
 - `Ao3DownloadLinks.Parse` returns an empty menu with no signal when `BaseUrl` cannot be parsed,
   which reads to the caller as "AO3 offers no such format". A misconfigured *origin* is now named
   by DownloadFetcher's page check, but an unparsable one is still silent.

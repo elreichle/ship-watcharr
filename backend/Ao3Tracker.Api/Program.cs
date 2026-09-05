@@ -134,19 +134,25 @@ builder.Services
         // which sets it per request so a settings change takes effect immediately.
         client.Timeout = TimeSpan.FromSeconds(30);
     })
-    // Cookies off, redirects on. The instance's AO3 session lives in a database row shared by every
-    // process reading this deployment's data, so a per-handler cookie jar would be a second copy of
-    // it that quietly diverged; the client sets the header itself. Redirects stay automatic because
-    // a synonym tag is recognised by where the request ended up.
+    // Cookies off, redirects off — two halves of one fact. The session cookie is set by hand
+    // (the instance's session lives in a database row, and a per-handler jar would be a second,
+    // divergent copy of it), and HttpClientHandler copies hand-set headers onto every redirect it
+    // follows, wherever the Location points — so with automatic redirects an AO3 link that 302s
+    // off-archive takes the instance's session with it. The client therefore walks redirects
+    // itself, deciding per hop whether the session may travel and refusing to leave the archive at
+    // all: see RateLimitedAo3HttpClient.SendFollowingRedirectsAsync. A synonym tag is still
+    // recognised by where the request ended up, because the manual walk records that the same way.
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
     {
         UseCookies = false,
-        AllowAutoRedirect = true,
+        AllowAutoRedirect = false,
     });
 
-// The login POST's transport, differing in exactly one setting: it does not follow redirects. A
-// successful login answers with a 302 whose Set-Cookie *is* the session, and following it spends
-// that cookie on a page nobody asked for. Same gate and same User-Agent — see Ao3LoginHttpClient.
+// The login POST's transport. A successful login answers with a 302 whose Set-Cookie *is* the
+// session, and following it spends that cookie on a page nobody asked for — so this send never
+// follows a redirect, not even one that stays on the archive, which is the one behaviour the
+// scraping client's manual walk would allow. Same gate and same User-Agent — see
+// Ao3LoginHttpClient.
 builder.Services
     .AddHttpClient<Ao3LoginHttpClient>(client => client.Timeout = TimeSpan.FromSeconds(30))
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler

@@ -237,6 +237,17 @@ public sealed class DownloadFetcher : IDownloadFetcher
                     ct);
             }
 
+            // A 3xx surfacing here means the transport refused to walk it — a download's
+            // redirects are followed only while they stay on the configured archive.
+            if ((int)result.StatusCode is >= 300 and < 400)
+            {
+                return await FailAsync(
+                    download,
+                    "AO3 redirected the download somewhere this instance would not follow — a "
+                    + "download never leaves the configured archive. Nothing was stored.",
+                    ct);
+            }
+
             if (!result.IsSuccess)
             {
                 return await FailAsync(

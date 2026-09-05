@@ -7,14 +7,15 @@ using Microsoft.Extensions.Options;
 namespace Ao3Tracker.Api.Services.Scraping;
 
 /// <summary>
-/// The redirect-following half of the transport is wrong for exactly one request — the login POST,
-/// which answers success with a 302 whose <c>Set-Cookie</c> is the session itself. Follow that
-/// redirect and the cookie is spent on a page nobody asked for. So the login gets a second
-/// <see cref="HttpClient"/> configured not to follow redirects, rather than the whole scraper
-/// losing the automatic redirect that is how a synonym tag is recognised.
+/// The transport for exactly one request — the login POST, which answers success with a 302 whose
+/// <c>Set-Cookie</c> is the session itself. Follow that redirect and the cookie is spent on a page
+/// nobody asked for, so the login's send never follows one, not even within the archive.
 ///
-/// Same gate, same User-Agent, same options: this is a differently-configured transport, never a
-/// second way out of the rate limit.
+/// Same gate, same User-Agent, same options: this is a separate <see cref="HttpClient"/>, never a
+/// second way out of the rate limit. No handler here follows redirects any more — the scraper
+/// walks its own by hand, per hop, so a hand-set <c>Cookie</c> header can never be copied onto a
+/// request that leaves the archive — so what keeps the login POST where it was sent is that its
+/// send asks for no redirect to be followed at all.
 /// </summary>
 public sealed class Ao3LoginHttpClient
 {
@@ -100,6 +101,7 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
             () => new HttpRequestMessage(HttpMethod.Get, url),
             cookie,
             ReadPageAsync,
+            followRedirects: true,
             ct);
 
         // Dropped rather than carried: no scraper reads them, and a shared process-wide cache is no
@@ -140,6 +142,7 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
             () => new HttpRequestMessage(HttpMethod.Get, url),
             cookieHeader: null,
             ReadPageAsync,
+            followRedirects: true,
             ct);
 
     public Task<ScrapeHttpResponse> PostFormAsync(
@@ -155,6 +158,7 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
             },
             cookieHeader,
             ReadPageAsync,
+            followRedirects: false,
             ct);
 
     public async Task<ScrapeDownloadResponse> DownloadAsync(
@@ -188,6 +192,7 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
                 deadline.CancelAfter(_options.DownloadTimeout);
                 return ReadFileAsync(response, destination, token);
             },
+            followRedirects: true,
             deadline.Token,
             HttpCompletionOption.ResponseHeadersRead);
     }
@@ -306,6 +311,7 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
         Func<HttpRequestMessage> newRequest,
         string? cookieHeader,
         Func<HttpResponseMessage, CancellationToken, Task<T>> read,
+        bool followRedirects,
         CancellationToken ct,
         HttpCompletionOption completion = HttpCompletionOption.ResponseContentRead)
     {
@@ -319,7 +325,7 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
         for (var attempt = 0; ; attempt++)
         {
             var sent = await SendOnceAsync(
-                client, newRequest, cookieHeader, read, userAgent, completion,
+                client, newRequest, cookieHeader, read, userAgent, completion, followRedirects,
                 mayRetry: attempt < _options.MaxRetries, ct);
 
             if (sent.Completed) return sent.Value!;
@@ -354,6 +360,7 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
             Func<HttpResponseMessage, CancellationToken, Task<T>> read,
             string userAgent,
             HttpCompletionOption completion,
+            bool followRedirects,
             bool mayRetry,
             CancellationToken ct)
     {
@@ -364,21 +371,16 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
 
             try
             {
-                using var request = newRequest();
-                request.Headers.UserAgent.ParseAdd(userAgent);
+                using var response = await SendFollowingRedirectsAsync(
+                    client, newRequest, cookieHeader, userAgent, completion, followRedirects, ct);
 
-                // Set by hand rather than through a CookieContainer: the session lives in the
-                // database and is shared by every process reading this deployment's data, so a
-                // per-handler cookie jar would be a second, divergent copy of it.
-                if (cookieHeader is not null) request.Headers.Add("Cookie", cookieHeader);
-
-                using var response = await client.SendAsync(request, completion, ct);
+                var url = response.RequestMessage?.RequestUri;
 
                 var isRetryable = response.StatusCode == HttpStatusCode.TooManyRequests ||
                                    (int)response.StatusCode >= 500;
 
                 if (!isRetryable || !mayRetry)
-                    return (true, await read(response, ct), null, response.StatusCode, request.RequestUri);
+                    return (true, await read(response, ct), null, response.StatusCode, url);
 
                 var asked = AskedToWaitFor(response.Headers.RetryAfter);
 
@@ -393,12 +395,12 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
                     _logger.LogWarning(
                         "AO3 answered {Url} with {StatusCode} and asked for {Asked}, past the "
                         + "{Ceiling} this instance will hold a request for. Not retrying.",
-                        request.RequestUri, response.StatusCode, asked, _options.MaxRetryAfter);
+                        url, response.StatusCode, asked, _options.MaxRetryAfter);
 
-                    return (true, await read(response, ct), null, response.StatusCode, request.RequestUri);
+                    return (true, await read(response, ct), null, response.StatusCode, url);
                 }
 
-                return (false, default, asked, response.StatusCode, request.RequestUri);
+                return (false, default, asked, response.StatusCode, url);
             }
             finally
             {
@@ -415,6 +417,104 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
             Gate.Release();
         }
     }
+
+    /// <summary>
+    /// Hard ceiling on redirects followed for one logical fetch. AO3's real chains are one hop —
+    /// a synonym tag to its canonical listing — so anything approaching this is a loop, and the
+    /// last 3xx is returned as the answer rather than walked further.
+    /// </summary>
+    private const int MaxRedirects = 10;
+
+    /// <summary>
+    /// One send, with any redirects walked by hand rather than by the handler. Automatic following
+    /// is off for every transport here (see Program.cs) because <see cref="HttpClientHandler"/>
+    /// copies a hand-set <c>Cookie</c> header onto each next request, wherever its Location points
+    /// — so an archive page that 302s off-origin would take the instance's session with it.
+    /// Walking the chain here makes that decidable per hop: the session travels only to the
+    /// configured archive, and a redirect that leaves the archive is not followed at all — the 3xx
+    /// itself is returned, its Location intact, for the caller to refuse with a reason.
+    ///
+    /// The cookie check is per request rather than once at the top, so the rule holds for the
+    /// first hop too: a URL that does not address the archive gets this instance's identity,
+    /// never its session.
+    ///
+    /// Hops run inside the gate without re-owing the 5–8s spacing, exactly as the handler's
+    /// automatic following did; the chain is bounded by <see cref="MaxRedirects"/> either way.
+    /// </summary>
+    private async Task<HttpResponseMessage> SendFollowingRedirectsAsync(
+        HttpClient client,
+        Func<HttpRequestMessage> newRequest,
+        string? cookieHeader,
+        string userAgent,
+        HttpCompletionOption completion,
+        bool followRedirects,
+        CancellationToken ct)
+    {
+        // The one address in this flow no page can influence — the measure Ao3Origin's other
+        // callers use. Unparsable means nothing is checkable, so the session goes nowhere and no
+        // redirect is followed: fail closed, not open.
+        var archive = Uri.TryCreate(_options.BaseUrl, UriKind.Absolute, out var parsed) ? parsed : null;
+
+        Uri? redirectedTo = null;
+        for (var hop = 0; ; hop++)
+        {
+            using var request = newRequest();
+            if (redirectedTo is not null) request.RequestUri = redirectedTo;
+
+            request.Headers.UserAgent.ParseAdd(userAgent);
+
+            // Set by hand rather than through a CookieContainer: the session lives in a database
+            // row shared by every process reading this deployment's data, so a per-handler cookie
+            // jar would be a second, divergent copy of it.
+            if (cookieHeader is not null
+                && archive is not null
+                && request.RequestUri is { } uri
+                && Ao3Origin.IsTheConfiguredArchive(uri, archive))
+            {
+                request.Headers.Add("Cookie", cookieHeader);
+            }
+
+            var response = await client.SendAsync(request, completion, ct);
+
+            if (!followRedirects
+                || !IsRedirect(response.StatusCode)
+                || response.Headers.Location is not { } location)
+            {
+                return response;
+            }
+
+            var target = request.RequestUri is { } from ? new Uri(from, location) : location;
+
+            if (archive is null || !Ao3Origin.IsTheConfiguredArchive(target, archive))
+            {
+                _logger.LogWarning(
+                    "AO3 redirected {Url} off the configured archive, to {Target}. Not following it.",
+                    request.RequestUri, target);
+
+                return response;
+            }
+
+            if (hop >= MaxRedirects)
+            {
+                _logger.LogWarning(
+                    "{Url} was still redirecting after {MaxRedirects} hops; giving up at {Target}.",
+                    request.RequestUri, MaxRedirects, target);
+
+                return response;
+            }
+
+            response.Dispose();
+            redirectedTo = target;
+        }
+    }
+
+    /// <summary>The five statuses the handler's automatic follower would have honoured.</summary>
+    private static bool IsRedirect(HttpStatusCode status) => status
+        is HttpStatusCode.MovedPermanently
+        or HttpStatusCode.Found
+        or HttpStatusCode.SeeOther
+        or HttpStatusCode.TemporaryRedirect
+        or HttpStatusCode.PermanentRedirect;
 
     /// <summary>
     /// How long AO3 asked this instance to wait, in whichever of the two forms it said it in.
