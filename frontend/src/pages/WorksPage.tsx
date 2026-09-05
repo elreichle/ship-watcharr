@@ -52,6 +52,36 @@ function formatUpdated(work: WorkListItem): string {
 /** What the `filter` query parameter means when it says "show me everything I follow". */
 const NO_FILTER = 'none';
 
+const SORT_PREFERENCE_KEY = 'shipwatcharr.works.sort';
+
+/** The sort the reader last picked by hand, held per field so either can be unset. */
+type SortPreference = { sort: WorkSort | null; ascending: boolean | null };
+
+const NO_PREFERENCE: SortPreference = { sort: null, ascending: null };
+
+/** Never throws and never trusts the stored shape: storage can be blocked, cleared or stale. */
+function readSortPreference(): SortPreference {
+  try {
+    const raw = window.localStorage.getItem(SORT_PREFERENCE_KEY);
+    if (raw === null) return NO_PREFERENCE;
+    const parsed = JSON.parse(raw) as { sort?: unknown; ascending?: unknown };
+    return {
+      sort: typeof parsed.sort === 'string' && isSort(parsed.sort) ? parsed.sort : null,
+      ascending: typeof parsed.ascending === 'boolean' ? parsed.ascending : null,
+    };
+  } catch {
+    return NO_PREFERENCE;
+  }
+}
+
+function writeSortPreference(preference: SortPreference) {
+  try {
+    window.localStorage.setItem(SORT_PREFERENCE_KEY, JSON.stringify(preference));
+  } catch {
+    // Remembering the sort is a convenience; a browser that refuses the write still gets sorted.
+  }
+}
+
 export function WorksPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [result, setResult] = useState<PagedResult<WorkListItem> | null>(null);
@@ -61,6 +91,10 @@ export function WorksPage() {
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // The last sort the reader chose here, remembered across visits. State as well as storage so a
+  // change made through the dropdowns is what a later "Everything you follow" pick falls back to,
+  // not whatever the page loaded with.
+  const [sortPreference, setSortPreference] = useState<SortPreference>(readSortPreference);
   // Why a failed write to one row's state is not the page's `error`: the list itself loaded fine,
   // and blanking the works to say so would lose the very row the reader was editing.
   const [stateErrors, setStateErrors] = useState<Record<number, string>>({});
@@ -114,12 +148,28 @@ export function WorksPage() {
       savedFilterId === null ? useDefaultFilter && filter.isDefault : filter.id === savedFilterId,
     ) ?? null;
 
-  // Only sent when the URL says so, so that an applied filter's own sort is what stands otherwise.
+  // Only sent when something says so — the URL first, else the remembered preference. A saved
+  // filter named in the URL suppresses the preference: the point of picking a saved view is to get
+  // the order it was saved with. On an unqualified visit the preference *is* sent, and the server
+  // lets an explicit sort outrank the default filter's own — the reader's later instruction wins.
   // The dropdown still has to show something: the filter's sort, or the library's own default.
-  const sort = isSort(sortParam) ? sortParam : null;
+  const filterPickedInUrl = savedFilterId !== null;
+  const sort = isSort(sortParam) ? sortParam : filterPickedInUrl ? null : sortPreference.sort;
   const shownSort = sort ?? activeFilter?.sort ?? DEFAULT_SORT;
-  const ascending = ascendingParam === null ? null : ascendingParam === 'true';
+  const ascending =
+    ascendingParam !== null
+      ? ascendingParam === 'true'
+      : filterPickedInUrl
+        ? null
+        : sortPreference.ascending;
   const shownAscending = ascending ?? activeFilter?.ascending ?? false;
+
+  /** Every by-hand sort choice is remembered, one field at a time, for the next visit. */
+  const rememberSort = (changes: Partial<SortPreference>) => {
+    const next = { ...sortPreference, ...changes };
+    writeSortPreference(next);
+    setSortPreference(next);
+  };
 
   useEffect(() => {
     // Both are conveniences, not the page — if either can't load, the works list below still stands
@@ -334,7 +384,13 @@ export function WorksPage() {
 
         <label>
           Sort by
-          <select value={shownSort} onChange={(e) => updateQuery({ sort: e.target.value })}>
+          <select
+            value={shownSort}
+            onChange={(e) => {
+              rememberSort({ sort: e.target.value as WorkSort });
+              updateQuery({ sort: e.target.value });
+            }}
+          >
             {Object.entries(SORT_LABELS).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
@@ -347,7 +403,10 @@ export function WorksPage() {
           Order
           <select
             value={shownAscending ? 'true' : 'false'}
-            onChange={(e) => updateQuery({ ascending: e.target.value })}
+            onChange={(e) => {
+              rememberSort({ ascending: e.target.value === 'true' });
+              updateQuery({ ascending: e.target.value });
+            }}
           >
             <option value="false">Highest first</option>
             <option value="true">Lowest first</option>
