@@ -165,6 +165,15 @@ export const api = {
       body: JSON.stringify({ email: email?.trim() || null }),
     }),
 
+  changeUsername: (username: string) =>
+    request<CurrentUser>('/account/username', { method: 'PUT', body: JSON.stringify({ username }) }),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<void>('/account/password', {
+      method: 'PUT',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
+
   getWatchedShips: () => request<WatchedShipsResponse>('/ships', undefined, hasArray('ships')),
 
   watchShip: (tagName: string) =>

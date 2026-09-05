@@ -14,3 +14,9 @@ namespace Ao3Tracker.Api.Dtos;
 public record UpdateAccountEmailRequest(string? Email);
 
 public record AccountEmailDto(string? Email, bool IsUsedAsOperatorContact);
+
+public record ChangePasswordRequest(
+    [Required] string CurrentPassword,
+    [Required, MinLength(8)] string NewPassword);
+
+public record UpdateUsernameRequest(string Username);
