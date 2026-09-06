@@ -1,5 +1,6 @@
 import type {
   AccountEmail,
+  AccountPreferences,
   Ao3TagType,
   BackfillRestarted,
   Book,
@@ -173,6 +174,15 @@ export const api = {
     request<AccountEmail>('/account/email', {
       method: 'PUT',
       body: JSON.stringify({ email: email?.trim() || null }),
+    }),
+
+  getAccountPreferences: () => request<AccountPreferences>('/account/preferences'),
+
+  /** Replaces every preference: the endpoint writes all of them from what it is sent. */
+  updateAccountPreferences: (preferences: AccountPreferences) =>
+    request<AccountPreferences>('/account/preferences', {
+      method: 'PUT',
+      body: JSON.stringify(preferences),
     }),
 
   changeUsername: (username: string) =>

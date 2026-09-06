@@ -13,6 +13,15 @@ export interface AccountEmail {
   isUsedAsOperatorContact: boolean;
 }
 
+/**
+ * The reader's own preferences, held on the server so a click from any device does the same
+ * thing. Replaced whole by `PUT /api/account/preferences`, so every caller sends all of them.
+ */
+export interface AccountPreferences {
+  /** Whether marking a work a favorite also asks for its EPUB, as the button on its page would. */
+  autoDownloadFavorites: boolean;
+}
+
 /** One ship the signed-in user watches, joined to the shared scrape state behind it. */
 export interface WatchedShip {
   /** The shared ship, not the subscription row — this is what unwatch and the works filter take. */

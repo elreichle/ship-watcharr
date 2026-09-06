@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Ao3Tracker.Api.Data;
 using Ao3Tracker.Api.Dtos;
 using Ao3Tracker.Api.Models;
+using Ao3Tracker.Api.Services.Downloads;
 using Ao3Tracker.Api.Services.Html;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -49,10 +50,12 @@ public class WorksController : ControllerBase
     private const int MaxWriteAttempts = 3;
 
     private readonly AppDbContext _db;
+    private readonly DownloadRequests _downloads;
 
-    public WorksController(AppDbContext db)
+    public WorksController(AppDbContext db, DownloadRequests downloads)
     {
         _db = db;
+        _downloads = downloads;
     }
 
     private string CurrentUserId => User.FindFirstValue(ClaimTypes.NameIdentifier)
@@ -384,6 +387,12 @@ public class WorksController : ControllerBase
     /// rating while a status stands keeps the row, since the row still holds something — and a
     /// favorite mark on its own is something, so a favorited work with nothing else said about it
     /// keeps its row too.
+    ///
+    /// A favorite mark going <i>on</i> can do one more thing: where the reader has asked for it
+    /// (<see cref="ApplicationUser.AutoDownloadFavorites"/>), it asks for the work's EPUB exactly as
+    /// the button on the work's page would — see <see cref="QueueFavoriteDownloadAsync"/>. Only the
+    /// transition, never a save that keeps a mark already there: re-rating a favorite is not
+    /// favoriting it again, and the request it made the first time is still on the queue.
     /// </remarks>
     [HttpPut("{id:long}/state")]
     public async Task<ActionResult<WorkStateDto>> SetWorkState(
@@ -474,12 +483,19 @@ public class WorksController : ControllerBase
         // exists to write onto; a lost update means the row this state was to sit in was cleared by
         // the branch above in the other request, so this state needs a row of its own. So the answer
         // to both is one thing — take what is there now and go round again.
+        //
+        // Whether this save is the one that puts the mark on. Read off the row inside the loop,
+        // since a retry re-reads it: the row this write lands on is the one whose mark counts.
+        bool becameFavorite;
+
         for (var attempt = 1; ; attempt++)
         {
             var isInsert = stored is null;
 
             stored ??= new UserWorkState { UserId = userId, WorkId = id, CreatedAt = now };
             if (isInsert) _db.UserWorkStates.Add(stored);
+
+            becameFavorite = request.IsFavorite && stored.FavoritedAt is null;
 
             stored.Status = status;
             stored.Rating = request.Rating;
@@ -520,7 +536,40 @@ public class WorksController : ControllerBase
             }
         }
 
+        if (becameFavorite) await QueueFavoriteDownloadAsync(userId, id, ct);
+
         return Ok(new WorkStateDto(stored.Status.ToString(), stored.Rating, stored.Note, stored.FavoritedAt));
+    }
+
+    /// <summary>
+    /// The download a new favorite asks for, where this reader has said favorites should.
+    /// </summary>
+    /// <remarks>
+    /// After the state is written rather than before, because the mark is what the reader asked
+    /// for and the download follows from it: a queue that could not be written must not cost them
+    /// the favorite. It is not caught either — a request row that cannot be written is the same
+    /// database fault the state write would have reported, and hiding it here would leave a
+    /// reader with the setting on and a shelf that quietly stopped filling.
+    ///
+    /// Always the EPUB: it is the one format the app can open itself, and the setting is "keep
+    /// what I mark" rather than "fetch every format there is". The request goes through the same
+    /// rules as the button, so a work another reader already fetched completes without a fetch and
+    /// a mark put on twice does not queue twice.
+    /// </remarks>
+    private async Task QueueFavoriteDownloadAsync(string userId, long workId, CancellationToken ct)
+    {
+        var wanted = await _db.Users
+            .Where(u => u.Id == userId)
+            .Select(u => u.AutoDownloadFavorites)
+            .FirstOrDefaultAsync(ct);
+
+        if (!wanted) return;
+
+        // Present, because IsInLibraryAsync answered for it a moment ago; untracked, because the
+        // request path reads its version and title and writes nothing to it.
+        var work = await _db.Works.AsNoTracking().FirstAsync(w => w.Id == workId, ct);
+
+        await _downloads.RequestAsync(userId, work, Ao3DownloadFormat.Epub, ct);
     }
 
     /// <summary>

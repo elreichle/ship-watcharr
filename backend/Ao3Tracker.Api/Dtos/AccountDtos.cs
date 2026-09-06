@@ -20,3 +20,15 @@ public record ChangePasswordRequest(
     [Required, MinLength(8)] string NewPassword);
 
 public record UpdateUsernameRequest(string Username);
+
+/// <summary>
+/// The reader's own preferences: how the app behaves for them, as opposed to who they are. One
+/// record for all of them, replaced whole, so a page that offers several never has to know which
+/// one changed.
+/// </summary>
+/// <param name="AutoDownloadFavorites">Whether marking a work a favorite also asks for its EPUB —
+/// see <c>ApplicationUser.AutoDownloadFavorites</c>.</param>
+public record AccountPreferencesDto(bool AutoDownloadFavorites);
+
+/// <summary>Every preference, sent whole: the endpoint replaces rather than patches.</summary>
+public record UpdateAccountPreferencesRequest(bool AutoDownloadFavorites = false);

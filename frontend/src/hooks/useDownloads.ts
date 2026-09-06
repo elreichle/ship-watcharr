@@ -32,8 +32,12 @@ export interface DownloadQueue {
  * it has to poll; a page that polled forever would be asking the server about a list that cannot
  * change any more. So the polling follows the data: it runs while something is Pending or
  * Downloading and stops on the load that finds nothing is.
+ *
+ * `revision` is for a caller that knows the queue may have changed behind this hook's back — a
+ * favorite mark can queue a request the server made, not the reader's click. Bumping it reloads
+ * the list and restarts polling, exactly as a click through `request` does.
  */
-export function useDownloads(): DownloadQueue {
+export function useDownloads(revision = 0): DownloadQueue {
   const [downloads, setDownloads] = useState<Download[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -97,7 +101,7 @@ export function useDownloads(): DownloadQueue {
       running = false;
       window.clearTimeout(timer);
     };
-  }, [refresh, queueGeneration]);
+  }, [refresh, queueGeneration, revision]);
 
   /**
    * Asks for a format, and puts the answer straight into the list.

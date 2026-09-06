@@ -57,7 +57,8 @@ a private note on it, and mark it a favorite — none of which a
 re-scrape can overwrite — with a Favorites tab that lists everything you have marked. Save named filter sets — AO3's filter sidebar, kept and reusable,
 including criteria over your own reading status and rating — and mark one as the default. Request
 a work as EPUB/MOBI/PDF/HTML and have the server queue and fetch it, serving a copy it already
-holds at the current version without touching AO3 — and read the EPUB in the app, page by
+holds at the current version without touching AO3 — or have every work you favorite fetch its
+own EPUB, if you turn that on — and read the EPUB in the app, page by
 page in your own text settings, with your place in it remembered per account. Get in-app notifications when a followed ship
 gains a work. Read statistics over a ship's corpus with your own reading laid over it. See the
 scrape schedule behind each ship, and what each one's periodic full re-read of its listing is
@@ -205,7 +206,8 @@ Global (scraped from AO3):
 
 Per-user:
 
-- `Users` / `AspNetUsers` — ASP.NET Identity, plus `IsAdmin`.
+- `Users` / `AspNetUsers` — ASP.NET Identity, plus `IsAdmin` and the reader's own preferences
+  (`AutoDownloadFavorites`: whether marking a work a favorite also asks for its EPUB).
 - `WatchedShips` — a user's subscription to a `Ship`. Owns no scrape state, so adding or
   removing a watcher never affects what has been scraped.
 - `UserWorkStates` — reading status, half-star rating (1–10, check-constrained), free-text note,
@@ -231,7 +233,7 @@ Scheduling:
 
 Navigation is a collapsible left sidebar, following Sonarr/Radarr's split — the library under
 **Dashboard** (Works, Notifications, Filters, Ships, Downloads, Statistics, Schedules), per-user
-preferences under **Settings** (Account, Appearance), instance-wide administration under
+preferences under **Settings** (Account, Appearance, Downloads), instance-wide administration under
 **System** (Scraping, Database). The hamburger
 collapses it to a 48px icon rail where groups open as flyouts; below 700px it becomes an overlay
 drawer. The choice is remembered per browser.
@@ -244,7 +246,7 @@ The Dashboard views are one story told in several places:
 | **Notifications** | What your followed ships have gained, marked read per row or all at once | `GET /api/notifications`, `GET /api/notifications/unread-count`, `POST /api/notifications/mark-read`, `POST /api/notifications/mark-all-read` |
 | **Filters** | Named, reusable sets of criteria — AO3's filter sidebar, saved | `GET`/`POST`/`PUT`/`DELETE /api/saved-filters` |
 | **Ships** | Follow and unfollow relationship tags, and what each one's scrape is doing — the back-catalogue walk, and the periodic full re-read that finds works which have left the tag | `GET`/`POST`/`DELETE /api/ships` |
-| **Downloads** | Files you have asked the server to fetch, what became of each request, and the file itself once it lands | `GET /api/downloads`, `POST /api/works/{id}/downloads`, `GET /api/downloads/{id}/file`, `DELETE /api/downloads/{id}` |
+| **Downloads** | Files you have asked the server to fetch, what became of each request, and the file itself once it lands. Settings → Downloads can make every new favorite ask for its EPUB by itself, through the same request the button makes | `GET /api/downloads`, `POST /api/works/{id}/downloads`, `GET /api/downloads/{id}/file`, `DELETE /api/downloads/{id}`, `GET`/`PUT /api/account/preferences` |
 | **Statistics** | A ship's corpus with your own reading laid over it, computed by query and stored nowhere | `GET /api/stats` |
 | **Schedules** | Read-only view of the scrape schedule behind each ship | `GET /api/scrape-jobs` |
 

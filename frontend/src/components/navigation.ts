@@ -40,6 +40,7 @@ export const NAV_SECTIONS: NavSection[] = [
     children: [
       { label: 'Account', to: '/settings/account' },
       { label: 'Appearance', to: '/settings/appearance' },
+      { label: 'Downloads', to: '/settings/downloads' },
     ],
   },
   {

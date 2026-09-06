@@ -16,6 +16,7 @@ import { StatsPage } from './pages/StatsPage';
 import { SchedulesPage } from './pages/SchedulesPage';
 import { AccountSettingsPage } from './pages/AccountSettingsPage';
 import { AppearanceSettingsPage } from './pages/AppearanceSettingsPage';
+import { DownloadSettingsPage } from './pages/DownloadSettingsPage';
 import { AdminScrapingPage } from './pages/AdminScrapingPage';
 import { AdminDatabasePage } from './pages/AdminDatabasePage';
 
@@ -57,6 +58,7 @@ export default function App() {
           <Route path="/settings" element={<Navigate to="/settings/account" replace />} />
           <Route path="/settings/account" element={<AccountSettingsPage />} />
           <Route path="/settings/appearance" element={<AppearanceSettingsPage />} />
+          <Route path="/settings/downloads" element={<DownloadSettingsPage />} />
 
           <Route
             path="/system/scraping"

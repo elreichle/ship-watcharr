@@ -7,6 +7,15 @@ public class ApplicationUser : IdentityUser
     public bool IsAdmin { get; set; }
 
     /// <summary>
+    /// Whether marking a work a favorite also asks for its EPUB, the way pressing the EPUB button
+    /// on the work's page would. Off by default: a download costs AO3 a page load and a file, and
+    /// a reader who marks freely should have to say they want the shelf to fill itself. On the
+    /// user row rather than in the browser because the mark and the queue both live here — the
+    /// same favorite from a phone has to do the same thing.
+    /// </summary>
+    public bool AutoDownloadFavorites { get; set; }
+
+    /// <summary>
     /// Ships this user follows. Note there is no ScrapeJobs navigation any more — jobs belong to
     /// a <see cref="Ship"/>, since scraped data is shared across everyone watching it.
     /// </summary>

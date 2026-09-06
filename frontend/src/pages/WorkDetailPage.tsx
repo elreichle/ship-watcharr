@@ -64,6 +64,8 @@ export function WorkDetailPage() {
   const [stateError, setStateError] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState<string | null>(null);
   const [savingNote, setSavingNote] = useState(false);
+  /** Bumped when a favorite mark goes on, so the download list below reloads — see saveState. */
+  const [downloadsRevision, setDownloadsRevision] = useState(0);
 
   // Bumped on every write. A response may only touch the page while its own token is the newest:
   // two edits in flight together otherwise let the slower, older answer land last and undo the
@@ -147,6 +149,13 @@ export function WorkDetailPage() {
         .setWorkState(work.id, next)
         .then((saved) => {
           if (isCurrent()) applyState(saved);
+
+          // A mark going on may have queued the EPUB, if this reader has asked for that. The
+          // page cannot tell — the preference lives on the server — so it reloads the queue on
+          // the transition and lets the list say. One GET when nothing was queued is the cost.
+          if (saved.isFavorite && !previous.isFavorite) {
+            setDownloadsRevision((revision) => revision + 1);
+          }
           return true;
         })
         .catch((err) => {
@@ -393,7 +402,7 @@ export function WorkDetailPage() {
         )}
       </section>
 
-      <WorkDownloads workId={work.id} />
+      <WorkDownloads workId={work.id} revision={downloadsRevision} />
 
       <section className="work-detail-section">
         <h2>Tags</h2>

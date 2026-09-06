@@ -141,6 +141,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.Property<int>("AccessFailedCount")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("AutoDownloadFavorites")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
                         .HasColumnType("text");

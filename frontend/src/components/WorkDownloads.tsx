@@ -12,8 +12,18 @@ import { useDownloads } from '../hooks/useDownloads';
  * sake of a list that is a handful of rows. The polling that keeps it current lives in the hook,
  * so this component never learns that a fetch takes a while.
  */
-export function WorkDownloads({ workId }: { workId: number }) {
-  const { downloads, error, request, remove } = useDownloads();
+interface WorkDownloadsProps {
+  workId: number;
+  /**
+   * Bumped by the page when something other than these buttons may have queued a request — the
+   * favorite mark, for a reader who has asked favorites to fetch themselves. The list reloads
+   * rather than waiting for a reader to notice it is stale.
+   */
+  revision?: number;
+}
+
+export function WorkDownloads({ workId, revision = 0 }: WorkDownloadsProps) {
+  const { downloads, error, request, remove } = useDownloads(revision);
 
   // Null while the queue is still loading, which is what stops the buttons claiming a work has
   // been asked for nothing before anyone knows.

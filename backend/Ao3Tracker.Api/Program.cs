@@ -210,6 +210,11 @@ builder.Services.AddScoped<IDownloadFetcher, DownloadFetcher>();
 // that serves the bytes and the one that opens them as a book, so the two cannot disagree.
 builder.Services.AddScoped<StoredCopyResolver>();
 
+// The rules for what asking for a copy does to the queue — shared by the endpoint behind the
+// format buttons and the favorite mark that can ask on a reader's behalf, so the two cannot
+// disagree about what "already asked for" means.
+builder.Services.AddScoped<DownloadRequests>();
+
 // ---- Background workers ----
 // Singleton, and registered before the worker that waits on it: the signal is the one piece of
 // state a scoped request and the long-lived worker have to share.

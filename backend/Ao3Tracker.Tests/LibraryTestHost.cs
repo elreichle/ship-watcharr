@@ -175,6 +175,7 @@ internal sealed class LibraryTestHost : IDisposable
         // about is which rows and which files a drain leaves behind.
         services.AddScoped<IDownloadFetcher, DownloadFetcher>();
         services.AddScoped<StoredCopyResolver>();
+        services.AddScoped<DownloadRequests>();
 
         // The real ingestor and the real ship-index scraper, over the same in-memory database as
         // everything else here: what these tests are about is which rows a walk leaves behind, and a
@@ -471,7 +472,8 @@ internal sealed class LibraryTestHost : IDisposable
         _request.ServiceProvider.GetRequiredService<ScrapeWakeSignal>()), user);
 
     public WorksController Works(ApplicationUser user) => Build(new WorksController(
-        _request.ServiceProvider.GetRequiredService<AppDbContext>()), user);
+        _request.ServiceProvider.GetRequiredService<AppDbContext>(),
+        _request.ServiceProvider.GetRequiredService<DownloadRequests>()), user);
 
     /// <summary>
     /// A works controller on a scope of its own, for the per-user state endpoints: those tests
@@ -485,7 +487,9 @@ internal sealed class LibraryTestHost : IDisposable
         _perRequestScopes.Add(scope);
 
         return Build(
-            new WorksController(scope.ServiceProvider.GetRequiredService<AppDbContext>()),
+            new WorksController(
+                scope.ServiceProvider.GetRequiredService<AppDbContext>(),
+                scope.ServiceProvider.GetRequiredService<DownloadRequests>()),
             user,
             scope.ServiceProvider);
     }
@@ -504,10 +508,25 @@ internal sealed class LibraryTestHost : IDisposable
         return Build(
             new DownloadsController(
                 scope.ServiceProvider.GetRequiredService<AppDbContext>(),
-                scope.ServiceProvider.GetRequiredService<DownloadWakeSignal>(),
-                scope.ServiceProvider.GetRequiredService<StoragePaths>(),
-                scope.ServiceProvider.GetRequiredService<StoredCopyResolver>(),
-                scope.ServiceProvider.GetRequiredService<ILogger<DownloadsController>>()),
+                scope.ServiceProvider.GetRequiredService<DownloadRequests>(),
+                scope.ServiceProvider.GetRequiredService<StoredCopyResolver>()),
+            user,
+            scope.ServiceProvider);
+    }
+
+    /// <summary>
+    /// An account-preferences controller on a scope of its own, for the reason
+    /// <see cref="NewWorksRequest"/> gives: a preference saved through one "request" is read back
+    /// through the next, and by the favorite write that acts on it.
+    /// </summary>
+    public AccountPreferencesController AccountPreferences(ApplicationUser user)
+    {
+        var scope = _provider.CreateScope();
+        _perRequestScopes.Add(scope);
+
+        return Build(
+            new AccountPreferencesController(
+                scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>()),
             user,
             scope.ServiceProvider);
     }
