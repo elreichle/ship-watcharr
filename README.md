@@ -57,8 +57,8 @@ a private note on it, and mark it a favorite — none of which a
 re-scrape can overwrite — with a Favorites tab that lists everything you have marked. Save named filter sets — AO3's filter sidebar, kept and reusable,
 including criteria over your own reading status and rating — and mark one as the default. Request
 a work as EPUB/MOBI/PDF/HTML and have the server queue and fetch it, serving a copy it already
-holds at the current version without touching AO3 — and read the EPUB in the app, chapter by
-chapter in your own text settings, with your place in it remembered per account. Get in-app notifications when a followed ship
+holds at the current version without touching AO3 — and read the EPUB in the app, page by
+page in your own text settings, with your place in it remembered per account. Get in-app notifications when a followed ship
 gains a work. Read statistics over a ship's corpus with your own reading laid over it. See the
 scrape schedule behind each ship, and what each one's periodic full re-read of its listing is
 doing.

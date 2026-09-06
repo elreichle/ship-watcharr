@@ -551,8 +551,9 @@ export interface Chapter {
 }
 
 /**
- * Where the reader is in a work. `blockIndex` is the chapter's top-level block at the top of the
- * view, not a scroll offset, so the place survives a change of text size. PER-USER.
+ * Where the reader is in a work. `blockIndex` is the block the reader's page begins with — a
+ * paragraph, not a page number or a scroll offset — so the place survives a change of text size
+ * or screen, which would repaginate the chapter. PER-USER.
  */
 export interface ReadingPosition {
   chapterIndex: number;

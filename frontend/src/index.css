@@ -1980,17 +1980,22 @@
   /* ------------------------------------------------------------------------------- the reader */
 
   /* Full width and no top padding: the bar below is the page's own chrome and sits flush. The
-     text column sets its own measure. */
+     text column sets its own measure. The page is exactly as tall as the scroll area and never
+     scrolls: a chapter is read as pages, and the stage below takes whatever height the bar and the
+     foot leave, which is what a page's height is measured from. */
   .reader-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
     max-width: none;
     padding-top: 0;
+    overflow: hidden;
   }
 
-  /* Sticks to the top of the scroll area so the chapter picker is always a glance away. Bled out to
-     the page's edges so the border runs the full width rather than stopping at the padding. */
+  /* Bled out to the page's edges so the border runs the full width rather than stopping at the
+     padding. Positioned so the settings panel stacks over the pages. */
   .reader-bar {
-    position: sticky;
-    top: 0;
+    position: relative;
     z-index: 2;
     display: flex;
     flex-direction: column;
@@ -2036,6 +2041,16 @@
 
   .reader-count {
     white-space: nowrap;
+  }
+
+  /* The chapter steps either side of the picker: the nav set's chevron, turned back for Previous. */
+  .reader-step-back {
+    transform: rotate(180deg);
+  }
+
+  .reader-nav .clickable-icon:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
 
   /* The text controls: a disclosure on the bar's right, opening a small panel over the text. */
@@ -2092,14 +2107,44 @@
   }
 
   /* The text column. The three custom properties are the reader's own settings, set inline on the
-     page by ReaderPage; the fallbacks are the defaults it starts from. */
+     page by ReaderPage; the fallbacks are the defaults it starts from. A column of the stage's
+     height: the pages fill it and the foot sits under them. */
   .reader-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    width: 100%;
+    min-height: 0;
     max-width: var(--reader-measure, 66ch);
     margin: 0 auto;
-    padding: var(--size-4-8) 0 var(--size-4-16);
+    padding: var(--size-4-6) 0 0;
     font-family: var(--font-text);
     font-size: var(--reader-font-size, 18px);
     line-height: var(--reader-line-height, 1.65);
+  }
+
+  /* The room the pages have. ReaderPage measures it and sizes the viewport inside to whole pixels,
+     so a page and the stride from one to the next are integers and the twentieth page lands where
+     the first did. */
+  .reader-stage {
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* One page of the chapter: everything past its edges is clipped, and nothing — not a fragment
+     link, not a selection dragged to the edge — may scroll it. Sized inline by ReaderPage. */
+  .reader-pages {
+    position: relative;
+    margin: 0 auto;
+    overflow: clip;
+  }
+
+  /* The chapter laid sideways, one column per page, slid along behind the viewport by ReaderPage.
+     The gap is COLUMN_GAP_PX there; the two have to agree or every page after the first drifts. */
+  .reader-columns {
+    height: 100%;
+    column-fill: auto;
+    column-gap: 48px;
   }
 
   .reader-chapter-title {
@@ -2112,10 +2157,30 @@
 
   /* The author's markup, set in the reader's type. Nothing from the EPUB's own stylesheet reaches
      here — the server strips every style — so these rules are the whole of the typography. */
-  .reader-chapter * {
-    /* Restoring a place scrolls a block to the top of the scroll area, which the sticky bar
-       covers; this keeps it below the bar instead. */
-    scroll-margin-top: 7rem;
+
+  /* The first page opens flush with its top: a chapter heading's own top margin is for the middle
+     of a run of text, not for the head of a page. AO3 wraps a chapter in one div, hence both. */
+  .reader-chapter > :first-child,
+  .reader-chapter > :first-child > :first-child {
+    margin-top: 0;
+  }
+
+  /* A heading at the foot of a page with its paragraph on the next reads as a lost heading. */
+  .reader-chapter h1,
+  .reader-chapter h2,
+  .reader-chapter h3,
+  .reader-chapter h4,
+  .reader-chapter h5,
+  .reader-chapter h6,
+  .reader-chapter figcaption {
+    break-after: avoid;
+  }
+
+  .reader-chapter img,
+  .reader-chapter figure,
+  .reader-chapter table,
+  .reader-chapter pre {
+    break-inside: avoid;
   }
 
   .reader-chapter p,
@@ -2166,11 +2231,15 @@
     border-top: 1px solid var(--background-modifier-border);
   }
 
+  /* Held to the page: an image taller than a page would otherwise be cut off at its foot with the
+     rest nowhere. The height is the viewport's, set inline alongside its size. */
   .reader-chapter img {
     display: block;
     max-width: 100%;
+    max-height: var(--reader-page-height, 100vh);
     height: auto;
     margin: 1em auto;
+    object-fit: contain;
   }
 
   .reader-chapter figure {
@@ -2208,14 +2277,22 @@
     text-align: center;
   }
 
+  /* Page turns and the count between them, under the pages. Fixed to one row so the stage above
+     is measured against a foot of one height. */
   .reader-foot {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: var(--size-4-3);
+    align-items: center;
     justify-content: space-between;
-    margin-top: var(--size-4-12);
-    padding-top: var(--size-4-6);
+    margin-top: var(--size-4-3);
+    padding: var(--size-4-3) 0 var(--size-4-2);
     border-top: 1px solid var(--background-modifier-border);
+  }
+
+  .reader-page-count {
+    white-space: nowrap;
+    font-family: var(--font-interface);
   }
 
   /* Off-screen but read aloud: a label for a control whose meaning is plain by sight. */
