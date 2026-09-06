@@ -11,6 +11,7 @@ import type {
   WorkState,
 } from '../api/types';
 import { EmptyState } from '../components/EmptyState';
+import { FavoriteToggle } from '../components/FavoriteToggle';
 import { RatingStars } from '../components/RatingStars';
 import { SkeletonRows } from '../components/Skeleton';
 import { formatDate, formatDateTime } from '../format';
@@ -85,7 +86,16 @@ function writeSortPreference(preference: SortPreference) {
   }
 }
 
-export function WorksPage() {
+interface WorksPageProps {
+  /**
+   * The Favorites tab: the same table, narrowed to the works this reader has marked. Everything
+   * the reader has favorited, so the saved-filter control and the default set stay out of it — a
+   * filter quietly narrowing the list would make "all my favorites" show fewer than there are.
+   */
+  favorites?: boolean;
+}
+
+export function WorksPage({ favorites = false }: WorksPageProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [result, setResult] = useState<PagedResult<WorkListItem> | null>(null);
   // null means "we could not find out", which is not the same as "you follow none" — saying the
@@ -141,7 +151,8 @@ export function WorksPage() {
 
   // Three states, and the absent one is not the same as "none": no parameter at all means the
   // server applies whichever saved filter is marked default, which is the point of having one.
-  const filterParam = searchParams.get('filter');
+  // The Favorites tab has only the one state — everything marked — whatever the URL says.
+  const filterParam = favorites ? NO_FILTER : searchParams.get('filter');
   const savedFilterId =
     filterParam === null || filterParam === NO_FILTER ? null : Number(filterParam);
   const useDefaultFilter = filterParam !== NO_FILTER;
@@ -201,6 +212,7 @@ export function WorksPage() {
         ascending: ascending ?? undefined,
         savedFilterId,
         useDefaultFilter,
+        favoritesOnly: favorites,
       })
       .then((next) => {
         // Guards against a slow first request landing after a faster second one and overwriting it.
@@ -219,7 +231,7 @@ export function WorksPage() {
     return () => {
       current = false;
     };
-  }, [page, pageSize, shipId, sort, ascending, savedFilterId, useDefaultFilter]);
+  }, [page, pageSize, shipId, sort, ascending, savedFilterId, useDefaultFilter, favorites]);
 
   /** Writes one row's state into the loaded page, leaving every other row's copy alone. */
   const applyState = (workId: number, state: WorkState) => {
@@ -345,30 +357,33 @@ export function WorksPage() {
 
   return (
     <div className="page">
-      <h1>Works</h1>
+      <h1>{favorites ? 'Favorites' : 'Works'}</h1>
 
       <div className="works-controls">
-        <label>
-          Filter
-          {/* Falls back to "none" rather than to an empty value, which would match no option and
-              leave the control blank whenever the reader has no default set. */}
-          <select
-            value={activeFilter?.id ?? NO_FILTER}
-            onChange={(e) =>
-              // The sort is cleared with it: the point of picking a saved view is to get the order
-              // it was saved with, and one left over from the previous view would override it.
-              updateQuery({ filter: e.target.value, sort: null, ascending: null })
-            }
-          >
-            <option value={NO_FILTER}>Everything you follow</option>
-            {savedFilters.map((filter) => (
-              <option key={filter.id} value={filter.id}>
-                {filter.name}
-                {filter.isDefault ? ' (default)' : ''}
-              </option>
-            ))}
-          </select>
-        </label>
+        {!favorites && (
+          <label>
+            Filter
+            {/* Falls back to "none" rather than to an empty value, which would match no option and
+                leave the control blank whenever the reader has no default set. */}
+            <select
+              value={activeFilter?.id ?? NO_FILTER}
+              onChange={(e) =>
+                // The sort is cleared with it: the point of picking a saved view is to get the
+                // order it was saved with, and one left over from the previous view would override
+                // it.
+                updateQuery({ filter: e.target.value, sort: null, ascending: null })
+              }
+            >
+              <option value={NO_FILTER}>Everything you follow</option>
+              {savedFilters.map((filter) => (
+                <option key={filter.id} value={filter.id}>
+                  {filter.name}
+                  {filter.isDefault ? ' (default)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
         <label>
           Ship
@@ -439,7 +454,21 @@ export function WorksPage() {
         // land. Still guarded on the error: a failed load has nothing on the way.
         !error && <SkeletonRows rows={8} />
       ) : works.length === 0 ? (
-        ships !== null && ships.length === 0 ? (
+        favorites ? (
+          // Before the "follow a ship" prompt: a reader with no ships has no favorites either, but
+          // what this tab is for is the heart, and that is the thing to point at.
+          <EmptyState
+            title={shipId === null ? 'No favorites yet' : 'No favorites under this ship'}
+            action={
+              <Link className="button" to="/works">
+                Browse your works
+              </Link>
+            }
+          >
+            Press the heart on any work — in the list or on its own page — and it will be kept
+            here.
+          </EmptyState>
+        ) : ships !== null && ships.length === 0 ? (
           <EmptyState
             title="Nothing here yet"
             action={
@@ -554,6 +583,13 @@ export function WorksPage() {
                           column of controls beside it: the work is the thing, the marks are notes
                           in its margin. */}
                       <span className="work-marks">
+                        <FavoriteToggle
+                          title={work.title}
+                          value={work.state.isFavorite}
+                          onChange={(isFavorite) => {
+                            void saveState(work, { ...work.state, isFavorite });
+                          }}
+                        />
                         <select
                           aria-label={`Reading status for ${work.title}`}
                           value={work.state.status}
@@ -680,7 +716,8 @@ export function WorksPage() {
               Previous
             </button>
             <span className="hint">
-              Page {result.page} of {totalPages} · {result.totalCount.toLocaleString()} works
+              Page {result.page} of {totalPages} · {result.totalCount.toLocaleString()}{' '}
+              {favorites ? 'favorites' : 'works'}
             </span>
             <button
               type="button"

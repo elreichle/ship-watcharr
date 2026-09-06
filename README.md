@@ -52,9 +52,9 @@ reach about it.
 after the fact and synonyms folded into their canonical tag. Browse a paginated, sortable library
 of everything scraped for the ships you follow, and open any work's own page — including the
 publication date and complete tag list a listing blurb does not carry, fetched from the archive
-once and stored. Mark a work To read / Reading / Read / Dropped, rate it in half-stars, and keep
-a private note on it — none of which a
-re-scrape can overwrite. Save named filter sets — AO3's filter sidebar, kept and reusable,
+once and stored. Mark a work To read / Reading / Read / Dropped, rate it in half-stars, keep
+a private note on it, and mark it a favorite — none of which a
+re-scrape can overwrite — with a Favorites tab that lists everything you have marked. Save named filter sets — AO3's filter sidebar, kept and reusable,
 including criteria over your own reading status and rating — and mark one as the default. Request
 a work as EPUB/MOBI/PDF/HTML and have the server queue and fetch it, serving a copy it already
 holds at the current version without touching AO3. Get in-app notifications when a followed ship
@@ -207,8 +207,9 @@ Per-user:
 - `Users` / `AspNetUsers` — ASP.NET Identity, plus `IsAdmin`.
 - `WatchedShips` — a user's subscription to a `Ship`. Owns no scrape state, so adding or
   removing a watcher never affects what has been scraped.
-- `UserWorkStates` — reading status, half-star rating (1–10, check-constrained), free-text note.
-  Kept strictly apart from `Works` so re-scrapes can overwrite metadata without touching it.
+- `UserWorkStates` — reading status, half-star rating (1–10, check-constrained), free-text note,
+  and when the reader marked the work a favorite (`FavoritedAt`, null while it is not one). Kept
+  strictly apart from `Works` so re-scrapes can overwrite metadata without touching it.
 - `Downloads` — a user's request for a file, pointing at a shared `WorkDownloadFile`.
 - `Notifications` — one per watcher per work a followed ship gained, with the read timestamp.
 - `SavedWorkFilters` / `SavedWorkFilterTags` / `SavedWorkFilterAuthors` — a named, reusable set of
@@ -532,7 +533,7 @@ that the half-star rating check constraint translates on both providers, and tha
 lands as `timestamp with time zone`.
 
 That check is now several migrations old: a fresh SQLite instance created by `docker compose up`
-applies 13 migrations and lands 27 application tables (29 with EF's two bookkeeping ones), and the
+applies 14 migrations and lands 27 application tables (29 with EF's two bookkeeping ones), and the
 PostgreSQL history has not been re-applied against a real server since. The SQLite one has, most
 recently inside the container.
 

@@ -130,6 +130,13 @@ export interface WorkState {
   /** Half-stars, 1-10, so 7 is three and a half. Null is unrated, not the lowest score. */
   rating: number | null;
   note: string | null;
+  /** Whether the work is one of the reader's favorites. The flag every control sends back. */
+  isFavorite: boolean;
+  /**
+   * When the favorite mark went on, or null while there is none. The server's to set: a saved
+   * state carrying `isFavorite: true` keeps the date it already has rather than moving it.
+   */
+  favoritedAt: string | null;
 }
 
 export type ReadingStatus = 'None' | 'ToRead' | 'Reading' | 'Read' | 'Dropped';
@@ -137,9 +144,10 @@ export type ReadingStatus = 'None' | 'ToRead' | 'Reading' | 'Read' | 'Dropped';
 /**
  * A whole replacement of one reader's state on one work — the body of `PUT /api/works/{id}/state`.
  *
- * Identical in shape to `WorkState` because the endpoint **replaces**: it writes all three fields
- * from what it was sent, so a field left out is cleared rather than left alone. Aliased rather than
- * declared separately so a caller cannot build one out of only the field it meant to change.
+ * Identical in shape to `WorkState` because the endpoint **replaces**: it writes every field from
+ * what it was sent, so a field left out is cleared rather than left alone. Aliased rather than
+ * declared separately so a caller cannot build one out of only the field it meant to change. The
+ * server reads `isFavorite` and ignores `favoritedAt`, which is its own to keep.
  */
 export type SetWorkStateInput = WorkState;
 
@@ -268,6 +276,8 @@ export interface WorkQuery {
    * everything I follow", which is otherwise inexpressible once a default exists.
    */
   useDefaultFilter?: boolean;
+  /** Only the works the reader has marked as favorites. Composes with everything else here. */
+  favoritesOnly?: boolean;
 }
 
 export type Ao3TagType = 'Fandom' | 'Relationship' | 'Character' | 'Freeform' | 'Warning';

@@ -727,6 +727,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("FavoritedAt")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Note")
                         .HasMaxLength(4000)
                         .HasColumnType("TEXT");
@@ -750,6 +753,8 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                     b.HasKey("Id");
 
                     b.HasIndex("WorkId");
+
+                    b.HasIndex("UserId", "FavoritedAt");
 
                     b.HasIndex("UserId", "Rating");
 

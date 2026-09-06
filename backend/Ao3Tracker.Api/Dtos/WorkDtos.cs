@@ -28,7 +28,7 @@ public record PagedResult<T>(IReadOnlyList<T> Items, int Page, int PageSize, int
 /// another watched tag still carries the work, or because the reader has marked it — see
 /// <c>WorkQueries.Library</c> — and this field is what says so rather than leaving a work AO3 no
 /// longer files under the tag looking as though it does.</param>
-/// <param name="State">The caller's own reading status, rating and note — never another reader's,
+/// <param name="State">The caller's own reading status, rating, note and favorite mark — never another reader's,
 /// and never absent: a work nobody has touched carries <see cref="WorkStateDto.Cleared"/>. It rides
 /// on the row so a page of the feed costs one request rather than one per work.</param>
 public record WorkListItemDto(
@@ -68,17 +68,30 @@ public record WorkListItemDto(
 /// or "Dropped". Enum names rather than numbers, as everywhere else on this API's wire.</param>
 /// <param name="Rating">Half-stars, 1-10, so 7 is three and a half. Null means unrated, which is a
 /// different fact from the lowest score and is never collapsed into it.</param>
-public record WorkStateDto(string Status, int? Rating, string? Note)
+/// <param name="FavoritedAt">When the reader marked the work a favorite, or null while it is not
+/// one. <see cref="IsFavorite"/> is the same fact as a flag, for callers that only want to know
+/// whether.</param>
+public record WorkStateDto(string Status, int? Rating, string? Note, DateTime? FavoritedAt = null)
 {
     /// <summary>What a reader who has said nothing about a work has said about it.</summary>
     public static readonly WorkStateDto Cleared = new(nameof(ReadingStatus.None), null, null);
+
+    /// <summary>Whether the work is one of this reader's favorites — <see cref="FavoritedAt"/> as a flag.</summary>
+    public bool IsFavorite => FavoritedAt is not null;
 }
 
 /// <summary>
 /// A replacement for the caller's state on one work. Not a patch: every field is optional and an
 /// omitted one means "cleared", so a merge could not express taking a rating back off.
 /// </summary>
-public record SetWorkStateRequest(string? Status = null, int? Rating = null, string? Note = null);
+/// <param name="IsFavorite">Whether the work is to be one of the caller's favorites. A flag on the
+/// way in even though storage keeps a date: when the mark went on is the server's to remember, and
+/// a client re-sending the whole state must not be able to move it.</param>
+public record SetWorkStateRequest(
+    string? Status = null,
+    int? Rating = null,
+    string? Note = null,
+    bool IsFavorite = false);
 
 /// <summary>
 /// Everything this instance holds about one work — a strict superset of <see cref="WorkListItemDto"/>,

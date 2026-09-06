@@ -25,6 +25,7 @@ public class UserWorkStateConfiguration : IEntityTypeConfiguration<UserWorkState
         entity.HasIndex(s => new { s.UserId, s.WorkId }).IsUnique();
         entity.HasIndex(s => new { s.UserId, s.Status });
         entity.HasIndex(s => new { s.UserId, s.Rating });
+        entity.HasIndex(s => new { s.UserId, s.FavoritedAt });
 
         // Half-stars, 1-10. Double-quoted identifiers are portable across both providers.
         // Safe to declare on a brand-new table; SQLite cannot ALTER TABLE ADD CONSTRAINT, so

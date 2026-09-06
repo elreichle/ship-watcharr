@@ -144,6 +144,165 @@ public class UserWorkStateTests : IDisposable
         Assert.Equal("spoilers", saved.Note);
     }
 
+    // ---- favorites -----------------------------------------------------------------------------
+
+    [Fact]
+    public async Task Round_trips_a_favorite()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+
+        var saved = State(await _host.NewWorksRequest(emma).SetWorkState(
+            1, new("Read", 7, "yes", IsFavorite: true), default));
+
+        Assert.True(saved.IsFavorite);
+        Assert.NotNull(saved.FavoritedAt);
+        Assert.Equal("Read", saved.Status);
+        Assert.Equal(7, saved.Rating);
+        Assert.Equal("yes", saved.Note);
+
+        Assert.Equal(saved, State(await _host.NewWorksRequest(emma).GetWorkState(1, default)));
+    }
+
+    [Fact]
+    public async Task Reports_an_untouched_work_as_not_a_favorite()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+
+        var state = State(await _host.NewWorksRequest(emma).GetWorkState(1, default));
+
+        Assert.False(state.IsFavorite);
+        Assert.Null(state.FavoritedAt);
+    }
+
+    [Fact]
+    public async Task Keeps_a_favorite_with_nothing_else_said_about_the_work()
+    {
+        // A favorite mark on its own is something said, so it is a row — the all-cleared rule
+        // that stores an empty state as no row must not read "nothing but a favorite" as empty.
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+
+        var saved = State(await _host.NewWorksRequest(emma).SetWorkState(
+            1, new(null, null, null, IsFavorite: true), default));
+
+        Assert.True(saved.IsFavorite);
+        Assert.Equal(nameof(ReadingStatus.None), saved.Status);
+
+        await using var db = _host.NewContext();
+        var row = Assert.Single(await db.UserWorkStates.ToListAsync());
+        Assert.NotNull(row.FavoritedAt);
+    }
+
+    [Fact]
+    public async Task Removes_the_row_once_the_favorite_was_the_last_thing_in_it()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+
+        await _host.NewWorksRequest(emma).SetWorkState(1, new(null, null, null, IsFavorite: true), default);
+        var cleared = State(await _host.NewWorksRequest(emma).SetWorkState(1, new(null, null, null), default));
+
+        Assert.Equal(WorkStateDto.Cleared, cleared);
+
+        await using var db = _host.NewContext();
+        Assert.Empty(await db.UserWorkStates.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Takes_a_favorite_back_off_without_touching_the_rest()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+
+        await _host.NewWorksRequest(emma).SetWorkState(1, new("Read", 7, "kept", IsFavorite: true), default);
+        var saved = State(await _host.NewWorksRequest(emma).SetWorkState(1, new("Read", 7, "kept"), default));
+
+        Assert.Equal(new WorkStateDto("Read", 7, "kept"), saved);
+        Assert.False(saved.IsFavorite);
+    }
+
+    [Fact]
+    public async Task Keeps_the_date_a_favorite_went_on_across_later_saves()
+    {
+        // Every control sends the whole state, so a rating given a week after the favorite arrives
+        // with IsFavorite still true. That is keeping the mark, not making it again.
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1);
+
+        var first = State(await _host.NewWorksRequest(emma).SetWorkState(
+            1, new(null, null, null, IsFavorite: true), default));
+        await Task.Delay(20);
+        var later = State(await _host.NewWorksRequest(emma).SetWorkState(
+            1, new("Read", 9, null, IsFavorite: true), default));
+
+        Assert.Equal(first.FavoritedAt, later.FavoritedAt);
+    }
+
+    [Fact]
+    public async Task Lists_only_favorites_when_asked()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await WatchAsync(Lexa, emma), 1, 2, 3);
+
+        await _host.NewWorksRequest(emma).SetWorkState(1, new(null, null, null, IsFavorite: true), default);
+        // Marked, but not a favorite: a state row alone must not read as one.
+        await _host.NewWorksRequest(emma).SetWorkState(2, new("Read", 8, null), default);
+        await _host.NewWorksRequest(emma).SetWorkState(3, new("ToRead", null, null, IsFavorite: true), default);
+
+        var page = Works(await _host.NewWorksRequest(emma).GetWorks(favoritesOnly: true, ct: default));
+
+        Assert.Equal([1, 3], page.Items.Select(w => w.Id).Order());
+        Assert.Equal(2, page.TotalCount);
+        Assert.All(page.Items, w => Assert.True(w.State.IsFavorite));
+
+        // And the plain list is untouched by the mark.
+        Assert.Equal(3, Works(await _host.NewWorksRequest(emma).GetWorks(ct: default)).TotalCount);
+    }
+
+    [Fact]
+    public async Task Never_lists_another_readers_favorites()
+    {
+        var emma = _host.SeedUser("emma");
+        var sam = _host.SeedUser("sam");
+        var lexa = await WatchAsync(Lexa, emma);
+        await SeedWorksAsync(lexa, 1);
+        await WatchAsync(Lexa, sam);
+
+        await _host.NewWorksRequest(sam).SetWorkState(1, new(null, null, null, IsFavorite: true), default);
+
+        var hers = Works(await _host.NewWorksRequest(emma).GetWorks(favoritesOnly: true, ct: default));
+        Assert.Empty(hers.Items);
+
+        var row = Works(await _host.NewWorksRequest(emma).GetWorks(ct: default)).Items.Single();
+        Assert.False(row.State.IsFavorite);
+    }
+
+    [Fact]
+    public async Task Keeps_a_favorite_listed_after_the_tag_lets_it_go()
+    {
+        // A favorite is a mark like any other, so the rule that a marked work survives a sweep
+        // concluding it left the tag covers it — with the chip that says which tag let go.
+        var emma = _host.SeedUser();
+        var lexa = await WatchAsync(Lexa, emma);
+        await SeedWorksAsync(lexa, 1, 2);
+        await _host.NewWorksRequest(emma).SetWorkState(1, new(null, null, null, IsFavorite: true), default);
+
+        await using (var db = _host.NewContext())
+        {
+            await db.ShipWorks.ExecuteUpdateAsync(s => s.SetProperty(sw => sw.MissingSinceAt, DateTime.UtcNow));
+        }
+
+        var favorites = Works(await _host.NewWorksRequest(emma).GetWorks(favoritesOnly: true, ct: default));
+        var row = Assert.Single(favorites.Items);
+        Assert.Equal(1, row.Id);
+        Assert.Equal([Lexa], row.LeftShips);
+
+        // The unmarked one is gone from the feed, as it should be.
+        Assert.Equal([1L], Works(await _host.NewWorksRequest(emma).GetWorks(ct: default)).Items.Select(w => w.Id));
+    }
+
     // ---- what it refuses -----------------------------------------------------------------------
 
     [Theory]

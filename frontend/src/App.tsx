@@ -36,7 +36,12 @@ export default function App() {
           {/* The dashboard is a group of sibling views, so "/" is a redirect rather than a page
               of its own. Works leads because it is the thing the app is for. */}
           <Route path="/" element={<Navigate to="/works" replace />} />
-          <Route path="/works" element={<WorksPage />} />
+          <Route path="/works" element={<WorksPage key="works" />} />
+          {/* The same table over the reader's favorites. A view of the works page rather than a
+              page of its own, so a row is marked, rated and noted the same way in both places.
+              Keyed apart so switching tabs starts a fresh page instead of repainting the old
+              rows under the new heading while the new ones load. */}
+          <Route path="/favorites" element={<WorksPage key="favorites" favorites />} />
           {/* A work of its own, under the list it is reached from, so the sidebar keeps Works lit. */}
           <Route path="/works/:workId" element={<WorkDetailPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />

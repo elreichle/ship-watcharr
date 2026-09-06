@@ -114,6 +114,17 @@ public static class WorkQueries
         db.UserWorkStates.Where(s => s.UserId == userId);
 
     /// <summary>
+    /// Narrows <paramref name="works"/> to the ones the reader has marked as favorites.
+    /// </summary>
+    /// <param name="callerStates">
+    /// <see cref="StatesOf"/> for the reader asking, and nobody else's — a parameter for the reason
+    /// <see cref="ApplyFilter"/> gives: a favorite is one reader's opinion, and a query that resolved
+    /// the reader itself could be handed a defaulted or forgotten one and answer with somebody else's.
+    /// </param>
+    public static IQueryable<Work> Favorites(IQueryable<Work> works, IQueryable<UserWorkState> callerStates) =>
+        works.Where(w => callerStates.Any(s => s.WorkId == w.Id && s.FavoritedAt != null));
+
+    /// <summary>
     /// Applies the requested sort, always tie-broken by id. Null for a sort that isn't offered.
     ///
     /// The tie-break is what makes paging correct, not merely tidy: thousands of works share a

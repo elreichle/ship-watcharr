@@ -939,6 +939,55 @@
     align-items: center;
   }
 
+  /* The favorite mark: a hollow heart until it is pressed, then filled in the accent. Muted at rest
+     like every other mark in the margin, so a page of twenty-five rows is not a page of hearts. */
+  .favorite-toggle {
+    padding: var(--size-2-1);
+    border: none;
+    border-radius: var(--radius-s);
+    background: none;
+    color: var(--text-faint);
+    line-height: 1;
+    opacity: var(--icon-opacity);
+    transition: opacity 120ms ease, color 120ms ease;
+  }
+
+  .favorite-toggle:hover:not(:disabled),
+  .favorite-toggle:focus-visible {
+    background: none;
+    color: var(--text-accent);
+    opacity: var(--icon-opacity-hover);
+  }
+
+  .favorite-toggle[aria-pressed='true'] {
+    color: var(--text-accent);
+    opacity: 1;
+  }
+
+  /* Filled with the same stroke colour, so the pressed heart is the hollow one coloured in rather
+     than a second glyph. */
+  .favorite-toggle[aria-pressed='true'] .favorite-toggle-icon {
+    fill: currentColor;
+  }
+
+  .work-detail-favorite {
+    display: inline-flex;
+    gap: var(--size-2-2);
+    align-items: center;
+    /* Level with the stars beside it, which sit on the row's baseline rather than a label's. */
+    padding-bottom: var(--size-2-1);
+  }
+
+  .work-detail-favorite-caption {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    white-space: nowrap;
+  }
+
+  .favorite-toggle[aria-pressed='true'] + .work-detail-favorite-caption {
+    color: var(--text-normal);
+  }
+
   /* Flush against each other on purpose: the click handler reads a position along this box as a
      fraction of ten half-stars, so a gap between them would put the boundaries in the wrong place. */
   .rating-stars {
@@ -1381,6 +1430,7 @@
 
     button,
     .rating-stars,
+    .favorite-toggle,
     .expander-icon {
       transition: none;
     }

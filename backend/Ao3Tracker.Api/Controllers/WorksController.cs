@@ -68,6 +68,9 @@ public class WorksController : ControllerBase
     /// <param name="useDefaultFilter">Whether an unqualified request picks up the user's default
     /// set. True is the point of having a default; the works page sends false when the reader has
     /// explicitly asked for their whole library, which is otherwise inexpressible.</param>
+    /// <param name="favoritesOnly">Narrow to the works the caller has marked as favorites. Their
+    /// own marks and nobody else's, through the same per-user states the rows carry; composes with
+    /// every other narrowing here rather than replacing any of it.</param>
     [HttpGet]
     public async Task<ActionResult<PagedResult<WorkListItemDto>>> GetWorks(
         [FromQuery] int page = 1,
@@ -77,6 +80,7 @@ public class WorksController : ControllerBase
         [FromQuery] bool? ascending = null,
         [FromQuery] int? savedFilterId = null,
         [FromQuery] bool useDefaultFilter = true,
+        [FromQuery] bool favoritesOnly = false,
         CancellationToken ct = default)
     {
         var userId = CurrentUserId;
@@ -104,6 +108,8 @@ public class WorksController : ControllerBase
         var myStates = WorkQueries.StatesOf(_db, userId);
 
         if (filter is not null) query = WorkQueries.ApplyFilter(query, filter, myStates);
+
+        if (favoritesOnly) query = WorkQueries.Favorites(query, myStates);
 
         // An explicit sort wins over the set's, so the works page's dropdown keeps working while a
         // saved view is applied. With neither, "updated" is the library's own default.
@@ -170,7 +176,7 @@ public class WorksController : ControllerBase
                 // navigation is an invitation to load it without saying whose.
                 State = myStates
                     .Where(s => s.WorkId == w.Id)
-                    .Select(s => new { s.Status, s.Rating, s.Note })
+                    .Select(s => new { s.Status, s.Rating, s.Note, s.FavoritedAt })
                     .FirstOrDefault(),
             })
             .ToListAsync(ct);
@@ -200,7 +206,7 @@ public class WorksController : ControllerBase
             r.IsRestricted,
             r.State is null
                 ? WorkStateDto.Cleared
-                : new WorkStateDto(r.State.Status.ToString(), r.State.Rating, r.State.Note))).ToList();
+                : new WorkStateDto(r.State.Status.ToString(), r.State.Rating, r.State.Note, r.State.FavoritedAt))).ToList();
 
         var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
         return Ok(new PagedResult<WorkListItemDto>(items, page, pageSize, totalCount, totalPages));
@@ -295,7 +301,7 @@ public class WorksController : ControllerBase
 
                 State = myStates
                     .Where(s => s.WorkId == w.Id)
-                    .Select(s => new { s.Status, s.Rating, s.Note })
+                    .Select(s => new { s.Status, s.Rating, s.Note, s.FavoritedAt })
                     .FirstOrDefault(),
             })
             .FirstOrDefaultAsync(ct);
@@ -334,7 +340,7 @@ public class WorksController : ControllerBase
             row.LastSeenAt,
             row.State is null
                 ? WorkStateDto.Cleared
-                : new WorkStateDto(row.State.Status.ToString(), row.State.Rating, row.State.Note)));
+                : new WorkStateDto(row.State.Status.ToString(), row.State.Rating, row.State.Note, row.State.FavoritedAt)));
     }
 
     // ---- one reader's own state ---------------------------------------------------------------
@@ -353,7 +359,7 @@ public class WorksController : ControllerBase
 
         var state = await WorkQueries.StatesOf(_db, userId)
             .Where(s => s.WorkId == id)
-            .Select(s => new WorkStateDto(s.Status.ToString(), s.Rating, s.Note))
+            .Select(s => new WorkStateDto(s.Status.ToString(), s.Rating, s.Note, s.FavoritedAt))
             .FirstOrDefaultAsync(ct);
 
         return Ok(state ?? WorkStateDto.Cleared);
@@ -370,7 +376,9 @@ public class WorksController : ControllerBase
     /// an absent row means, so keeping both would leave every "unread" query with two cases to
     /// cover instead of one. Callers cannot tell the difference — both read back as
     /// <see cref="WorkStateDto.Cleared"/>. Only a wholly empty state is an absence: clearing a
-    /// rating while a status stands keeps the row, since the row still holds something.
+    /// rating while a status stands keeps the row, since the row still holds something — and a
+    /// favorite mark on its own is something, so a favorited work with nothing else said about it
+    /// keeps its row too.
     /// </remarks>
     [HttpPut("{id:long}/state")]
     public async Task<ActionResult<WorkStateDto>> SetWorkState(
@@ -421,7 +429,7 @@ public class WorksController : ControllerBase
 
         var stored = await StoredAsync();
 
-        if (status == ReadingStatus.None && request.Rating is null && note is null)
+        if (status == ReadingStatus.None && request.Rating is null && note is null && !request.IsFavorite)
         {
             for (var attempt = 1; ; attempt++)
             {
@@ -471,6 +479,9 @@ public class WorksController : ControllerBase
             stored.Status = status;
             stored.Rating = request.Rating;
             stored.Note = note;
+            // The date is when the mark went on, so a save that keeps the mark keeps the date: every
+            // control sends the whole state, and re-rating a favorite is not favoriting it again.
+            stored.FavoritedAt = request.IsFavorite ? stored.FavoritedAt ?? now : null;
             stored.UpdatedAt = now;
 
             try
@@ -504,7 +515,7 @@ public class WorksController : ControllerBase
             }
         }
 
-        return Ok(new WorkStateDto(stored.Status.ToString(), stored.Rating, stored.Note));
+        return Ok(new WorkStateDto(stored.Status.ToString(), stored.Rating, stored.Note, stored.FavoritedAt));
     }
 
     /// <summary>

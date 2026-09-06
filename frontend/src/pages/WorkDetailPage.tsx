@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
 import type { Ao3TagType, ReadingStatus, WorkDetail, WorkState } from '../api/types';
 import { EmptyState } from '../components/EmptyState';
+import { FavoriteToggle } from '../components/FavoriteToggle';
 import { Icon } from '../components/Icon';
 import { RatingStars } from '../components/RatingStars';
 import { SkeletonRows } from '../components/Skeleton';
@@ -323,6 +324,26 @@ export function WorkDetailPage() {
               void saveState({ ...work.state, rating });
             }}
           />
+
+          <span className="work-detail-favorite">
+            <FavoriteToggle
+              title={work.title}
+              value={work.state.isFavorite}
+              onChange={(isFavorite) => {
+                void saveState({ ...work.state, isFavorite });
+              }}
+            />
+            {/* Spelled out beside the heart, as the rating is beside its stars: the date is the
+                one thing the mark knows that a filled glyph cannot say. Keyed on the flag, not the
+                date — a click is shown before the server answers, and the date is the server's. */}
+            <span className="work-detail-favorite-caption">
+              {!work.state.isFavorite
+                ? 'Not a favorite'
+                : work.state.favoritedAt === null
+                  ? 'Favorite'
+                  : `Favorited ${formatDate(work.state.favoritedAt)}`}
+            </span>
+          </span>
         </div>
 
         <label className="work-note-field">
