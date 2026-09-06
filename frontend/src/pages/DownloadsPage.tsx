@@ -1,11 +1,10 @@
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
+import { EmptyState } from '../components/EmptyState';
+import { SkeletonRows } from '../components/Skeleton';
 import { DOWNLOAD_STATUS_LABELS, formatSize } from '../downloads';
+import { formatDateTimeOrDash as formatDate } from '../format';
 import { useDownloads } from '../hooks/useDownloads';
-
-function formatDate(value: string | null): string {
-  return value ? new Date(value).toLocaleString() : '—';
-}
 
 export function DownloadsPage() {
   const { downloads, error, request, remove } = useDownloads();
@@ -20,10 +19,25 @@ export function DownloadsPage() {
         little after it is asked for rather than at once.
       </p>
 
-      {error !== null && <p className="error">{error}</p>}
+      {error !== null && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
 
       {downloads === null ? (
-        <p>Loading…</p>
+        !error && <SkeletonRows rows={3} kind="line" />
+      ) : downloads.length === 0 ? (
+        <EmptyState
+          title="Nothing asked for yet"
+          action={
+            <Link className="button" to="/works">
+              Open Works
+            </Link>
+          }
+        >
+          Open a work and pick a format to have it fetched.
+        </EmptyState>
       ) : (
         <table className="downloads-table">
           <thead>
@@ -31,7 +45,7 @@ export function DownloadsPage() {
               <th>Work</th>
               <th>Format</th>
               <th>Status</th>
-              <th>Size</th>
+              <th className="numeric">Size</th>
               <th>Asked for</th>
               <th>Ready</th>
               <th />
@@ -40,8 +54,10 @@ export function DownloadsPage() {
           <tbody>
             {downloads.map((download) => (
               <tr key={download.id}>
-                <td>
-                  <Link to={`/works/${download.workId}`}>{download.workTitle}</Link>
+                <td className="download-work">
+                  <Link className="title-link" to={`/works/${download.workId}`}>
+                    {download.workTitle}
+                  </Link>
                 </td>
                 <td>{download.format.toUpperCase()}</td>
                 <td>
@@ -55,7 +71,7 @@ export function DownloadsPage() {
                     <span className="download-error">{download.errorMessage}</span>
                   )}
                 </td>
-                <td>
+                <td className="numeric">
                   {download.previousSizeBytes === null ? (
                     formatSize(download.sizeBytes)
                   ) : (
@@ -104,13 +120,6 @@ export function DownloadsPage() {
                 </td>
               </tr>
             ))}
-            {downloads.length === 0 && (
-              <tr>
-                <td colSpan={7}>
-                  Nothing asked for yet. Open a work and pick a format to have it fetched.
-                </td>
-              </tr>
-            )}
           </tbody>
         </table>
       )}

@@ -10,8 +10,12 @@ import type {
   WorkSort,
   WorkState,
 } from '../api/types';
+import { EmptyState } from '../components/EmptyState';
 import { RatingStars } from '../components/RatingStars';
+import { SkeletonRows } from '../components/Skeleton';
+import { formatDate, formatDateTime } from '../format';
 import { READING_STATUS_LABELS } from '../readingStatus';
+import { warningChipClass } from '../warnings';
 
 const SORT_LABELS: Record<WorkSort, string> = {
   updated: 'Last updated',
@@ -28,7 +32,7 @@ const PAGE_SIZES = [25, 50, 100];
 const MAX_NOTE_LENGTH = 4000;
 
 /** Columns in the works table, for the note editor's row to span all of them. */
-const WORK_COLUMN_COUNT = 8;
+const WORK_COLUMN_COUNT = 7;
 
 const DEFAULT_SORT: WorkSort = 'updated';
 const DEFAULT_PAGE_SIZE = 25;
@@ -43,10 +47,9 @@ function ao3WorkUrl(id: number): string {
 }
 
 function formatUpdated(work: WorkListItem): string {
-  const updated = new Date(work.updatedAt);
   // An approximate timestamp came from a day-granular date, so rendering a time would invent
   // precision the scrape never had.
-  return work.updatedAtIsApproximate ? updated.toLocaleDateString() : updated.toLocaleString();
+  return work.updatedAtIsApproximate ? formatDate(work.updatedAt) : formatDateTime(work.updatedAt);
 }
 
 /** What the `filter` query parameter means when it says "show me everything I follow". */
@@ -425,54 +428,85 @@ export function WorksPage() {
         </label>
       </div>
 
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
 
       {result === null ? (
-        !error && <p>Loading…</p>
+        // Rows the height of real ones rather than a sentence, so the page does not jump when they
+        // land. Still guarded on the error: a failed load has nothing on the way.
+        !error && <SkeletonRows rows={8} />
       ) : works.length === 0 ? (
-        <p className="hint">
-          {ships !== null && ships.length === 0 ? (
-            <>
-              Nothing here yet — you aren’t following any ships. Add a relationship tag on the{' '}
-              <Link to="/ships">Ships</Link> tab and its works will show up here.
-            </>
-          ) : activeFilter ? (
-            // Saying "nothing scraped yet" while a filter is narrowing the list would blame the
-            // scraper for the reader's own criteria.
-            <>
-              No works match “{activeFilter.name}”. Loosen it on the{' '}
-              <Link to="/filters">Filters</Link> tab, or switch this to “Everything you follow”.
-            </>
-          ) : (
-            <>No works scraped yet for the ships you follow. Check progress on the{' '}
-            <Link to="/ships">Ships</Link> tab.</>
-          )}
-        </p>
+        ships !== null && ships.length === 0 ? (
+          <EmptyState
+            title="Nothing here yet"
+            action={
+              <Link className="button" to="/ships">
+                Follow a ship
+              </Link>
+            }
+          >
+            You aren’t following any ships. Add a relationship tag on the{' '}
+            <Link to="/ships">Ships</Link> tab and its works will show up here.
+          </EmptyState>
+        ) : activeFilter ? (
+          // Saying "nothing scraped yet" while a filter is narrowing the list would blame the
+          // scraper for the reader's own criteria.
+          <EmptyState
+            title={`No works match “${activeFilter.name}”`}
+            action={
+              <button type="button" onClick={() => updateQuery({ filter: NO_FILTER, sort: null, ascending: null })}>
+                Show everything you follow
+              </button>
+            }
+          >
+            Loosen it on the <Link to="/filters">Filters</Link> tab, or switch this to “Everything
+            you follow”.
+          </EmptyState>
+        ) : (
+          <EmptyState
+            title="No works scraped yet"
+            action={
+              <Link className="button" to="/ships">
+                Check the ships you follow
+              </Link>
+            }
+          >
+            Nothing has arrived yet for the ships you follow. The{' '}
+            <Link to="/ships">Ships</Link> tab says when each was last scraped and when it is next
+            due.
+          </EmptyState>
+        )
       ) : (
         <>
           <table className="works-table" aria-busy={loading}>
             <thead>
               <tr>
                 <th>Work</th>
-                <th>Yours</th>
-                {/* Named for whose rating it is, now that the column beside it holds the other. */}
+                {/* Named for whose rating it is: the reader's own sits under the title. */}
                 <th>AO3 rating</th>
-                <th>Words</th>
-                <th>Chapters</th>
-                <th>Kudos</th>
-                <th>Hits</th>
+                <th className="numeric">Words</th>
+                <th className="numeric">Chapters</th>
+                <th className="numeric">Kudos</th>
+                <th className="numeric">Hits</th>
                 <th>Updated</th>
               </tr>
             </thead>
             <tbody>
               {works.map((work) => (
                 <Fragment key={work.id}>
-                  <tr>
+                  {/* The status rides the row so the one the reader is in the middle of can carry
+                      the reading spine — see .works-table [data-status='Reading']. */}
+                  <tr data-status={work.state.status}>
                     <td className="work-cell">
                       {/* The title opens this app's own page for the work — everything known about
                           it, and the reader's own marks — rather than leaving for the archive. AO3
                           is one click further on, in the byline. */}
-                      <Link to={`/works/${work.id}`}>{work.title}</Link>
+                      <Link className="title-link" to={`/works/${work.id}`}>
+                        {work.title}
+                      </Link>
                       <span className="work-byline">
                         {work.isAnonymous
                           ? 'Anonymous'
@@ -510,31 +544,32 @@ export function WorksPage() {
                           </span>
                         ))}
                         {work.warnings.map((warning) => (
-                          <span key={warning} className="chip chip-warning">
+                          <span key={warning} className={warningChipClass(warning)}>
                             {warning}
                           </span>
                         ))}
                         {work.isRestricted && <span className="chip">Registered users only</span>}
                       </span>
-                    </td>
-                    <td className="work-state-cell">
-                      <select
-                        aria-label={`Reading status for ${work.title}`}
-                        value={work.state.status}
-                        onChange={(e) => {
-                          void saveState(work, {
-                            ...work.state,
-                            status: e.target.value as ReadingStatus,
-                          });
-                        }}
-                      >
-                        {Object.entries(READING_STATUS_LABELS).map(([value, label]) => (
-                          <option key={value} value={value}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="work-state-row">
+                      {/* The reader's own marks, under the work they belong to rather than in a
+                          column of controls beside it: the work is the thing, the marks are notes
+                          in its margin. */}
+                      <span className="work-marks">
+                        <select
+                          aria-label={`Reading status for ${work.title}`}
+                          value={work.state.status}
+                          onChange={(e) => {
+                            void saveState(work, {
+                              ...work.state,
+                              status: e.target.value as ReadingStatus,
+                            });
+                          }}
+                        >
+                          {Object.entries(READING_STATUS_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
                         <RatingStars
                           label={`Your rating of ${work.title}`}
                           value={work.state.rating}
@@ -554,18 +589,30 @@ export function WorksPage() {
                         </button>
                       </span>
                       {stateErrors[work.id] && (
-                        <span className="error work-state-error">{stateErrors[work.id]}</span>
+                        <span className="error work-state-error" role="alert">
+                          {stateErrors[work.id]}
+                        </span>
                       )}
                     </td>
-                    <td>{work.rating}</td>
-                    <td className="numeric">{work.wordCount.toLocaleString()}</td>
-                    <td className="numeric">
+                    <td className="work-rating-cell" data-label="AO3 rating">
+                      {work.rating}
+                    </td>
+                    <td className="numeric" data-label="Words">
+                      {work.wordCount.toLocaleString()}
+                    </td>
+                    <td className="numeric" data-label="Chapters">
                       {work.chapterCount}/{work.plannedChapterCount ?? '?'}
                       {work.isComplete && <span className="work-complete"> complete</span>}
                     </td>
-                    <td className="numeric">{work.kudos.toLocaleString()}</td>
-                    <td className="numeric">{work.hits.toLocaleString()}</td>
-                    <td>{formatUpdated(work)}</td>
+                    <td className="numeric" data-label="Kudos">
+                      {work.kudos.toLocaleString()}
+                    </td>
+                    <td className="numeric" data-label="Hits">
+                      {work.hits.toLocaleString()}
+                    </td>
+                    <td className="work-updated-cell" data-label="Updated">
+                      {formatUpdated(work)}
+                    </td>
                   </tr>
                   {openNoteId === work.id && (
                     // A row of its own rather than a popover: the table already scrolls sideways,

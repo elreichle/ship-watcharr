@@ -2,9 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
 import type { Ao3TagType, ReadingStatus, WorkDetail, WorkState } from '../api/types';
+import { EmptyState } from '../components/EmptyState';
+import { Icon } from '../components/Icon';
 import { RatingStars } from '../components/RatingStars';
+import { SkeletonRows } from '../components/Skeleton';
 import { WorkDownloads } from '../components/WorkDownloads';
+import { formatDate, formatDateTime } from '../format';
 import { READING_STATUS_LABELS } from '../readingStatus';
+import { warningChipClass } from '../warnings';
 
 /** Matches `MaxNoteLength` on `UserWorkState.Note`, so an over-long note is refused here first. */
 const MAX_NOTE_LENGTH = 4000;
@@ -30,10 +35,19 @@ function ao3WorkUrl(id: number): string {
 }
 
 function formatUpdated(work: WorkDetail): string {
-  const updated = new Date(work.updatedAt);
   // An approximate timestamp came from a day-granular date, so rendering a time would invent
   // precision the scrape never had.
-  return work.updatedAtIsApproximate ? updated.toLocaleDateString() : updated.toLocaleString();
+  return work.updatedAtIsApproximate ? formatDate(work.updatedAt) : formatDateTime(work.updatedAt);
+}
+
+/** The way back to the list, as chrome above the title rather than a footnote. */
+function BackToWorks() {
+  return (
+    <Link className="back-link" to="/works">
+      <Icon name="chevron-right" size="xs" className="back-link-icon" />
+      Works
+    </Link>
+  );
 }
 
 export function WorkDetailPage() {
@@ -170,11 +184,18 @@ export function WorkDetailPage() {
   if (notFound) {
     return (
       <div className="page">
-        <h1>Work not found</h1>
-        <p className="hint">
+        <BackToWorks />
+        <EmptyState
+          title="Work not found"
+          action={
+            <Link className="button" to="/works">
+              Back to Works
+            </Link>
+          }
+        >
           Nothing you follow carries this work — either it was never scraped, or the ship it came
-          from is one you have since unfollowed. Back to <Link to="/works">Works</Link>.
-        </p>
+          from is one you have since unfollowed.
+        </EmptyState>
       </div>
     );
   }
@@ -182,10 +203,10 @@ export function WorkDetailPage() {
   if (error !== null) {
     return (
       <div className="page">
+        <BackToWorks />
         <h1>Work</h1>
-        <p className="error">{error}</p>
-        <p className="hint">
-          Back to <Link to="/works">Works</Link>.
+        <p className="error" role="alert">
+          {error}
         </p>
       </div>
     );
@@ -194,7 +215,10 @@ export function WorkDetailPage() {
   if (work === null) {
     return (
       <div className="page">
-        <p>Loading…</p>
+        <BackToWorks />
+        {/* A title-sized bar and a few lines where the summary will be. */}
+        <SkeletonRows rows={1} kind="title" />
+        <SkeletonRows rows={4} kind="text" />
       </div>
     );
   }
@@ -203,9 +227,7 @@ export function WorkDetailPage() {
 
   return (
     <div className="page">
-      <p className="hint">
-        <Link to="/works">← Works</Link>
-      </p>
+      <BackToWorks />
 
       <h1 className="work-detail-title">{work.title}</h1>
 
@@ -253,7 +275,7 @@ export function WorkDetailPage() {
           </span>
         ))}
         {work.warnings.map((warning) => (
-          <span key={warning} className="chip chip-warning">
+          <span key={warning} className={warningChipClass(warning)}>
             {warning}
           </span>
         ))}
@@ -343,7 +365,11 @@ export function WorkDetailPage() {
           )}
         </div>
 
-        {stateError !== null && <p className="error">{stateError}</p>}
+        {stateError !== null && (
+          <p className="error" role="alert">
+            {stateError}
+          </p>
+        )}
       </section>
 
       <WorkDownloads workId={work.id} />

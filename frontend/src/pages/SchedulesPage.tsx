@@ -2,10 +2,10 @@ import { Fragment, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { ScrapeJob, ScrapeRun } from '../api/types';
-
-function formatDate(value: string | null): string {
-  return value ? new Date(value).toLocaleString() : '—';
-}
+import { EmptyState } from '../components/EmptyState';
+import { Icon } from '../components/Icon';
+import { SkeletonRows } from '../components/Skeleton';
+import { formatDateTimeOrDash as formatDate } from '../format';
 
 function JobRuns({ jobId }: { jobId: number }) {
   const [runs, setRuns] = useState<ScrapeRun[] | null>(null);
@@ -14,8 +14,8 @@ function JobRuns({ jobId }: { jobId: number }) {
     api.getScrapeRuns(jobId).then(setRuns).catch(() => setRuns([]));
   }, [jobId]);
 
-  if (runs === null) return <p>Loading runs…</p>;
-  if (runs.length === 0) return <p>No runs yet.</p>;
+  if (runs === null) return <SkeletonRows rows={2} kind="line" />;
+  if (runs.length === 0) return <p className="hint">No runs yet.</p>;
 
   return (
     <table className="runs-table">
@@ -24,11 +24,11 @@ function JobRuns({ jobId }: { jobId: number }) {
           <th>Started</th>
           <th>Mode</th>
           <th>Status</th>
-          <th>Pages</th>
-          <th>Requests</th>
-          <th>Seen</th>
-          <th>Added</th>
-          <th>Updated</th>
+          <th className="numeric">Pages</th>
+          <th className="numeric">Requests</th>
+          <th className="numeric">Seen</th>
+          <th className="numeric">Added</th>
+          <th className="numeric">Updated</th>
           <th>Stopped because</th>
           <th>Error</th>
         </tr>
@@ -39,11 +39,11 @@ function JobRuns({ jobId }: { jobId: number }) {
             <td>{formatDate(run.startedAt)}</td>
             <td>{run.mode}</td>
             <td>{run.status}</td>
-            <td>{run.pagesFetched}</td>
-            <td>{run.requestsMade}</td>
-            <td>{run.worksSeen}</td>
-            <td>{run.worksAdded}</td>
-            <td>{run.worksUpdated}</td>
+            <td className="numeric">{run.pagesFetched}</td>
+            <td className="numeric">{run.requestsMade}</td>
+            <td className="numeric">{run.worksSeen}</td>
+            <td className="numeric">{run.worksAdded}</td>
+            <td className="numeric">{run.worksUpdated}</td>
             <td>{run.stopReason ?? '—'}</td>
             <td>{run.errorMessage ?? ''}</td>
           </tr>
@@ -54,11 +54,16 @@ function JobRuns({ jobId }: { jobId: number }) {
 }
 
 export function SchedulesPage() {
-  const [jobs, setJobs] = useState<ScrapeJob[]>([]);
+  // Null while loading, so the page cannot claim "no ships are being watched" before it knows.
+  const [jobs, setJobs] = useState<ScrapeJob[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [expandedJobId, setExpandedJobId] = useState<number | null>(null);
 
   useEffect(() => {
-    api.getScrapeJobs().then(setJobs).catch(() => setJobs([]));
+    api
+      .getScrapeJobs()
+      .then(setJobs)
+      .catch(() => setError('Could not load the schedules.'));
   }, []);
 
   return (
@@ -71,57 +76,81 @@ export function SchedulesPage() {
         and switches off when the last one stops.
       </p>
 
-      {/* Read-only on purpose: a job belongs to a ship, not to a user, so its lifecycle follows
-          subscription rather than anything editable here. */}
-      <table className="jobs-table">
-        <thead>
-          <tr>
-            <th>Ship</th>
-            <th>Scraper</th>
-            <th>Interval</th>
-            <th>Enabled</th>
-            <th>Last run</th>
-            <th>Last status</th>
-            <th>Next run</th>
-          </tr>
-        </thead>
-        <tbody>
-          {jobs.map((job) => (
-            // Keyed on the Fragment, not the <tr>: the fragment is the array element, so a key on
-            // the row inside it doesn't satisfy React.
-            <Fragment key={job.id}>
-              <tr>
-                <td>
-                  <button
-                    className="link"
-                    onClick={() => setExpandedJobId(expandedJobId === job.id ? null : job.id)}
-                  >
-                    {job.shipName}
-                  </button>
-                </td>
-                <td>{job.scraperKey}</td>
-                <td>{job.intervalMinutes} min</td>
-                <td>{job.isEnabled ? 'yes' : 'no'}</td>
-                <td>{formatDate(job.lastRunAt)}</td>
-                <td>{job.lastRunStatus ?? '—'}{job.lastRunError ? ` (${job.lastRunError})` : ''}</td>
-                <td>{formatDate(job.nextRunAt)}</td>
-              </tr>
-              {expandedJobId === job.id && (
-                <tr>
-                  <td colSpan={7}>
-                    <JobRuns jobId={job.id} />
-                  </td>
-                </tr>
-              )}
-            </Fragment>
-          ))}
-          {jobs.length === 0 && (
+      {error !== null && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+
+      {jobs === null ? (
+        !error && <SkeletonRows rows={3} kind="line" />
+      ) : jobs.length === 0 ? (
+        <EmptyState
+          title="No ships are being watched yet"
+          action={
+            <Link className="button" to="/ships">
+              Follow a ship
+            </Link>
+          }
+        >
+          A schedule appears here the moment the first reader follows a ship.
+        </EmptyState>
+      ) : (
+        /* Read-only on purpose: a job belongs to a ship, not to a user, so its lifecycle follows
+           subscription rather than anything editable here. */
+        <table className="jobs-table">
+          <thead>
             <tr>
-              <td colSpan={7}>No ships are being watched yet.</td>
+              <th>Ship</th>
+              <th>Scraper</th>
+              <th className="numeric">Interval</th>
+              <th>Enabled</th>
+              <th>Last run</th>
+              <th>Last status</th>
+              <th>Next run</th>
             </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {jobs.map((job) => (
+              // Keyed on the Fragment, not the <tr>: the fragment is the array element, so a key on
+              // the row inside it doesn't satisfy React.
+              <Fragment key={job.id}>
+                <tr>
+                  <td>
+                    {/* Opens the run history underneath. The chevron turns, the same way the
+                        sidebar's groups say they are open. */}
+                    <button
+                      type="button"
+                      className="link expander"
+                      aria-expanded={expandedJobId === job.id}
+                      onClick={() => setExpandedJobId(expandedJobId === job.id ? null : job.id)}
+                    >
+                      <Icon name="chevron-right" size="xs" className="expander-icon" />
+                      {job.shipName}
+                    </button>
+                  </td>
+                  <td>{job.scraperKey}</td>
+                  <td className="numeric">{job.intervalMinutes} min</td>
+                  <td>{job.isEnabled ? 'Yes' : 'No'}</td>
+                  <td>{formatDate(job.lastRunAt)}</td>
+                  <td>
+                    {job.lastRunStatus ?? '—'}
+                    {job.lastRunError ? ` (${job.lastRunError})` : ''}
+                  </td>
+                  <td>{formatDate(job.nextRunAt)}</td>
+                </tr>
+                {expandedJobId === job.id && (
+                  <tr className="jobs-runs-row">
+                    <td colSpan={7}>
+                      <JobRuns jobId={job.id} />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

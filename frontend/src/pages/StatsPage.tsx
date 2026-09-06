@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { BucketCount, LabelledCount, MonthCount, ReadingStatus, Stats, WatchedShip } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
+import { SkeletonRows } from '../components/Skeleton';
 import { READING_STATUS_LABELS } from '../readingStatus';
 
 /**
@@ -316,9 +317,13 @@ export function StatsPage() {
         </label>
       </div>
 
-      {error !== null && <p className="error">{error}</p>}
+      {error !== null && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
 
-      {loading && <p>Loading…</p>}
+      {loading && !error && <SkeletonRows rows={2} kind="table" />}
 
       {stats !== null && corpus !== null && reading !== null && (
         corpus.workCount === 0 ? (

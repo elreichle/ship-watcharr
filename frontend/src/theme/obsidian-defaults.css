@@ -24,17 +24,21 @@
   body {
     /* Accent. Themes very often set only these three parts and expect every accent-derived
        colour to follow, so --color-accent must stay a derivation and never a literal. */
-    --accent-h: 258;
-    --accent-s: 88%;
-    --accent-l: 66%;
+    --accent-h: 350;
+    --accent-s: 58%;
+    --accent-l: 60%;
     --color-accent: hsl(var(--accent-h), var(--accent-s), var(--accent-l));
     --color-accent-1: hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) - 3.8%));
     --color-accent-2: hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) - 7.6%));
 
     /* Typography. The -theme hooks are what themes actually set; the fallback chain after each
-       is what we render with when they don't. */
-    --font-interface-theme: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    --font-text-theme: var(--font-interface-theme);
+       is what we render with when they don't. The interface face is the system sans and carries
+       the chrome; the text face is a serif and carries what a reader reads — work titles, page
+       titles, summaries — so the two roles are told apart by face, not by size alone. Both are
+       stacks rather than a bundled file: a theme's --font-text-theme still wins either way. */
+    --font-interface-theme: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+    --font-text-theme: Charter, 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Georgia,
+      'Noto Serif', serif;
     --font-monospace-theme: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
     --font-interface: var(--font-interface-theme);
     --font-text: var(--font-text-theme);
@@ -62,6 +66,34 @@
 
     --line-height-normal: 1.5;
     --line-height-tight: 1.3;
+
+    /* Headings. Obsidian's editor heading scale, reused here as the interface's type scale: h1 is
+       the title of a single work on its own page, h2 a page title, h4 a section heading, h6 a
+       sub-heading. The two largest are set in the text face because a title is something read. */
+    --h1-size: 1.8em;
+    --h2-size: 1.6em;
+    --h3-size: 1.333em;
+    --h4-size: 1.133em;
+    --h5-size: 1.067em;
+    --h6-size: 1em;
+    --h1-weight: var(--font-semibold);
+    --h2-weight: var(--font-semibold);
+    --h3-weight: var(--font-semibold);
+    --h4-weight: var(--font-semibold);
+    --h5-weight: var(--font-medium);
+    --h6-weight: var(--font-medium);
+    --h1-line-height: 1.2;
+    --h2-line-height: 1.2;
+    --h3-line-height: 1.3;
+    --h4-line-height: 1.3;
+    --h5-line-height: 1.4;
+    --h6-line-height: 1.4;
+    --h1-font: var(--font-text);
+    --h2-font: var(--font-text);
+    --h3-font: var(--font-text);
+    --h4-font: var(--font-interface);
+    --h5-font: var(--font-interface);
+    --h6-font: var(--font-interface);
 
     /* Spacing — Obsidian's 4px grid, with a 2px scale for finer work. */
     --size-2-1: 2px;
@@ -132,18 +164,20 @@
   .theme-light {
     color-scheme: light;
 
-    --color-base-00: #ffffff;
-    --color-base-05: #fcfcfc;
-    --color-base-10: #fafafa;
-    --color-base-20: #f6f6f6;
-    --color-base-25: #efefef;
-    --color-base-30: #e4e4e4;
-    --color-base-35: #dadada;
-    --color-base-40: #bdbdbd;
-    --color-base-50: #ababab;
-    --color-base-60: #707070;
-    --color-base-70: #5c5c5c;
-    --color-base-100: #222222;
+    /* Obsidian's lightness ladder, warmed a few points towards hue 35. Paper rather than screen
+       white, without tipping into cream. */
+    --color-base-00: #fdfdfc;
+    --color-base-05: #fcfbfa;
+    --color-base-10: #faf9f7;
+    --color-base-20: #f8f6f4;
+    --color-base-25: #f1efed;
+    --color-base-30: #e7e4e1;
+    --color-base-35: #dedbd6;
+    --color-base-40: #c0beba;
+    --color-base-50: #afaca7;
+    --color-base-60: #76716a;
+    --color-base-70: #615d57;
+    --color-base-100: #242220;
 
     --mono-0: #ffffff;
     --mono-100: #000000;
@@ -179,8 +213,11 @@
 
     --interactive-normal: var(--color-base-00);
     --interactive-hover: var(--color-base-10);
-    --interactive-accent: var(--color-accent);
-    --interactive-accent-hover: var(--color-accent-1);
+    /* One step down the accent's own lightness: white on it reads at 4.7:1 for button labels,
+       and the same colour as link text reaches 4.6:1 on this paper. The step stays a derivation
+       of --accent-h/s/l so a theme that sets only those three moves it too. */
+    --interactive-accent: var(--color-accent-2);
+    --interactive-accent-hover: hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) - 14%));
 
     --text-normal: var(--color-base-100);
     --text-muted: var(--color-base-70);
@@ -190,8 +227,8 @@
     --text-error: var(--color-red);
     --text-warning: var(--color-orange);
     --text-success: var(--color-green);
-    --text-accent: var(--color-accent);
-    --text-accent-hover: var(--color-accent-1);
+    --text-accent: var(--color-accent-2);
+    --text-accent-hover: hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) - 14%));
     --text-selection: hsla(var(--accent-h), 70%, 68%, 0.35);
     --text-highlight-bg: rgba(255, 208, 0, 0.4);
     --caret-color: var(--text-normal);
@@ -207,18 +244,20 @@
   .theme-dark {
     color-scheme: dark;
 
-    --color-base-00: #1c1c1c;
-    --color-base-05: #212121;
-    --color-base-10: #232323;
-    --color-base-20: #282828;
-    --color-base-25: #2e2e2e;
-    --color-base-30: #333333;
-    --color-base-35: #3f3f3f;
-    --color-base-40: #555555;
-    --color-base-50: #666666;
-    --color-base-60: #999999;
-    --color-base-70: #b3b3b3;
-    --color-base-100: #dadada;
+    /* Obsidian's lightness ladder, warmed a few points towards hue 30: paper in a lit room rather
+       than a terminal. A tint, not a colour — the greys still read as grey. */
+    --color-base-00: #1d1c1b;
+    --color-base-05: #222120;
+    --color-base-10: #242322;
+    --color-base-20: #2a2826;
+    --color-base-25: #302e2c;
+    --color-base-30: #353331;
+    --color-base-35: #423f3c;
+    --color-base-40: #585552;
+    --color-base-50: #6a6662;
+    --color-base-60: #9c9996;
+    --color-base-70: #b5b3b1;
+    --color-base-100: #dbdad9;
 
     --mono-0: #000000;
     --mono-100: #ffffff;
@@ -252,8 +291,10 @@
 
     --interactive-normal: var(--color-base-30);
     --interactive-hover: var(--color-base-35);
-    --interactive-accent: var(--color-accent);
-    --interactive-accent-hover: var(--color-accent-1);
+    /* Buttons take the accent one step darker so white labels read on them; links keep the full
+       lightness, which is what reaches 4.5:1 on the dark paper. Both stay derivations. */
+    --interactive-accent: var(--color-accent-2);
+    --interactive-accent-hover: hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) - 14%));
 
     --text-normal: var(--color-base-100);
     --text-muted: var(--color-base-70);
@@ -264,7 +305,7 @@
     --text-warning: var(--color-orange);
     --text-success: var(--color-green);
     --text-accent: var(--color-accent);
-    --text-accent-hover: var(--color-accent-1);
+    --text-accent-hover: hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) + 8%));
     --text-selection: hsla(var(--accent-h), 28%, 42%, 0.4);
     --text-highlight-bg: rgba(255, 208, 0, 0.4);
     --caret-color: var(--text-normal);

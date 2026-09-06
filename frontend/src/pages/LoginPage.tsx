@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError } from '../api/client';
+import { AuthFrame } from '../components/AuthFrame';
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -26,14 +27,22 @@ export function LoginPage() {
   };
 
   return (
-    <div className="auth-page">
-      <h1>Log in</h1>
+    <AuthFrame
+      title="Log in"
+      footer={
+        <>
+          No account? <Link to="/register">Register</Link>
+        </>
+      }
+    >
       <form onSubmit={onSubmit}>
         <label>
           Username
           <input
             type="text"
+            name="username"
             autoComplete="username"
+            spellCheck={false}
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             required
@@ -41,16 +50,24 @@ export function LoginPage() {
         </label>
         <label>
           Password
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <input
+            type="password"
+            name="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
         </label>
-        {error && <p className="error">{error}</p>}
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
         <button type="submit" disabled={submitting}>
           {submitting ? 'Logging in…' : 'Log in'}
         </button>
       </form>
-      <p>
-        No account? <Link to="/register">Register</Link>
-      </p>
-    </div>
+    </AuthFrame>
   );
 }

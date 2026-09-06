@@ -143,8 +143,16 @@ export function AppearanceSettingsPage() {
           {dirty && ' — unsaved'}
         </p>
 
-        {message && <p className="success">{message}</p>}
-        {error && <p className="error">{error}</p>}
+        {message && (
+          <p className="success" role="status">
+            {message}
+          </p>
+        )}
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
 
         <div className="button-row">
           <button type="button" onClick={onApply} disabled={!dirty}>

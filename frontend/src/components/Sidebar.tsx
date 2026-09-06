@@ -40,7 +40,12 @@ export function Sidebar({ railed, onToggleRail, onNavigate }: SidebarProps) {
         >
           <Icon name="menu" size="m" />
         </button>
-        <span className="sidebar-title">{APP_NAME}</span>
+        {/* The mark is a bookmark: the app's job is remembering where a reader was. Decorative,
+            so the name beside it is the whole accessible label. */}
+        <span className="sidebar-brand">
+          <Icon name="bookmark" size="m" className="sidebar-mark" />
+          <span className="sidebar-title">{APP_NAME}</span>
+        </span>
       </div>
 
       <ul className="nav-sections">

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
+import { EmptyState } from '../components/EmptyState';
+import { SkeletonRows } from '../components/Skeleton';
 import type {
   Ao3TagType,
   FilterVocabulary,
@@ -272,14 +274,22 @@ export function FiltersPage() {
         and it applies whenever you open Works without choosing.
       </p>
 
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
 
       {editing === null ? (
-        <div className="button-row">
-          <button type="button" onClick={() => setEditing({ id: null, draft: emptyDraft() })}>
-            New filter
-          </button>
-        </div>
+        // With no filters yet the empty state below offers the same button, so it is not repeated.
+        filters !== null &&
+        filters.length > 0 && (
+          <div className="button-row">
+            <button type="button" onClick={() => setEditing({ id: null, draft: emptyDraft() })}>
+              New filter
+            </button>
+          </div>
+        )
       ) : (
         <FilterEditor
           key={editing.id ?? 'new'}
@@ -296,19 +306,28 @@ export function FiltersPage() {
       )}
 
       {filters === null ? (
-        !error && <p>Loading…</p>
+        !error && <SkeletonRows rows={3} kind="line" />
       ) : filters.length === 0 ? (
-        <p className="hint">
-          You haven’t saved any filters yet. One is worth making as soon as “the fics I actually want
-          to read” stops being everything you follow.
-        </p>
+        editing === null && (
+          <EmptyState
+            title="No filters yet"
+            action={
+              <button type="button" onClick={() => setEditing({ id: null, draft: emptyDraft() })}>
+                New filter
+              </button>
+            }
+          >
+            One is worth making as soon as “the fics I actually want to read” stops being everything
+            you follow.
+          </EmptyState>
+        )
       ) : (
         <table className="filters-table">
           <thead>
             <tr>
               <th>Name</th>
               <th>Narrows by</th>
-              <th>Matches</th>
+              <th className="numeric">Matches</th>
               <th>Opens by default</th>
               <th />
             </tr>
@@ -412,12 +431,18 @@ function FilterEditor({ filterId, draft, vocabulary, ships, onCancel, onSaved }:
     <form className="filter-editor" onSubmit={(e) => void onSubmit(e)}>
       <h2>{filterId === null ? 'New filter' : `Editing ${draft.name}`}</h2>
 
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
 
       <Section title="Name">
         <label className="filter-field filter-field-wide">
           What to call it
           <input
+            name="name"
+            autoComplete="off"
             value={value.name}
             onChange={(e) => set('name', e.target.value)}
             placeholder="Long finished fics"
@@ -826,7 +851,7 @@ function TagPicker({ legend, selected, onChange }: TagPickerProps) {
   return (
     <TokenPicker
       legend={legend}
-      placeholder="Search your library’s tags"
+      placeholder="Search your library’s tags…"
       selected={selected.map((tag) => ({ key: tag.tagId, label: tag.name, detail: tag.type }))}
       onRemove={(key) => onChange(selected.filter((tag) => tag.tagId !== key))}
       search={search}
@@ -861,7 +886,7 @@ function AuthorPicker({ legend, selected, onChange }: AuthorPickerProps) {
   return (
     <TokenPicker
       legend={legend}
-      placeholder="Search your library’s authors"
+      placeholder="Search your library’s authors…"
       selected={selected.map((author) => ({
         key: author.pseudId,
         label: author.displayName,
@@ -962,6 +987,8 @@ function TokenPicker<T>({
       <div className="filter-token-search">
         {before}
         <input
+          type="search"
+          autoComplete="off"
           value={query}
           placeholder={placeholder}
           onChange={(e) => setQuery(e.target.value)}

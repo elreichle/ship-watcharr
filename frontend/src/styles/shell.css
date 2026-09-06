@@ -43,16 +43,57 @@
     display: flex;
     align-items: center;
     gap: var(--size-4-2);
+    min-height: var(--size-4-9);
     padding-bottom: var(--size-4-2);
     border-bottom: 1px solid var(--background-modifier-border);
   }
 
+  /* The wordmark: the bookmark in the accent, the name in the text face. The one place the shell
+     uses the reading face, so the product's name is set like a title and not like a nav label. */
+  .sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: var(--size-4-2);
+    min-width: 0;
+  }
+
+  .sidebar-mark {
+    color: var(--text-accent);
+  }
+
   .sidebar-title {
-    font-size: var(--font-ui-small);
-    font-weight: var(--font-semibold);
-    color: var(--text-normal);
-    white-space: nowrap;
     overflow: hidden;
+    color: var(--text-normal);
+    font-family: var(--font-text);
+    font-size: var(--font-ui-medium);
+    font-weight: var(--font-semibold);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  /* Off-screen until it has focus, then a small card at the top-left corner. */
+  .skip-link {
+    position: absolute;
+    top: var(--size-4-2);
+    left: var(--size-4-2);
+    z-index: 50;
+    padding: var(--size-4-2) var(--size-4-3);
+    border-radius: var(--radius-s);
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+    font-size: var(--font-ui-small);
+    font-weight: var(--font-medium);
+    text-decoration: none;
+    transform: translateY(-200%);
+  }
+
+  .skip-link:focus-visible {
+    transform: none;
+    outline-offset: 2px;
+  }
+
+  .app-main:focus {
+    outline: none;
   }
 
   .nav-sections {
@@ -84,6 +125,11 @@
     font-size: var(--nav-item-size);
     white-space: nowrap;
     overflow: hidden;
+  }
+
+  .sidebar-user .nav-item-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   /* ------------------------------------------------------------------------------- nav items */
@@ -131,6 +177,24 @@
     color: var(--icon-color-active);
   }
 
+  /* One accent bar per location. An open group already shows which child is active, so its header
+     steps back to a plain, slightly heavier label; only a closed group — where the child is hidden —
+     keeps the bar, because then the header is the only thing that can say where the reader is. */
+  .nav-group-header.is-active[aria-expanded='true'] {
+    background-color: transparent;
+    box-shadow: none;
+    color: var(--nav-item-color);
+  }
+
+  .nav-group-header.is-active[aria-expanded='true']:hover {
+    background-color: var(--nav-item-background-hover);
+    color: var(--nav-item-color-hover);
+  }
+
+  .nav-group-header.is-active[aria-expanded='true'] .sw-icon {
+    color: var(--icon-color);
+  }
+
   /* The unread count, at the far end of the item. Reads the accent the rest of the shell uses for
      "this is the thing to look at" rather than inventing a colour a theme cannot reach. */
   .nav-badge {
@@ -172,8 +236,10 @@
 
   /* ---------------------------------------------------------------------------- rail variant */
 
+  /* The brand goes with the labels: a toggle and a mark side by side in 48px is two things where
+     the rail has room for one, and the toggle is the one that does something. */
   .app-shell[data-railed] .nav-item-title,
-  .app-shell[data-railed] .sidebar-title,
+  .app-shell[data-railed] .sidebar-brand,
   .app-shell[data-railed] .nav-collapse-icon {
     display: none;
   }
@@ -196,12 +262,25 @@
   }
 
   /* Railed there is no label for the count to sit after, so it rides the icon's top-right corner
-     instead of claiming a row of its own — the whole point of the rail is that it is 48px wide. */
+     instead of claiming a row of its own — the whole point of the rail is that it is 48px wide.
+     Smaller than the inline badge and pushed to the item's corner, so it touches the icon's corner
+     rather than sitting on top of it. */
   .app-shell[data-railed] .nav-sections > .nav-section > .nav-item > .nav-badge {
     position: absolute;
     top: 0;
-    right: var(--size-2-1);
+    right: var(--size-2-2);
+    min-width: var(--size-4-4);
     margin-left: 0;
+    padding: 0 var(--size-2-1);
+    font-size: 10px;
+    line-height: var(--size-4-4);
+  }
+
+  /* In the rail the group header is the only thing lit for its children, so it keeps the bar. */
+  .app-shell[data-railed] .nav-group-header.is-active {
+    background-color: var(--nav-item-background-active);
+    box-shadow: inset 2px 0 0 var(--interactive-accent);
+    color: var(--nav-item-color-active);
   }
 
   .app-shell[data-railed] .nav-children .nav-item {
@@ -221,6 +300,32 @@
     border-radius: var(--radius-m);
     background-color: var(--background-secondary);
     box-shadow: var(--shadow-l);
+    /* Arrives from the rail rather than appearing: a short slide the width of its own gap. */
+    animation: sw-flyout-in 120ms ease-out;
+  }
+
+  @keyframes sw-flyout-in {
+    from {
+      opacity: 0;
+      transform: translateX(calc(-1 * var(--size-2-2)));
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /* ------------------------------------------------------------------------------ boot state */
+
+  .app-boot {
+    display: grid;
+    place-items: center;
+    height: 100%;
+    color: var(--text-faint);
+  }
+
+  .app-boot .sw-icon {
+    animation: sw-pulse 1.4s ease-in-out infinite;
   }
 
   /* --------------------------------------------------------------------------- content pane */
@@ -272,6 +377,10 @@
       left: 0;
       z-index: 40;
       width: var(--sw-sidebar-width);
+      /* The drawer's own scroll stops at its ends rather than dragging the page behind it, and
+         its bottom row clears a phone's home indicator. */
+      padding-bottom: calc(var(--size-4-2) + env(safe-area-inset-bottom));
+      overscroll-behavior: contain;
       transform: translateX(-100%);
       transition: transform 0.18s ease;
       box-shadow: var(--shadow-l);
@@ -301,8 +410,14 @@
 
   @media (prefers-reduced-motion: reduce) {
     .sidebar,
-    .nav-collapse-icon {
+    .nav-collapse-icon,
+    .skip-link {
       transition: none;
+    }
+
+    .app-shell[data-railed] .nav-children,
+    .app-boot .sw-icon {
+      animation: none;
     }
   }
 }

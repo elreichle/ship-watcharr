@@ -2,6 +2,9 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import type { WatchedShip } from '../api/types';
+import { EmptyState } from '../components/EmptyState';
+import { SkeletonRows } from '../components/Skeleton';
+import { formatDateTime, formatDateTimeOrDash } from '../format';
 
 const BACKFILL_LABELS: Record<WatchedShip['backfillState'], string> = {
   NotStarted: 'Not started',
@@ -10,9 +13,7 @@ const BACKFILL_LABELS: Record<WatchedShip['backfillState'], string> = {
   Failed: 'Back catalogue given up on',
 };
 
-function formatDate(value: string | null): string {
-  return value ? new Date(value).toLocaleString() : '—';
-}
+const formatDate = formatDateTimeOrDash;
 
 interface Status {
   label: string;
@@ -86,11 +87,11 @@ function describeSweep(ship: WatchedShip): string | null {
   // A sweep only writes its completion alongside a conclusion, and its start is left standing when
   // it is abandoned — so a start newer than the last completion is a walk that did not get there.
   if (completed !== null && new Date(completed) >= new Date(started)) {
-    return `Listing last re-read in full on ${formatDate(completed)}.`;
+    return `Listing last re-read in full on ${formatDateTime(completed)}.`;
   }
 
   return (
-    `A full re-read of the listing started ${formatDate(started)} and did not finish; ` +
+    `A full re-read of the listing started ${formatDateTime(started)} and did not finish; ` +
     'the next one is due an interval after that, not after this ship next runs.'
   );
 }
@@ -242,6 +243,9 @@ export function ShipsPage() {
         <label className="ship-tag-field">
           Relationship tag
           <input
+            name="tag"
+            autoComplete="off"
+            spellCheck={false}
             value={tagName}
             onChange={(e) => setTagName(e.target.value)}
             placeholder="Clarke Griffin/Lexa"
@@ -259,12 +263,20 @@ export function ShipsPage() {
         it by another name, this page will say so.
       </p>
 
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
 
       {ships === null ? (
-        <p>Loading…</p>
+        // Guarded on the error: a failed load has no rows on the way, and placeholder rows under
+        // the message would promise some.
+        !error && <SkeletonRows rows={3} kind="line" />
       ) : ships.length === 0 ? (
-        <p className="hint">You aren’t following any ships yet.</p>
+        <EmptyState title="You aren’t following any ships yet">
+          Follow a relationship tag above and this instance starts scraping it for you.
+        </EmptyState>
       ) : (
         <>
           {/* Every user, not only admins: whoever is looking at an empty library is owed the
@@ -300,11 +312,11 @@ export function ShipsPage() {
             <thead>
               <tr>
                 <th>Tag</th>
-                <th>Works</th>
+                <th className="numeric">Works</th>
                 <th>Status</th>
                 <th>Last scraped</th>
                 <th>Next scrape</th>
-                <th>Also followed by</th>
+                <th className="numeric">Also followed by</th>
                 <th />
               </tr>
             </thead>
@@ -324,7 +336,7 @@ export function ShipsPage() {
                         </span>
                       )}
                     </td>
-                    <td>{ship.workCount.toLocaleString()}</td>
+                    <td className="numeric">{ship.workCount.toLocaleString()}</td>
                     <td>
                       <span className={status.tone}>{status.label}</span>
                       {status.detail && <span className="ship-status-detail">{status.detail}</span>}
@@ -347,7 +359,7 @@ export function ShipsPage() {
                     <td>{formatDate(ship.lastScrapedAt)}</td>
                     <td>{formatDate(ship.nextScrapeAt)}</td>
                     {/* Minus the reader, so "0" reads as "only you" rather than needing subtraction. */}
-                    <td>{ship.watcherCount - 1}</td>
+                    <td className="numeric">{ship.watcherCount - 1}</td>
                     <td>
                       <button
                         type="button"
@@ -429,7 +441,11 @@ function BackfillRestart({ ship, onRestarted }: { ship: WatchedShip; onRestarted
       <span className="ship-status-detail">
         Picks up on this ship’s next scheduled scrape, not straight away.
       </span>
-      {error && <span className="error">{error}</span>}
+      {error && (
+        <span className="error" role="alert">
+          {error}
+        </span>
+      )}
     </form>
   );
 }
@@ -471,7 +487,11 @@ function VerificationRecheck({ ship, onRechecked }: { ship: WatchedShip; onReche
       <span className="ship-status-detail">
         For a tag that was renamed or briefly gone. Nothing is scraped until AO3 confirms it.
       </span>
-      {error && <span className="error">{error}</span>}
+      {error && (
+        <span className="error" role="alert">
+          {error}
+        </span>
+      )}
     </div>
   );
 }

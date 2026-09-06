@@ -110,8 +110,16 @@ export function AccountSettingsPage() {
               required
             />
           </label>
-          {usernameMessage && <p className="success">{usernameMessage}</p>}
-          {usernameError && <p className="error">{usernameError}</p>}
+          {usernameMessage && (
+            <p className="success" role="status">
+              {usernameMessage}
+            </p>
+          )}
+          {usernameError && (
+            <p className="error" role="alert">
+              {usernameError}
+            </p>
+          )}
           <button type="submit" disabled={savingUsername}>
             {savingUsername ? 'Saving…' : 'Save username'}
           </button>
@@ -151,8 +159,16 @@ export function AccountSettingsPage() {
               required
             />
           </label>
-          {passwordMessage && <p className="success">{passwordMessage}</p>}
-          {passwordError && <p className="error">{passwordError}</p>}
+          {passwordMessage && (
+            <p className="success" role="status">
+              {passwordMessage}
+            </p>
+          )}
+          {passwordError && (
+            <p className="error" role="alert">
+              {passwordError}
+            </p>
+          )}
           <button type="submit" disabled={savingPassword}>
             {savingPassword ? 'Saving…' : 'Save password'}
           </button>
@@ -184,14 +200,21 @@ export function AccountSettingsPage() {
               Clearing it disables scraping until another contact is set.
             </p>
           )}
-          {emailMessage && <p className="success">{emailMessage}</p>}
-          {emailError && <p className="error">{emailError}</p>}
+          {emailMessage && (
+            <p className="success" role="status">
+              {emailMessage}
+            </p>
+          )}
+          {emailError && (
+            <p className="error" role="alert">
+              {emailError}
+            </p>
+          )}
           <button type="submit" disabled={savingEmail}>
             {savingEmail ? 'Saving…' : 'Save email'}
           </button>
         </form>
       </section>
-
     </div>
   );
 }

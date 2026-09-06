@@ -29,7 +29,23 @@
   }
 
   #root {
+    /* Structural sizes carry the --sw- prefix so they can never collide with a theme's variables.
+       The column is wide enough for the works table's eight columns at 1280px; reading blocks cap
+       themselves at a measure, not at the column. */
+    --sw-page-width: 1120px;
+
     height: 100%;
+  }
+
+  /* Clicks on controls should not wait for a possible double-tap. */
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  label {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
 
   ::selection {
@@ -47,21 +63,37 @@
 
   /* ------------------------------------------------------------------------------ typography */
 
+  /* The scale comes from Obsidian's heading tokens (see obsidian-defaults.css): a page title is
+     an h2 in that scale and set in the text face, a section heading an h4 in the interface face.
+     A work's own title on its page is the one h1-sized thing in the app (.work-detail-title). */
   h1,
   h2,
   h3 {
     margin: 0 0 var(--size-4-3);
-    font-weight: var(--font-semibold);
-    line-height: var(--line-height-tight);
     color: var(--text-normal);
+    text-wrap: balance;
   }
 
   h1 {
-    font-size: var(--font-ui-large);
+    font-family: var(--h2-font);
+    font-size: var(--h2-size);
+    font-weight: var(--h2-weight);
+    line-height: var(--h2-line-height);
   }
 
   h2 {
-    font-size: var(--font-ui-medium);
+    font-family: var(--h4-font);
+    font-size: var(--h4-size);
+    font-weight: var(--h4-weight);
+    line-height: var(--h4-line-height);
+  }
+
+  h3 {
+    font-family: var(--h6-font);
+    font-size: var(--h6-size);
+    font-weight: var(--h6-weight);
+    line-height: var(--h6-line-height);
+    color: var(--text-muted);
   }
 
   p {
@@ -86,30 +118,94 @@
     font-size: var(--font-smaller);
   }
 
+  /* A work's title wherever it appears in a list — Works, Notifications, Downloads. Something read,
+     so it is set in the text face and in the body colour, and shows itself as a link when the
+     pointer arrives. Titles in the accent made a page of them a page of colour, with nothing left
+     for the things that need it. */
+  .title-link {
+    color: var(--text-normal);
+    font-family: var(--font-text);
+    font-size: var(--font-ui-medium);
+    font-weight: var(--font-medium);
+    line-height: var(--line-height-tight);
+  }
+
+  .title-link:hover {
+    color: var(--text-accent);
+  }
+
   /* ---------------------------------------------------------------------------------- layout */
 
   .page,
   .auth-page {
-    max-width: 960px;
+    max-width: var(--sw-page-width);
     margin: 0 auto;
     padding: var(--size-4-6);
   }
 
+  /* The signed-out pages: wordmark, card, the way across. Sits a little above centre so the card
+     reads as placed rather than dropped at the top; on a phone the offset shrinks with the screen. */
   .auth-page {
-    max-width: 380px;
-    padding-top: var(--size-4-16);
+    max-width: 400px;
+    padding-top: clamp(var(--size-4-8), 14vh, var(--size-4-18));
   }
 
-  .auth-page form {
-    padding: var(--size-4-5);
+  .auth-brand {
+    display: flex;
+    align-items: center;
+    gap: var(--size-4-3);
+    margin-bottom: var(--size-4-6);
+    color: var(--text-normal);
+    font-family: var(--font-text);
+    font-size: var(--h2-size);
+    font-weight: var(--font-semibold);
+    line-height: var(--h2-line-height);
+  }
+
+  .auth-brand .sw-icon {
+    color: var(--text-accent);
+  }
+
+  .auth-card {
+    padding: var(--size-4-6);
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--radius-m);
     background-color: var(--background-secondary);
   }
 
-  .auth-page button[type='submit'] {
+  /* Inside the card the title is a section heading; the wordmark above already did the big type. */
+  .auth-card h1 {
+    margin-bottom: var(--size-4-4);
+    font-family: var(--h4-font);
+    font-size: var(--h4-size);
+    font-weight: var(--h4-weight);
+    line-height: var(--h4-line-height);
+  }
+
+  .auth-card form {
+    gap: var(--size-4-4);
+  }
+
+  .auth-card label {
+    max-width: none;
+  }
+
+  .auth-card .error {
+    margin: 0;
+  }
+
+  .auth-card button[type='submit'] {
     width: 100%;
     justify-content: center;
+    margin-top: var(--size-4-1);
+    padding-top: var(--size-4-3);
+    padding-bottom: var(--size-4-3);
+  }
+
+  .auth-switch {
+    margin: var(--size-4-4) 0 0;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
   }
 
   section {
@@ -229,10 +325,14 @@
     border-color: var(--background-modifier-border-hover);
   }
 
-  input:focus,
-  select:focus,
-  textarea:focus {
-    border-color: var(--background-modifier-border-focus);
+  /* One ring, not two: the field's own border takes the accent and the page-wide outline stands
+     down. Only on keyboard focus — a clicked field should not light up. */
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: none;
+    border-color: var(--interactive-accent);
+    box-shadow: 0 0 0 1px var(--interactive-accent);
   }
 
   input[type='radio'],
@@ -272,14 +372,22 @@
     border-radius: var(--button-radius);
     background-color: var(--interactive-normal);
     color: var(--text-normal);
-    font-family: inherit;
+    font-family: var(--font-interface);
     font-size: var(--font-ui-small);
     font-weight: var(--font-medium);
+    line-height: var(--line-height-normal);
     cursor: pointer;
+    /* The one transition a button has: the press. Transform only, and listed. */
+    transition: transform 80ms ease;
   }
 
   button:hover:not(:disabled) {
+    border-color: var(--background-modifier-border-hover);
     background-color: var(--interactive-hover);
+  }
+
+  button:active:not(:disabled) {
+    transform: translateY(1px);
   }
 
   button:disabled {
@@ -297,18 +405,21 @@
     background-color: var(--interactive-accent-hover);
   }
 
+  /* A quiet action in a row: muted at rest, so a table of twenty-five rows is not a table of
+     twenty-five underlines, and clearly a link once the pointer arrives. */
   button.link {
     padding: 0;
     border: none;
     background: none;
-    color: var(--text-accent);
+    color: var(--text-muted);
     font-weight: var(--font-normal);
-    text-decoration: underline;
+    text-decoration: none;
   }
 
   button.link:hover:not(:disabled) {
     background: none;
-    color: var(--text-accent-hover);
+    color: var(--text-accent);
+    text-decoration: underline;
   }
 
   .button-row {
@@ -316,6 +427,31 @@
     flex-wrap: wrap;
     gap: var(--size-4-2);
     align-items: center;
+  }
+
+  /* A link dressed as a button, for the one action an empty state offers when that action is a
+     page rather than a request. Same box as a button; stays a link for middle-click and the URL. */
+  a.button {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--size-4-2);
+    padding: var(--size-4-2) var(--size-4-4);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--button-radius);
+    background-color: var(--interactive-normal);
+    color: var(--text-normal);
+    font-family: var(--font-interface);
+    font-size: var(--font-ui-small);
+    font-weight: var(--font-medium);
+    line-height: var(--line-height-normal);
+    text-decoration: none;
+  }
+
+  a.button:hover {
+    border-color: var(--background-modifier-border-hover);
+    background-color: var(--interactive-hover);
+    color: var(--text-normal);
+    text-decoration: none;
   }
 
   /* A file input can't be styled, so the real one is hidden behind a label that looks like a
@@ -380,9 +516,22 @@
   }
 
   thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
     background-color: var(--table-header-background);
     color: var(--table-header-color);
+    font-size: var(--font-ui-smaller);
     font-weight: var(--table-header-weight);
+    white-space: nowrap;
+  }
+
+  /* Numbers line up on their last digit, which is the only way a column of them is comparable
+     at a glance. Tabular figures stop the digits themselves jittering between rows. Global, so a
+     count on Ships or Downloads is set the same way as one on Works. */
+  .numeric {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
 
@@ -411,18 +560,40 @@
     font-size: var(--font-ui-smaller);
   }
 
+  @media (min-width: 1100px) {
+    .jobs-table {
+      display: table;
+      overflow: visible;
+    }
+  }
+
+  /* A row that opens something below it: the ship's name in the body colour, led by a chevron
+     that turns when the runs are showing. */
+  .expander {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--size-2-2);
+    color: var(--text-normal);
+  }
+
+  .expander-icon {
+    color: var(--text-faint);
+    transition: transform 0.15s ease;
+  }
+
+  .expander[aria-expanded='true'] .expander-icon {
+    transform: rotate(90deg);
+  }
+
+  .jobs-runs-row > td {
+    padding: var(--size-4-2) var(--size-4-3) var(--size-4-4);
+    background-color: var(--background-secondary);
+  }
+
   .ships-table,
   .works-table {
     display: block;
     overflow-x: auto;
-  }
-
-  /* Numbers line up on their last digit, which is the only way a column of them is comparable
-     at a glance. Tabular figures stop the digits themselves jittering between rows. */
-  .works-table .numeric {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
   }
 
   .ships-table td,
@@ -431,12 +602,55 @@
     white-space: nowrap;
   }
 
+  /* The works table is the app. From the point it fits the column it stops being a scrolling
+     block and becomes a real table again, which is what lets its header stick to the top of the
+     pane as the reader scrolls a page of twenty-five. */
+  @media (min-width: 1100px) {
+    .works-table,
+    .ships-table,
+    .filters-table,
+    .downloads-table {
+      display: table;
+      overflow: visible;
+    }
+  }
+
+  .works-table td {
+    vertical-align: top;
+  }
+
+  .works-table thead th:first-child,
+  .works-table td:first-child {
+    padding-left: var(--size-4-4);
+  }
+
+  /* The reading spine: the row the reader is in the middle of carries the same 2px accent the
+     sidebar gives the active page and the notifications list gives an unread line. One signal,
+     one meaning — "this is where you are" — and the only colour a quiet row is allowed. */
+  .works-table tbody tr[data-status='Reading'] > td:first-child {
+    box-shadow: inset 2px 0 0 var(--interactive-accent);
+  }
+
   /* The one column allowed to wrap. Capped rather than free so a long title can't push the
      numeric columns off the right of a wide screen. */
   .work-cell {
     min-width: 22rem;
-    max-width: 34rem;
+    max-width: 36rem;
     white-space: normal;
+  }
+
+
+  /* Written after the nowrap rule above and at the same specificity, so this is the one column
+     of words that may wrap: "Teen And Up Audiences" is wider than the numbers beside it. */
+  .works-table td.work-rating-cell {
+    max-width: 9rem;
+    white-space: normal;
+    color: var(--text-muted);
+  }
+
+  .work-updated-cell {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
   }
 
   .work-byline,
@@ -445,9 +659,58 @@
     margin-top: var(--size-2-2);
   }
 
+  /* The reader's marks, in the margin of the work: a status that looks like a word until it is
+     hovered, the stars, and the note. Quieter than the title above them on purpose. */
+  .work-marks {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--size-4-3);
+    margin-top: var(--size-4-2);
+    font-size: var(--font-ui-smaller);
+  }
+
+  .work-marks select {
+    width: auto;
+    padding: var(--size-2-1) var(--size-2-3);
+    border-color: transparent;
+    background-color: transparent;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+  }
+
+  .work-marks select:hover {
+    border-color: var(--background-modifier-border);
+    background-color: var(--background-modifier-form-field);
+    color: var(--text-normal);
+  }
+
+  /* A status the reader has set is theirs, and reads in the body colour; "Not set" stays muted. */
+  tr:not([data-status='None']) .work-marks select {
+    color: var(--text-normal);
+  }
+
+  .work-marks .link {
+    font-size: var(--font-ui-smaller);
+  }
+
   .work-byline {
     color: var(--text-muted);
     font-size: var(--font-ui-smaller);
+    overflow-wrap: anywhere;
+  }
+
+  /* The way out to the archive, on every row: a link, but a quiet one. Twenty-five accents in the
+     margin were the loudest thing on the page and said nothing about any one work. */
+  .work-byline a {
+    color: var(--text-muted);
+    text-decoration: underline;
+    text-decoration-color: var(--text-faint);
+  }
+
+  .work-byline a:hover {
+    color: var(--text-accent);
+    text-decoration-color: currentColor;
   }
 
   .work-chips {
@@ -463,8 +726,14 @@
 
   /* ------------------------------------------------------------------------- one work's page */
 
+  /* The one h1-sized thing in the app: a work's own title, in the text face. */
   .work-detail-title {
-    margin-bottom: var(--size-2-2);
+    max-width: 30ch;
+    margin-bottom: var(--size-2-3);
+    font-family: var(--h1-font);
+    font-size: var(--h1-size);
+    font-weight: var(--h1-weight);
+    line-height: var(--h1-line-height);
   }
 
   .work-detail-byline {
@@ -473,18 +742,56 @@
     font-size: var(--font-ui-small);
   }
 
-  .work-detail-section {
-    margin-top: var(--size-4-6);
+  /* Back to the list: chrome, not copy. The chevron is the nav set's, turned to point back. */
+  .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--size-2-1);
+    margin-bottom: var(--size-4-4);
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
   }
 
-  /* Capped for reading rather than for the window: a summary set in one line across a wide screen
-     is the one thing on this page nobody would read. */
+  .back-link:hover {
+    color: var(--text-accent);
+    text-decoration: none;
+  }
+
+  .back-link-icon {
+    transform: rotate(180deg);
+  }
+
+  /* A reading page, so sections are spaced rather than ruled: seven hairlines down the page made
+     it a form. The heading is the separator. */
+  .work-detail-section {
+    margin: var(--size-4-8) 0 0;
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+
+  /* The author's own words, set as reading text: the text face at the reading size, with the extra
+     line-height a serif wants. Capped for reading rather than for the window: a summary set in one
+     line across a wide screen is the one thing on this page nobody would read. */
   .work-detail-summary {
-    max-width: 70ch;
+    max-width: 62ch;
+    font-family: var(--font-text);
+    font-size: var(--font-text-size);
+    line-height: 1.6;
   }
 
   .work-detail-summary p {
-    margin: 0 0 var(--size-4-2);
+    margin: 0 0 var(--size-4-3);
+  }
+
+  .work-detail-state label {
+    width: auto;
+    min-width: 12rem;
+  }
+
+  .skeleton-rows[data-kind='title'] {
+    --sw-skeleton-height: var(--size-4-8);
+    max-width: 30ch;
+    margin-bottom: 0;
   }
 
   .work-detail-summary blockquote {
@@ -535,29 +842,10 @@
 
   /* ----------------------------------------------------------------- one reader's own state */
 
-  .work-state-cell {
-    min-width: 14rem;
-    white-space: normal;
-  }
-
-  /* A select is full-width by default, which in a table cell means as wide as the widest title. */
-  .work-state-cell select {
-    width: auto;
-    max-width: 100%;
-  }
-
-  .work-state-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--size-4-2);
-    align-items: center;
-    margin-top: var(--size-2-2);
-  }
-
   /* Why a failed write reads here and not in the page's own error line: it belongs to this row. */
   .work-state-error {
     display: block;
-    max-width: 20rem;
+    max-width: 32rem;
     margin-top: var(--size-2-2);
     white-space: normal;
   }
@@ -574,9 +862,16 @@
     display: inline-flex;
     border-radius: var(--radius-s);
     color: var(--text-faint);
-    font-size: var(--font-ui-small);
+    font-size: var(--font-ui-medium);
     line-height: 1;
     cursor: pointer;
+    opacity: var(--icon-opacity);
+    transition: opacity 120ms ease;
+  }
+
+  .rating-stars:hover,
+  .rating-stars:focus-visible {
+    opacity: var(--icon-opacity-hover);
   }
 
   .rating-star {
@@ -625,6 +920,7 @@
   }
 
   .ship-tag {
+    color: var(--text-normal);
     font-family: var(--font-monospace);
     font-size: var(--font-ui-smaller);
     white-space: normal;
@@ -667,6 +963,18 @@
     width: 7rem;
   }
 
+  /* An admin repair inside a status cell, not the page's job: it takes the secondary button rather
+     than the accent, so the loudest thing on Ships is never a restart. */
+  .ship-action button[type='submit'] {
+    border-color: var(--background-modifier-border);
+    background-color: var(--interactive-normal);
+    color: var(--text-normal);
+  }
+
+  .ship-action button[type='submit']:hover:not(:disabled) {
+    background-color: var(--interactive-hover);
+  }
+
   /* Key/value layout rather than a data grid: labels stay narrow, values wrap freely. */
   .identity-table th {
     width: 1%;
@@ -688,6 +996,7 @@
 
   .filter-name {
     white-space: nowrap;
+    font-weight: var(--font-medium);
   }
 
   /* The order a saved view opens with, under its name — part of what the view is. */
@@ -742,12 +1051,12 @@
     border-radius: var(--radius-m);
   }
 
+  /* A group's name, in sentence case: the border already says it is a group. */
   .filter-section > legend {
     padding: 0 var(--size-2-3);
-    color: var(--text-muted);
-    font-size: var(--font-ui-smaller);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    color: var(--text-normal);
+    font-size: var(--font-ui-small);
+    font-weight: var(--font-medium);
   }
 
   .filter-section-body {
@@ -868,12 +1177,15 @@
   }
 
   .chip {
-    padding: 0 var(--size-2-3);
+    display: inline-flex;
+    align-items: center;
+    padding: var(--size-2-1) var(--size-2-3);
     border-radius: var(--radius-s);
     background-color: var(--background-modifier-hover);
     color: var(--text-muted);
+    font-family: var(--font-interface);
     font-size: var(--font-ui-smaller);
-    line-height: var(--line-height-tight);
+    line-height: 1.35;
     white-space: nowrap;
   }
 
@@ -902,6 +1214,7 @@
 
   .pager .hint {
     margin: 0;
+    font-variant-numeric: tabular-nums;
   }
 
   /* --------------------------------------------------------------------------------- notices */
@@ -910,6 +1223,161 @@
     max-width: 60ch;
     color: var(--text-muted);
     font-size: var(--font-ui-small);
+  }
+
+  /* An empty list is an invitation, not a footnote: a title in the text face, one sentence, and
+     the one thing to do next. Copy comes from the page; this is only its shape. */
+  .empty-state {
+    max-width: 44ch;
+    padding: var(--size-4-8) 0 var(--size-4-6);
+  }
+
+  .empty-state h2 {
+    margin-bottom: var(--size-4-2);
+    font-family: var(--h3-font);
+    font-size: var(--h3-size);
+    font-weight: var(--font-medium);
+    line-height: var(--h3-line-height);
+  }
+
+  .empty-state p {
+    margin: 0 0 var(--size-4-4);
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+  }
+
+  /* Stands in for rows that have not arrived, at the height the real ones will have, so the page
+     does not jump from a sentence to a table. Opacity only, and stilled under reduced motion. */
+  .skeleton-rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--size-4-2);
+    margin: var(--size-4-4) 0;
+  }
+
+  .skeleton {
+    display: block;
+    height: var(--sw-skeleton-height, 1em);
+    border-radius: var(--radius-s);
+    background-color: var(--background-modifier-hover);
+    animation: sw-pulse 1.4s ease-in-out infinite;
+  }
+
+  .skeleton-rows[data-kind='table'] {
+    --sw-skeleton-height: 3.25rem;
+  }
+
+  .skeleton-rows[data-kind='line'] {
+    --sw-skeleton-height: 2.75rem;
+  }
+
+  .skeleton-rows[data-kind='text'] {
+    --sw-skeleton-height: 1rem;
+    max-width: 60ch;
+  }
+
+  .skeleton-rows[data-kind='text'] .skeleton:last-child {
+    width: 70%;
+  }
+
+  @keyframes sw-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.55;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton,
+    .skeleton-rows .skeleton {
+      animation: none;
+    }
+
+    button,
+    .rating-stars,
+    .expander-icon {
+      transition: none;
+    }
+  }
+
+  /* ------------------------------------------------------------------ works on a phone */
+
+  /* Below the drawer breakpoint an eight-column table is a horizontal scroll with the title as
+     the only thing on screen. Each row becomes a card instead: the work cell on top, the figures
+     under it in one muted line, each carrying its own label since the header is gone. */
+  @media (max-width: 700px) {
+    .works-table,
+    .works-table tbody {
+      display: block;
+      overflow: visible;
+    }
+
+    .works-table thead {
+      display: none;
+    }
+
+    .works-table tbody tr {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0 var(--size-4-4);
+      padding: var(--size-4-3) 0 var(--size-4-3) var(--size-4-3);
+      border-bottom: var(--table-border-width) solid var(--table-border-color);
+    }
+
+    .works-table tbody tr[data-status='Reading'] {
+      box-shadow: inset 2px 0 0 var(--interactive-accent);
+    }
+
+    .works-table tbody tr[data-status='Reading'] > td:first-child {
+      box-shadow: none;
+    }
+
+    .works-table td {
+      padding: 0;
+      border: none;
+    }
+
+    .works-table .work-cell {
+      flex-basis: 100%;
+      min-width: 0;
+      max-width: none;
+      margin-bottom: var(--size-4-2);
+    }
+
+    .works-table td[data-label] {
+      max-width: none;
+      color: var(--text-muted);
+      font-size: var(--font-ui-smaller);
+      text-align: left;
+      white-space: normal;
+    }
+
+    .works-table td[data-label]::before {
+      content: attr(data-label) ' ';
+      color: var(--text-faint);
+    }
+
+    .works-table .work-note-row {
+      display: block;
+    }
+
+    .works-table .work-note-row td {
+      display: block;
+      padding: var(--size-4-2) 0;
+    }
+
+    .works-controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--size-4-2) var(--size-4-3);
+    }
+
+    .works-controls label {
+      min-width: 0;
+    }
   }
 
   ul.hint {
@@ -1026,9 +1494,10 @@
     gap: var(--size-4-4);
     align-items: baseline;
     justify-content: space-between;
-    padding: var(--size-4-2) var(--size-4-3);
+    padding: var(--size-4-3) var(--size-4-4);
     border-bottom: 1px solid var(--background-modifier-border);
   }
+
 
   /* Unread rows are the reason to be on this page, so they are the ones that look different — a
      left edge in the accent, which is the same signal the sidebar uses for the active item. */
@@ -1052,7 +1521,20 @@
   .notification-read {
     color: var(--text-faint);
     font-size: var(--font-ui-smaller);
+    font-variant-numeric: tabular-nums;
     white-space: nowrap;
+  }
+
+  /* On a phone the read-at stamp gives way to the title: it drops under the meta line. */
+  @media (max-width: 700px) {
+    .notification {
+      flex-wrap: wrap;
+      gap: var(--size-2-2) var(--size-4-4);
+    }
+
+    .notification-body {
+      flex-basis: 100%;
+    }
   }
 
   .downloads-table {
@@ -1060,10 +1542,25 @@
     overflow-x: auto;
   }
 
+  .downloads-table td {
+    vertical-align: top;
+  }
+
+  .download-work {
+    min-width: 14rem;
+    max-width: 24rem;
+    white-space: normal;
+  }
+
+  .downloads-table td {
+    white-space: nowrap;
+  }
+
   /* The status word, coloured by what it means. A queued request and a failed one are the two a
      reader scanning the list is looking for, so they are the two that are not the body colour. */
   .download-status {
     font-size: var(--font-ui-small);
+    white-space: nowrap;
   }
 
   .download-status[data-status='Pending'],
@@ -1083,6 +1580,7 @@
      failed and is a sentence, not a word, so it does not belong beside one. */
   .download-error {
     display: block;
+    min-width: 16rem;
     max-width: 40ch;
     color: var(--text-error);
     font-size: var(--font-ui-smaller);
@@ -1132,9 +1630,11 @@
      reason at the top of this file — a bar drawn in a fixed accent is a bar somebody's theme
      cannot reach, and these are the largest blocks of colour in the app. */
 
+  /* Sized so the six library tiles fill one row of the column and the five reading tiles leave a
+     gap rather than an orphan below. */
   .stat-tiles {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
     gap: var(--size-4-3);
     margin-bottom: var(--size-4-4);
   }
@@ -1150,9 +1650,10 @@
   }
 
   .stat-tile-value {
-    font-size: var(--font-ui-large);
+    font-size: var(--h2-size);
     font-weight: var(--font-semibold);
-    line-height: var(--line-height-tight);
+    font-variant-numeric: tabular-nums;
+    line-height: var(--h2-line-height);
   }
 
   .stat-tile-label {
@@ -1193,11 +1694,12 @@
     white-space: nowrap;
   }
 
+  /* Thin: the number beside each bar is the value, and the bar is only the comparison. */
   .bar-track {
     display: block;
     overflow: hidden;
     width: 100%;
-    height: var(--size-4-3);
+    height: var(--size-4-2);
     border-radius: var(--radius-s);
     background-color: var(--background-modifier-border);
   }
@@ -1236,11 +1738,6 @@
     display: block;
     overflow-x: auto;
     margin-bottom: var(--size-4-3);
-  }
-
-  .stats-table .numeric {
-    font-variant-numeric: tabular-nums;
-    text-align: right;
   }
 
   /* One column per month, scrolling rather than compressing: twenty years of an active tag is

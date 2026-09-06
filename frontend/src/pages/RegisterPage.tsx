@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { ApiError } from '../api/client';
+import { AuthFrame } from '../components/AuthFrame';
 
 export function RegisterPage() {
   const { register } = useAuth();
@@ -26,14 +27,22 @@ export function RegisterPage() {
   };
 
   return (
-    <div className="auth-page">
-      <h1>Register</h1>
+    <AuthFrame
+      title="Register"
+      footer={
+        <>
+          Already have an account? <Link to="/login">Log in</Link>
+        </>
+      }
+    >
       <form onSubmit={onSubmit}>
         <label>
           Username
           <input
             type="text"
+            name="username"
             autoComplete="username"
+            spellCheck={false}
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             minLength={3}
@@ -45,6 +54,7 @@ export function RegisterPage() {
           Password (min 8 characters)
           <input
             type="password"
+            name="password"
             autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -52,14 +62,15 @@ export function RegisterPage() {
             required
           />
         </label>
-        {error && <p className="error">{error}</p>}
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
         <button type="submit" disabled={submitting}>
           {submitting ? 'Creating account…' : 'Register'}
         </button>
       </form>
-      <p>
-        Already have an account? <Link to="/login">Log in</Link>
-      </p>
-    </div>
+    </AuthFrame>
   );
 }

@@ -38,7 +38,7 @@ export function AdminDatabasePage() {
     return (
       <div className="page">
         <h1>Database</h1>
-        <p className="success">
+        <p className="success" role="status">
           Settings saved. The application is restarting to apply the new database
           configuration — this page will stop responding for a few seconds. Reload once it
           comes back.
@@ -95,15 +95,22 @@ export function AdminDatabasePage() {
           <label>
             Connection string
             <input
+              name="connectionString"
+              autoComplete="off"
+              spellCheck={false}
               value={postgresConnectionString}
               onChange={(e) => setPostgresConnectionString(e.target.value)}
-              placeholder="Host=db;Port=5432;Database=shipwatcharr;Username=shipwatcharr;Password=..."
+              placeholder="Host=db;Port=5432;Database=shipwatcharr;Username=shipwatcharr;Password=…"
               required
             />
           </label>
         )}
 
-        {error && <p className="error">{error}</p>}
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
         <button type="submit" disabled={submitting}>
           {submitting ? 'Saving…' : 'Save and restart'}
         </button>

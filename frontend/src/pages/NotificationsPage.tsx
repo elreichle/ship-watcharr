@@ -2,13 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
 import type { PagedResult, ShipNotification } from '../api/types';
+import { EmptyState } from '../components/EmptyState';
+import { SkeletonRows } from '../components/Skeleton';
+import { formatDateTime } from '../format';
 import { useNotifications } from '../hooks/useNotifications';
 
 const PAGE_SIZE = 25;
-
-function formatDate(value: string): string {
-  return new Date(value).toLocaleString();
-}
 
 export function NotificationsPage() {
   const { unread, applyUnread, refresh } = useNotifications();
@@ -142,13 +141,35 @@ export function NotificationsPage() {
         </button>
       </div>
 
-      {error !== null && <p className="error">{error}</p>}
+      {error !== null && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
 
       {result === null ? (
         // Guarded on the error, as the other lists are: a first load that failed has no result to
-        // show and is not still trying, so "Loading…" under the message would be a second, false
-        // account of the same thing.
-        !error && <p>Loading…</p>
+        // show and is not still trying, so placeholder rows under the message would be a second,
+        // false account of the same thing.
+        !error && <SkeletonRows rows={8} kind="line" />
+      ) : result.items.length === 0 ? (
+        unreadOnly ? (
+          <EmptyState
+            title="Nothing unread"
+            action={
+              <button type="button" onClick={() => showUnread(false)}>
+                Show everything
+              </button>
+            }
+          >
+            Everything a followed ship has gained has been seen.
+          </EmptyState>
+        ) : (
+          <EmptyState title="Nothing yet">
+            A ship you follow gaining a work is what puts a line here — the first scrape of a newly
+            followed ship fills the library rather than this list.
+          </EmptyState>
+        )
       ) : (
         <>
           <ul className="notification-list">
@@ -159,9 +180,11 @@ export function NotificationsPage() {
                 data-unread={notification.readAt === null || undefined}
               >
                 <div className="notification-body">
-                  <Link to={`/works/${notification.workId}`}>{notification.workTitle}</Link>
+                  <Link className="title-link" to={`/works/${notification.workId}`}>
+                    {notification.workTitle}
+                  </Link>
                   <span className="notification-meta">
-                    {notification.shipName} · {formatDate(notification.createdAt)}
+                    {notification.shipName} · {formatDateTime(notification.createdAt)}
                   </span>
                 </div>
 
@@ -175,20 +198,13 @@ export function NotificationsPage() {
                     Mark read
                   </button>
                 ) : (
-                  <span className="notification-read">Read {formatDate(notification.readAt)}</span>
+                  <span className="notification-read">
+                    Read {formatDateTime(notification.readAt)}
+                  </span>
                 )}
               </li>
             ))}
           </ul>
-
-          {result.items.length === 0 && (
-            <p className="hint">
-              {unreadOnly
-                ? 'Nothing unread. Everything a followed ship has gained has been seen.'
-                : 'Nothing yet. A ship you follow gaining a work is what puts a line here — the ' +
-                  'first scrape of a newly followed ship fills the library rather than this list.'}
-            </p>
-          )}
 
           <div className="pager">
             <button type="button" disabled={page <= 1 || loading} onClick={() => setPage(page - 1)}>

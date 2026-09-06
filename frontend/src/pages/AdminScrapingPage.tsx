@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from '../api/client';
 import type { InstanceAo3Credential, ScrapingIdentity } from '../api/types';
+import { SkeletonRows } from '../components/Skeleton';
 
 const SOURCE_LABELS: Record<ScrapingIdentity['contactSource'], string> = {
   AdminSetting: 'set here, on this page',
@@ -114,7 +115,13 @@ export function AdminScrapingPage() {
     return (
       <div className="page">
         <h1>Scraping identity</h1>
-        {error ? <p className="error">{error}</p> : <p>Loading…</p>}
+        {error ? (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        ) : (
+          <SkeletonRows rows={4} kind="text" />
+        )}
       </div>
     );
   }
@@ -141,167 +148,195 @@ export function AdminScrapingPage() {
         — an instance they can contact gets asked to slow down; one they can’t gets blocked.
       </p>
 
-      <h2>What AO3 currently sees</h2>
-      {/* Keyed off the identity gate, not scrapingEnabled: an instance held for want of an AO3
-          login still has a User-Agent, and this section is about what AO3 sees. `identityProblem`
-          rather than `problem` for the same reason — the login blocker is reported by the callout
-          above, and repeating it here would answer a question this heading did not ask. */}
-      {identity.identityConfigured ? (
-        <pre className="user-agent">{identity.userAgent}</pre>
-      ) : (
-        <p className="error pre-wrap">{identity.identityProblem}</p>
-      )}
+      <section>
+        <h2>What AO3 currently sees</h2>
+        {/* Keyed off the identity gate, not scrapingEnabled: an instance held for want of an AO3
+            login still has a User-Agent, and this section is about what AO3 sees. `identityProblem`
+            rather than `problem` for the same reason — the login blocker is reported by the callout
+            above, and repeating it here would answer a question this heading did not ask. */}
+        {identity.identityConfigured ? (
+          <pre className="user-agent">{identity.userAgent}</pre>
+        ) : (
+          <p className="callout callout-error pre-wrap">{identity.identityProblem}</p>
+        )}
 
-      <table className="identity-table">
-        <tbody>
-          <tr>
-            <th>Software</th>
-            <td>
-              <code>{identity.productToken}</code>{' '}
-              <span className="hint">fixed — this is what lets AO3 recognise the tool</span>
-            </td>
-          </tr>
-          <tr>
-            <th>This instance</th>
-            <td>
-              <code>instance/{identity.instanceId}</code>{' '}
-              <span className="hint">
-                random, generated on first run — distinguishes deployments without identifying anyone
-              </span>
-            </td>
-          </tr>
-          <tr>
-            <th>Contact</th>
-            <td>
-              {identity.operatorContact ? <code>{identity.operatorContact}</code> : <em>none</em>}{' '}
-              <span className="hint">({SOURCE_LABELS[identity.contactSource]})</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      <h2>Contact address</h2>
-      <form onSubmit={onSubmit}>
-        <label>
-          Email address or project URL
-          <input
-            value={contact}
-            onChange={(e) => setContact(e.target.value)}
-            placeholder={identity.defaultContact ?? 'you@example.com'}
-          />
-        </label>
-
-        <p className="hint">
-          {identity.isOverridden ? (
-            <>Leave blank and save to revert to <code>{identity.defaultContact ?? 'no contact'}</code>.</>
-          ) : (
-            <>
-              Currently using the default. Enter a value to override it — a <code>+</code> alias
-              such as <code>you+ao3@example.com</code> works and keeps it filterable.
-            </>
-          )}{' '}
-          Changes apply immediately; no restart needed.
-        </p>
-
-        {error && <p className="error">{error}</p>}
-        {saved && <p className="success">Saved.</p>}
-
-        <div className="button-row">
-          <button type="submit" disabled={submitting}>
-            {submitting ? 'Saving…' : 'Save'}
-          </button>
-          {identity.isOverridden && (
-            <button type="button" disabled={submitting} onClick={() => void save(null)}>
-              Reset to default
-            </button>
-          )}
-        </div>
-      </form>
-
-      <h2>AO3 login</h2>
-
-      <p className="hint">
-        One AO3 account for the whole deployment, not one per user: a ship is scraped once for
-        everyone following it, so there is no per-user answer to whose session that scrape runs as.
-        The password is stored encrypted and is never shown again. It is used to read the archive
-        and nothing else — this app never posts, kudos, bookmarks or subscribes.
-      </p>
-
-      {credentialError !== null ? (
-        <p className="error">
-          {credentialError}{' '}
-          <button type="button" className="link" onClick={retryCredential}>
-            Try again
-          </button>
-        </p>
-      ) : credential === null ? (
-        <p>Loading…</p>
-      ) : credential.hasCredential ? (
         <table className="identity-table">
           <tbody>
             <tr>
-              <th>Account</th>
+              <th>Software</th>
               <td>
-                <code>{credential.ao3Username}</code>
+                <code>{identity.productToken}</code>{' '}
+                <span className="hint">fixed — this is what lets AO3 recognise the tool</span>
               </td>
             </tr>
             <tr>
-              <th>Session</th>
+              <th>This instance</th>
               <td>
-                {credential.hasCachedSession ? 'cached' : 'none cached'}{' '}
-                {/* Said plainly because it is easy to mistake for a problem: the cookie is a cache
-                    of the password, so its absence costs one login and nothing else. */}
+                <code>instance/{identity.instanceId}</code>{' '}
                 <span className="hint">
-                  a cache of the login — its absence just means the next scrape logs in again
+                  random, generated on first run — distinguishes deployments without identifying anyone
                 </span>
+              </td>
+            </tr>
+            <tr>
+              <th>Contact</th>
+              <td>
+                {identity.operatorContact ? <code>{identity.operatorContact}</code> : <em>none</em>}{' '}
+                <span className="hint">({SOURCE_LABELS[identity.contactSource]})</span>
               </td>
             </tr>
           </tbody>
         </table>
-      ) : (
-        <p className="hint">No AO3 login stored. Scraping is held until there is one.</p>
-      )}
+      </section>
 
-      <form onSubmit={(e) => void onSubmitLogin(e)}>
-        <label>
-          AO3 username
-          <input
-            value={ao3Username}
-            onChange={(e) => setAo3Username(e.target.value)}
-            autoComplete="off"
-            required
-          />
-        </label>
-        <label>
-          AO3 password
-          <input
-            type="password"
-            value={ao3Password}
-            onChange={(e) => setAo3Password(e.target.value)}
-            autoComplete="new-password"
-            required
-          />
-        </label>
+      <section>
+        <h2>Contact address</h2>
+        <form onSubmit={onSubmit}>
+          <label>
+            Email address or project URL
+            <input
+              type="text"
+              name="contact"
+              autoComplete="off"
+              spellCheck={false}
+              value={contact}
+              onChange={(e) => setContact(e.target.value)}
+              placeholder={identity.defaultContact ?? 'you@example.com'}
+            />
+          </label>
+
+          <p className="hint">
+            {identity.isOverridden ? (
+              <>Leave blank and save to revert to <code>{identity.defaultContact ?? 'no contact'}</code>.</>
+            ) : (
+              <>
+                Currently using the default. Enter a value to override it — a <code>+</code> alias
+                such as <code>you+ao3@example.com</code> works and keeps it filterable.
+              </>
+            )}{' '}
+            Changes apply immediately; no restart needed.
+          </p>
+
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
+          {saved && (
+            <p className="success" role="status">
+              Saved.
+            </p>
+          )}
+
+          <div className="button-row">
+            <button type="submit" disabled={submitting}>
+              {submitting ? 'Saving…' : 'Save'}
+            </button>
+            {identity.isOverridden && (
+              <button type="button" disabled={submitting} onClick={() => void save(null)}>
+                Reset to default
+              </button>
+            )}
+          </div>
+        </form>
+      </section>
+
+      <section>
+        <h2>AO3 login</h2>
 
         <p className="hint">
-          Saving replaces any stored login and discards the cached session, which belonged to the
-          old password. Changes apply on the next poll; no restart needed.
+          One AO3 account for the whole deployment, not one per user: a ship is scraped once for
+          everyone following it, so there is no per-user answer to whose session that scrape runs as.
+          The password is stored encrypted and is never shown again. It is used to read the archive
+          and nothing else — this app never posts, kudos, bookmarks or subscribes.
         </p>
 
-        {loginError && <p className="error">{loginError}</p>}
-        {loginSaved && <p className="success">{loginSaved}</p>}
-
-        <div className="button-row">
-          <button type="submit" disabled={savingLogin}>
-            {savingLogin ? 'Saving…' : credential?.hasCredential ? 'Replace login' : 'Save login'}
-          </button>
-          {credential?.hasCredential && (
-            <button type="button" disabled={savingLogin} onClick={() => void onRemoveLogin()}>
-              Remove login
+        {credentialError !== null ? (
+          <p className="error" role="alert">
+            {credentialError}{' '}
+            <button type="button" className="link" onClick={retryCredential}>
+              Try again
             </button>
+          </p>
+        ) : credential === null ? (
+          <SkeletonRows rows={2} kind="line" />
+        ) : credential.hasCredential ? (
+          <table className="identity-table">
+            <tbody>
+              <tr>
+                <th>Account</th>
+                <td>
+                  <code>{credential.ao3Username}</code>
+                </td>
+              </tr>
+              <tr>
+                <th>Session</th>
+                <td>
+                  {credential.hasCachedSession ? 'cached' : 'none cached'}{' '}
+                  {/* Said plainly because it is easy to mistake for a problem: the cookie is a cache
+                      of the password, so its absence costs one login and nothing else. */}
+                  <span className="hint">
+                    a cache of the login — its absence just means the next scrape logs in again
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        ) : (
+          <p className="hint">No AO3 login stored. Scraping is held until there is one.</p>
+        )}
+
+        <form onSubmit={(e) => void onSubmitLogin(e)}>
+          <label>
+            AO3 username
+            <input
+              name="ao3Username"
+              value={ao3Username}
+              onChange={(e) => setAo3Username(e.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+              required
+            />
+          </label>
+          <label>
+            AO3 password
+            <input
+              type="password"
+              value={ao3Password}
+              onChange={(e) => setAo3Password(e.target.value)}
+              autoComplete="new-password"
+              required
+            />
+          </label>
+
+          <p className="hint">
+            Saving replaces any stored login and discards the cached session, which belonged to the
+            old password. Changes apply on the next poll; no restart needed.
+          </p>
+
+          {loginError && (
+            <p className="error" role="alert">
+              {loginError}
+            </p>
           )}
-        </div>
-      </form>
+          {loginSaved && (
+            <p className="success" role="status">
+              {loginSaved}
+            </p>
+          )}
+
+          <div className="button-row">
+            <button type="submit" disabled={savingLogin}>
+              {savingLogin ? 'Saving…' : credential?.hasCredential ? 'Replace login' : 'Save login'}
+            </button>
+            {credential?.hasCredential && (
+              <button type="button" disabled={savingLogin} onClick={() => void onRemoveLogin()}>
+                Remove login
+              </button>
+            )}
+          </div>
+        </form>
+      </section>
     </div>
   );
 }

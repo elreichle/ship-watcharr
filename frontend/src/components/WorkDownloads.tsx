@@ -43,7 +43,11 @@ export function WorkDownloads({ workId }: { workId: number }) {
         ))}
       </div>
 
-      {error !== null && <p className="error">{error}</p>}
+      {error !== null && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
 
       {mine !== null && mine.length > 0 && (
         <ul className="work-downloads">

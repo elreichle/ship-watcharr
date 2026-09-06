@@ -92,6 +92,12 @@ export function AppLayout() {
         data-railed={railed || undefined}
         data-drawer-open={drawerOpen || undefined}
       >
+        {/* First in the tab order and invisible until focused: a keyboard reader gets past the
+            sidebar's dozen links with one Tab and one Enter. */}
+        <a className="skip-link" href="#main">
+          Skip to content
+        </a>
+
         <Sidebar railed={railed} onToggleRail={onToggleRail} onNavigate={closeDrawer} />
 
         {/* Scrim only exists in drawer mode; CSS hides the shell's mobile topbar above 700px. */}
@@ -111,7 +117,7 @@ export function AppLayout() {
             <span className="app-topbar-title">{APP_NAME}</span>
           </header>
 
-          <main className="app-main">
+          <main id="main" className="app-main" tabIndex={-1}>
             {/* Keyed by path so navigating away clears a tripped boundary: a boundary holds its
                 error until it remounts, and without this one broken page would keep showing its
                 error no matter where the sidebar took you. */}

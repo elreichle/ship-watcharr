@@ -23,7 +23,8 @@ export type IconName =
   | 'chevron-right'
   | 'log-out'
   | 'palette'
-  | 'sun-moon';
+  | 'sun-moon'
+  | 'bookmark';
 
 /** Matches Obsidian's --icon-xs/s/m/l/xl scale and their per-size stroke widths. */
 export type IconSize = 'xs' | 's' | 'm' | 'l' | 'xl';
@@ -83,6 +84,7 @@ const PATHS: Record<IconName, ReactNode> = {
       <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" />
     </>
   ),
+  bookmark: <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />,
   'sun-moon': (
     <>
       <path d="M12 2v2" />
