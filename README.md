@@ -146,6 +146,12 @@ the whole system polite, and it is not optional:
   each to say so. The sweep walks whenever the counts differ.
 - Re-reads a work's own page after a revision no more than once a week; the first read is owed at
   once.
+- Accepts compressed responses, so each page costs AO3 a fraction of the bandwidth to serve.
+- Aborts a run after `MaxConsecutiveFailures` (default 3) consecutive failures, and caps each run
+  at `MaxRequestsPerRun` (default 500) requests and `MaxRunDuration` (default 2h).
+- Caches successful responses for `Ao3HttpClient:CacheDuration` (default 15 min) so unchanged
+  pages aren't re-fetched. Cache hits don't count against the per-run budget — they cost AO3
+  nothing.
 
 ### How this instance identifies itself
 

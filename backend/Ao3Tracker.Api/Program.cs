@@ -1,3 +1,4 @@
+using System.Net;
 using Ao3Tracker.Api.Data;
 using Ao3Tracker.Api.Models;
 using Ao3Tracker.Api.Services.Credentials;
@@ -147,10 +148,15 @@ builder.Services
     // itself, deciding per hop whether the session may travel and refusing to leave the archive at
     // all: see RateLimitedAo3HttpClient.SendFollowingRedirectsAsync. A synonym tag is still
     // recognised by where the request ended up, because the manual walk records that the same way.
+    //
+    // Compression on: a listing page is a few hundred kilobytes of HTML that gzips to a fraction
+    // of that, and AO3 offers it (Vary: Accept-Encoding). It changes nothing about how many
+    // requests go out or how far apart — only what each one costs the archive to serve.
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
     {
         UseCookies = false,
         AllowAutoRedirect = false,
+        AutomaticDecompression = DecompressionMethods.All,
     });
 
 // The login POST's transport. A successful login answers with a 302 whose Set-Cookie *is* the
@@ -164,6 +170,7 @@ builder.Services
     {
         UseCookies = false,
         AllowAutoRedirect = false,
+        AutomaticDecompression = DecompressionMethods.All,
     });
 
 // ---- The instance's AO3 session ----
