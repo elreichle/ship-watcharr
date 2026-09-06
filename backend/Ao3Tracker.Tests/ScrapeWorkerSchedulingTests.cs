@@ -142,6 +142,84 @@ public class ScrapeWorkerSchedulingTests : IDisposable
     public void The_stretch_doubles_from_the_second_quiet_pass_and_stops_at_four(int quietInARow, int expected) =>
         Assert.Equal(expected, ScrapeWorker.QuietStretch(quietInARow));
 
+    // ---- spreading -----------------------------------------------------------------------------
+
+    [Fact]
+    public void With_nobody_else_due_the_next_run_is_one_interval_out()
+    {
+        var now = new DateTime(2026, 9, 7, 0, 0, 0, DateTimeKind.Utc);
+
+        Assert.Equal(now.AddHours(6), ScrapeWorker.SpreadWithin(Interval, now, []));
+    }
+
+    [Fact]
+    public void The_next_run_lands_as_far_as_the_window_allows_from_another_ships()
+    {
+        // Another ship is due exactly an interval out. The whole point: this one does not join it.
+        var now = new DateTime(2026, 9, 7, 0, 0, 0, DateTimeKind.Utc);
+        var other = now.AddHours(6);
+
+        var next = ScrapeWorker.SpreadWithin(Interval, now, [other]);
+
+        Assert.InRange(next, now.AddHours(6 * 0.9), now.AddHours(6 * 1.1));
+        Assert.Equal(TimeSpan.FromMinutes(36), (next - other).Duration());
+    }
+
+    [Fact]
+    public void The_next_run_takes_the_largest_gap_between_the_others()
+    {
+        // Ships at both ends of the window: the middle is the emptiest place left.
+        var now = new DateTime(2026, 9, 7, 0, 0, 0, DateTimeKind.Utc);
+        var atStart = now.AddHours(6 * 0.9);
+        var atEnd = now.AddHours(6 * 1.1);
+
+        Assert.Equal(now.AddHours(6), ScrapeWorker.SpreadWithin(Interval, now, [atStart, atEnd]));
+    }
+
+    [Fact]
+    public void A_ship_just_outside_the_window_still_pushes_the_run_the_other_way()
+    {
+        // Due a minute past the window's end: the far end of the window is the emptiest point.
+        var now = new DateTime(2026, 9, 7, 0, 0, 0, DateTimeKind.Utc);
+        var justPast = now.AddHours(6 * 1.1).AddMinutes(1);
+
+        Assert.Equal(now.AddHours(6 * 0.9), ScrapeWorker.SpreadWithin(Interval, now, [justPast]));
+    }
+
+    [Fact]
+    public async Task A_finished_run_is_put_back_where_the_other_ships_are_not()
+    {
+        await AQuietShipAsync();
+        var now = _host.Clock.Now.UtcDateTime;
+
+        // A second ship, already scheduled for exactly an interval from now and not due.
+        await using (var db = _host.NewContext())
+        {
+            var emma = await db.Users.SingleAsync();
+            var result = await _host.Ships(emma).WatchShip(new("Korra/Asami Sato"), default);
+            Assert.IsType<CreatedAtActionResult>(result.Result);
+        }
+
+        await using (var db = _host.NewContext())
+        {
+            var other = await db.ScrapeJobs.OrderBy(j => j.Id).LastAsync();
+            other.NextRunAt = now.AddHours(6);
+            var ship = await db.Ships.SingleAsync(s => s.Id == other.ShipId);
+            ship.BackfillState = ShipBackfillState.Complete;
+            ship.LastFullSweepStartedAt = now;
+            await db.SaveChangesAsync();
+        }
+
+        await _host.NewScrapeWorker().RunDueJobsAsync(default);
+
+        await using var after = _host.NewContext();
+        var jobs = await after.ScrapeJobs.OrderBy(j => j.Id).ToListAsync();
+        Assert.Single(_scraper.Contexts);
+
+        var gap = (jobs[0].NextRunAt!.Value - jobs[1].NextRunAt!.Value).Duration();
+        Assert.Equal(TimeSpan.FromMinutes(36), gap);
+    }
+
     // ---- helpers -------------------------------------------------------------------------------
 
     /// <summary>

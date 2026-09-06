@@ -28,7 +28,10 @@ public class ScrapeWorker : BackgroundService
     /// </summary>
     private static readonly TimeSpan StaleRunThreshold = TimeSpan.FromMinutes(30);
 
-    /// <summary>Fraction by which each job's next-run time is spread. See <see cref="NextRunAfter"/>.</summary>
+    /// <summary>
+    /// Fraction of the interval either side of <c>now + interval</c> within which a job's next run
+    /// may land. See <see cref="SpreadWithin"/> and <see cref="NextRunAfter"/>.
+    /// </summary>
     private const double ScheduleJitterFactor = 0.1;
 
     /// <summary>
@@ -364,17 +367,99 @@ public class ScrapeWorker : BackgroundService
         FullSweepInterval * ((shipId % FullSweepStaggerSlots) / (double)FullSweepStaggerSlots);
 
     /// <summary>
-    /// Schedules the next run at <c>now + interval</c>, spread by ±<see cref="ScheduleJitterFactor"/>.
+    /// Schedules a run at <c>now + interval</c>, spread at random by ±<see cref="ScheduleJitterFactor"/>.
     ///
-    /// Without the jitter every job with the same interval converges: they all complete at roughly
-    /// the same moment, all get the identical next-run time, and from then on fire together on one
-    /// poll tick. Ten watched ships then queue ten scrapes behind the shared rate-limit gate at
-    /// once, which is the load spike this is meant to avoid.
+    /// The fallback spread, for the waits that are not about the other ships: a run deferred past
+    /// AO3's hold, a job whose scraper is missing. Random so that several such jobs do not all
+    /// come back on one tick. A job's ordinary next run goes through <see cref="NextRunSpreadAsync"/>
+    /// instead, which places it by where the other ships already are.
     /// </summary>
     internal static DateTime NextRunAfter(TimeSpan interval, DateTime now)
     {
         var multiplier = 1 + ((Random.Shared.NextDouble() * 2 - 1) * ScheduleJitterFactor);
         return now + (interval * multiplier);
+    }
+
+    /// <summary>
+    /// Schedules the job's next run at <c>now + interval</c>, moved by up to
+    /// ±<see cref="ScheduleJitterFactor"/> to the point in that window farthest from any other
+    /// job's next run.
+    /// </summary>
+    /// <remarks>
+    /// <para>The ships share one outbound channel, so what matters about a next-run time is not
+    /// only when it is but who else is due then. Fifty ships on a six-hour interval have room for
+    /// one every seven minutes; what production had instead was thirty-three of them due inside
+    /// ninety minutes, each then queued behind the others' runs — a backfill among them holding
+    /// the channel for half an hour — and each rescheduled from whenever it finally finished, so
+    /// the cluster carried itself forward.</para>
+    /// <para>Random jitter, which this replaces, did not fix that; it only stopped the times being
+    /// identical. A random walk of ±36 minutes per cycle leaves ships as likely to drift together
+    /// as apart. Placing each run in the largest gap the others leave is a rule the ships apply to
+    /// each other every cycle, so a spread once made is kept, and a cluster — a batch followed at
+    /// once, an outage that made everything due together — dissolves over a few cycles as each
+    /// job steps toward its nearest empty stretch.</para>
+    /// <para>Read from the jobs table on every completion. Fifty rows, one query, once per run;
+    /// and in a <c>finally</c>, so a failed read falls back to the random spread rather than losing
+    /// the schedule.</para>
+    /// </remarks>
+    private async Task<DateTime> NextRunSpreadAsync(
+        AppDbContext db, int jobId, TimeSpan interval, DateTime now, CancellationToken ct)
+    {
+        try
+        {
+            // A margin of one spread either side, so a neighbour just outside the window still
+            // pushes this run away from the edge nearest it.
+            var margin = interval * ScheduleJitterFactor;
+            var from = now + interval - (2 * margin);
+            var to = now + interval + (2 * margin);
+
+            var neighbours = await db.ScrapeJobs
+                .Where(j => j.Id != jobId && j.IsEnabled && j.NextRunAt != null)
+                .Where(j => j.NextRunAt >= from && j.NextRunAt <= to)
+                .Select(j => j.NextRunAt!.Value)
+                .ToListAsync(ct);
+
+            return SpreadWithin(interval, now, neighbours);
+        }
+        catch (Exception ex) when (!ScrapeCancellation.IsShutdown(ex, ct))
+        {
+            _logger.LogWarning(ex, "Could not read the other jobs' schedules; spreading ScrapeJob {JobId} at random", jobId);
+            return NextRunAfter(interval, now);
+        }
+    }
+
+    /// <summary>
+    /// The point within ±<see cref="ScheduleJitterFactor"/> of <c>now + interval</c> farthest from
+    /// every time in <paramref name="neighbours"/>; the centre when there are none.
+    /// </summary>
+    internal static DateTime SpreadWithin(TimeSpan interval, DateTime now, IReadOnlyList<DateTime> neighbours)
+    {
+        var centre = now + interval;
+        var reach = interval * ScheduleJitterFactor;
+        var start = centre - reach;
+        var end = centre + reach;
+
+        if (neighbours.Count == 0) return centre;
+
+        // Candidates: the window's ends and the midpoint of every gap between neighbours inside
+        // it. The best point of a piecewise-linear "distance to nearest neighbour" is always one
+        // of those.
+        var sorted = neighbours.Order().ToList();
+        var candidates = new List<DateTime> { start, end };
+
+        for (var i = 0; i + 1 < sorted.Count; i++)
+        {
+            var midpoint = sorted[i] + ((sorted[i + 1] - sorted[i]) / 2);
+            if (midpoint > start && midpoint < end) candidates.Add(midpoint);
+        }
+
+        TimeSpan NearestNeighbour(DateTime at) => sorted.Min(n => (n - at).Duration());
+
+        // Ties go to the earlier candidate, which keeps the choice deterministic.
+        return candidates
+            .OrderByDescending(NearestNeighbour)
+            .ThenBy(c => c)
+            .First();
     }
 
     private async Task RunJobAsync(IServiceProvider services, int jobId, CancellationToken ct)
@@ -501,7 +586,8 @@ public class ScrapeWorker : BackgroundService
             job.LastRunAt = run.CompletedAt;
             job.NextRunAt = run.StopReason == ScrapeStopReason.Throttled
                 ? JustPastTheHold(UtcNow)
-                : NextRunAfter(job.Interval * await QuietStretchAsync(db, job, run, ct), UtcNow);
+                : await NextRunSpreadAsync(
+                    db, job.Id, job.Interval * await QuietStretchAsync(db, job, run, ct), UtcNow, ct);
 
             await PersistCompletionAsync(db, run, job, ct);
         }
