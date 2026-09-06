@@ -118,7 +118,9 @@ public class Ao3ShipIndexFullSweepTests : IDisposable
     {
         // The rule the whole pass rests on: absence from a walk that stopped early is not absence
         // from the tag. This run read page 1 and never asked for page 2, where work 2 might be.
-        var shipId = await AShipHoldingAsync(1, 2);
+        // Three held against a listing counting two: the counts disagree, so the sweep walks rather
+        // than stopping on page 1 reconciled — the walk is what this test is about.
+        var shipId = await AShipHoldingAsync(1, 2, 3);
 
         await SweepAsync(
             OneRequest(),
@@ -167,7 +169,9 @@ public class Ao3ShipIndexFullSweepTests : IDisposable
     {
         // A sweep that spins is worse than one that gives up: it concludes nothing either way, and
         // every tick it spends is a tick the ship's incremental pass did not get.
-        var shipId = await AShipHoldingAsync(1, 2);
+        // Three held against a listing counting two: the counts disagree, so the sweep walks rather
+        // than stopping on page 1 reconciled — the walk is what this test is about.
+        var shipId = await AShipHoldingAsync(1, 2, 3);
 
         await SweepAsync(
             OneRequest(),
@@ -246,7 +250,9 @@ public class Ao3ShipIndexFullSweepTests : IDisposable
         // An afternoon of AO3 being unreachable must not cost a sweep. Abandoning here would also
         // cost the ship a whole interval of absence detection, because the next sweep is spaced
         // from this one's start — on the strength of a run that read nothing at all.
-        var shipId = await AShipHoldingAsync(1, 2);
+        // Three held against a listing counting two: the counts disagree, so the sweep walks rather
+        // than stopping on page 1 reconciled — the walk is what this test is about.
+        var shipId = await AShipHoldingAsync(1, 2, 3);
 
         await SweepAsync(
             OneRequest(),
@@ -262,6 +268,80 @@ public class Ao3ShipIndexFullSweepTests : IDisposable
         var ship = await ReloadAsync(shipId);
         Assert.Equal(2, ship.FullSweepNextPage);
         Assert.Equal(startedAt, ship.LastFullSweepStartedAt);
+    }
+
+    // ---- what the count on page 1 settles ------------------------------------------------------
+
+    [Fact]
+    public async Task Stops_on_page_1_when_the_tag_counts_what_the_library_holds()
+    {
+        // Two held, two counted: nothing has left the tag, and the other pages would say so at a
+        // request each. The sweep is complete, nothing is missing, and page 2 was never asked for.
+        var shipId = await AShipHoldingAsync(1, 2);
+
+        var outcome = await SweepAsync(
+            Page(1, [Blurb(1)], nextPage: true, total: 2),
+            Page(2, [Blurb(2)], total: 2));
+
+        Assert.Equal(ScrapeStopReason.Reconciled, outcome.StopReason);
+        Assert.Equal(1, outcome.RequestsMade);
+        Assert.DoesNotContain(_host.Http.Requested, url => url.Contains("page=2"));
+
+        var ship = await ReloadAsync(shipId);
+        Assert.Equal(_host.Clock.Now.UtcDateTime, ship.LastFullSweepCompletedAt);
+        Assert.Null(ship.FullSweepNextPage);
+        Assert.Null(await MissingSinceAsync(shipId, 2));
+    }
+
+    [Fact]
+    public async Task Walks_the_listing_when_the_counts_disagree()
+    {
+        // One more held than counted is a work that has left, and only the walk can say which.
+        var shipId = await AShipHoldingAsync(1, 2, 3);
+
+        var outcome = await SweepAsync(
+            Page(1, [Blurb(1)], nextPage: true, total: 2),
+            Page(2, [Blurb(2)], total: 2));
+
+        Assert.Equal(ScrapeStopReason.LastPage, outcome.StopReason);
+        Assert.Equal(2, outcome.RequestsMade);
+        Assert.NotNull(await MissingSinceAsync(shipId, 3));
+    }
+
+    [Fact]
+    public async Task Does_not_count_a_work_already_marked_missing_as_held()
+    {
+        // Work 2 left last month. This month the tag counts one and the library shows one under
+        // the ship — the mark is the library's own record that it does not hold work 2 any more.
+        var shipId = await AShipHoldingAsync(1, 2);
+        await SweepAsync(Page(1, [Blurb(1)], total: 1));
+        Assert.NotNull(await MissingSinceAsync(shipId, 2));
+
+        _host.Clock.Now = _host.Clock.Now.AddDays(40);
+        var outcome = await SweepAsync(
+            Page(1, [Blurb(1)], nextPage: true, total: 1),
+            Page(2, [], total: 1));
+
+        Assert.Equal(ScrapeStopReason.Reconciled, outcome.StopReason);
+        Assert.Equal(1, outcome.RequestsMade);
+    }
+
+    [Fact]
+    public async Task Trusts_no_count_read_without_a_session()
+    {
+        // An anonymous heading is short by the tag's restricted works, so agreement with it proves
+        // nothing. The sweep walks — and, having read a page logged out, abandons, as it always has.
+        var shipId = await AShipHoldingAsync(1, 2);
+
+        _host.Http.Responds = Pages(
+            Page(1, [Blurb(1)], nextPage: true, total: 2),
+            Page(2, [Blurb(2)], total: 2));
+        _host.Clock.Now = _host.Clock.Now.AddHours(1);
+        var outcome = await _host.ScrapeAsync(shipId, ScrapeRunMode.FullSweep);
+
+        Assert.NotEqual(ScrapeStopReason.Reconciled, outcome.StopReason);
+        Assert.Contains(_host.Http.Requested, url => url.Contains("page=2"));
+        Assert.Null((await ReloadAsync(shipId)).LastFullSweepCompletedAt);
     }
 
     // ---- what a sweep must not touch -----------------------------------------------------------

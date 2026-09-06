@@ -713,6 +713,15 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 break;
             }
 
+            if (context.Mode == ScrapeRunMode.FullSweep
+                && page == 1
+                && response.Authenticated
+                && await ListingAgreesWithTheLibraryAsync(ship, listing, ct))
+            {
+                stopReason = ScrapeStopReason.Reconciled;
+                break;
+            }
+
             // The retreat's answer, in the case where the listing sides with the cursor. This run
             // already asked for the page after this one and got nothing readable back; the page
             // before it insisting that page exists does not make a second identical request any
@@ -1400,6 +1409,16 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             return;
         }
 
+        if (stopReason == ScrapeStopReason.Reconciled)
+        {
+            // Completed, and nothing concluded from it — deliberately not ConcludeSweepAsync, whose
+            // rule is "a work this sweep did not see has left the tag". This sweep saw one page, and
+            // it was the count on that page, not the walk, that said nothing had left.
+            ship.LastFullSweepCompletedAt = now;
+            ship.FullSweepNextPage = null;
+            return;
+        }
+
         // Part-walked. The ordinary end of a sweep run on any tag longer than one run's budget:
         // the cursor holds the place and the next run carries on from it.
         if (ship.FullSweepNextPage > startPage) return;
@@ -1428,6 +1447,66 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// ever, which is the cost this whole branch exists to avoid.
     /// </summary>
     private static void AbandonSweep(Ship ship) => ship.FullSweepNextPage = null;
+
+    /// <summary>
+    /// Whether the count in the listing's heading equals the number of works the library holds
+    /// under this ship — in which case the sweep has its answer from page 1 and need not walk the
+    /// rest.
+    /// </summary>
+    /// <remarks>
+    /// <para>The sweep exists to notice works that have <i>left</i> the tag, and it is the most
+    /// expensive thing this application does to one: a request per page of the whole listing, two
+    /// hundred of them on a four-thousand-work tag, once a month per ship. But the listing's heading
+    /// says how many works the tag holds, on every page, for free — and the library knows how many
+    /// works it believes are still in the tag. If the two agree, no work has left without another
+    /// arriving unseen in its place, and the two hundred requests would confirm it.</para>
+    /// <para>What the comparison cannot rule out is exactly that coincidence: one work leaving and
+    /// one arriving that the incremental pass did not see. The pass asks for works revised since its
+    /// watermark, and AO3's revision timestamp tracks content, so an old work newly tagged with the
+    /// ship arrives without a revision and is invisible to it. Alone, that work makes the count one
+    /// higher than the library's and the sweep walks, which is right. Paired with a departure in the
+    /// same month, the two cancel, and the sweep skips a walk that would have found both. The cost
+    /// is a work listed under a ship it has left, and a work missing from one it has joined, until a
+    /// month when the counts differ — and the sweep interval's own doc already accepts a fortnight's
+    /// staleness on the first of those. Not worth a request per page per ship per month.</para>
+    /// <para>What a skipped walk also forgoes is the monthly re-read of every old work's blurb —
+    /// kudos, hits, chapter counts on works nobody has revised. Those refresh only when a sweep
+    /// walks, which it still does whenever the counts differ.</para>
+    /// <para>Page 1 only, and only on a response served to a session: a resumed sweep has walked
+    /// pages already and its page-1 count is a run old, and an anonymous heading is short by the
+    /// tag's restricted works — the same reason <see cref="ConcludeSweepAsync"/> refuses to
+    /// conclude from one. Page 1 is ingested before this is asked, so a work new to the library on
+    /// that page counts on both sides.</para>
+    /// <para>The library's side counts what it would still show under the ship: links not marked
+    /// missing, to works not known deleted. A work the last sweep marked missing that is back on
+    /// page 1 has had its mark cleared by the ingestion above, so it counts again.</para>
+    /// </remarks>
+    private async Task<bool> ListingAgreesWithTheLibraryAsync(
+        Ship ship, Ao3ListingPage listing, CancellationToken ct)
+    {
+        if (listing.TotalWorks is not { } total) return false;
+
+        var held = await _db.ShipWorks
+            .CountAsync(sw => sw.ShipId == ship.Id && sw.MissingSinceAt == null && !sw.Work.IsDeleted, ct);
+
+        if (held != total)
+        {
+            _logger.LogInformation(
+                "The full sweep of ship {ShipId} ({Tag}) is walking the listing: AO3 counts {Total} work(s) "
+                + "in the tag and the library holds {Held} under the ship.",
+                ship.Id, ship.CanonicalTagName, total, held);
+
+            return false;
+        }
+
+        _logger.LogInformation(
+            "The full sweep of ship {ShipId} ({Tag}) stopped on page 1: AO3 counts {Total} work(s) in the tag "
+            + "and the library holds the same number under the ship, so nothing has left it. The rest of "
+            + "the listing was not requested.",
+            ship.Id, ship.CanonicalTagName, total);
+
+        return true;
+    }
 
     /// <summary>
     /// The one conclusion no other pass in this application may reach: that works have left the tag.

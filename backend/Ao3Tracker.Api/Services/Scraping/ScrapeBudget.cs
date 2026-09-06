@@ -71,6 +71,16 @@ public static class ScrapeStopReason
     public const string Throttled = "throttled";
 
     /// <summary>
+    /// A full sweep that stopped on page 1, because the tag's own count of works matched the
+    /// library's count of works it holds under this ship — so no work has left the tag, and walking
+    /// the remaining pages to prove it would cost a request per page for the same answer. The sweep
+    /// is recorded as completed; nothing is marked missing. See
+    /// <c>Ao3ShipIndexScraper.ListingAgreesWithTheLibraryAsync</c> for what the comparison does and
+    /// does not rule out.
+    /// </summary>
+    public const string Reconciled = "reconciled";
+
+    /// <summary>
     /// The archive answered 404 for the first page this run asked for, having read none — which is
     /// the archive saying definitively that the page is not there, rather than failing to answer.
     ///

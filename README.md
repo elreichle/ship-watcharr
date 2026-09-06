@@ -141,6 +141,9 @@ the whole system polite, and it is not optional:
 - Stretches a quiet ship's interval: once two incremental passes in a row have found nothing, the
   wait doubles per further quiet pass up to 4× (a day, at the default 6h), and snaps back to the
   plain interval the moment a pass finds anything.
+- Stops a monthly full sweep on page 1 when the tag's own count of works matches the number the
+  library holds under the ship — no work has left, and the remaining pages would cost a request
+  each to say so. The sweep walks whenever the counts differ.
 
 ### How this instance identifies itself
 
