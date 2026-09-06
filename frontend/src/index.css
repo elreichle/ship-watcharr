@@ -673,23 +673,18 @@
     background-color: var(--background-secondary);
   }
 
-  .ships-table,
-  .works-table {
+  .ships-table {
     display: block;
     overflow-x: auto;
   }
 
-  .ships-table td,
-  .works-table thead th,
-  .works-table td:not(.work-cell) {
+  .ships-table td {
     white-space: nowrap;
   }
 
-  /* The works table is the app. From the point it fits the column it stops being a scrolling
-     block and becomes a real table again, which is what lets its header stick to the top of the
-     pane as the reader scrolls a page of twenty-five. */
+  /* From the point a table fits the column it stops being a scrolling block and becomes a real
+     table again, which is what lets its header stick to the top of the pane. */
   @media (min-width: 1100px) {
-    .works-table,
     .ships-table,
     .filters-table,
     .downloads-table {
@@ -698,58 +693,148 @@
     }
   }
 
-  .works-table td {
-    vertical-align: top;
+  /* ------------------------------------------------------------------------------ work cards */
+
+  /* The works list is the app. One card per work, stacked: the work's words up top, the archive's
+     numbers in a strip, the reader's own marks along the foot. */
+  .work-cards {
+    display: flex;
+    flex-direction: column;
+    gap: var(--size-4-3);
+    margin: var(--size-4-4) 0;
+    padding: 0;
+    list-style: none;
   }
 
-  .works-table thead th:first-child,
-  .works-table td:first-child {
-    padding-left: var(--size-4-4);
+  .work-card {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--size-4-3) var(--size-4-6);
+    padding: var(--size-4-4) var(--size-4-5);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m);
+    background-color: var(--background-primary-alt);
+    transition: border-color 120ms ease;
   }
 
-  /* The reading spine: the row the reader is in the middle of carries the same 2px accent the
+  .work-card:hover {
+    border-color: var(--background-modifier-border-hover);
+  }
+
+  /* Wide enough, and the numbers step up beside the words rather than under them, so a page of
+     cards still lines its counts up down one edge the way the old columns did. */
+  @media (min-width: 900px) {
+    .work-card {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .work-card-facts {
+      grid-column: 2;
+      grid-row: 1;
+    }
+
+    .work-card-body,
+    .work-marks,
+    .work-state-error,
+    .work-note-editor {
+      grid-column: 1;
+    }
+
+    .work-marks,
+    .work-state-error,
+    .work-note-editor {
+      grid-column: 1 / -1;
+    }
+  }
+
+  /* The reading spine: the card the reader is in the middle of carries the same 2px accent the
      sidebar gives the active page and the notifications list gives an unread line. One signal,
-     one meaning — "this is where you are" — and the only colour a quiet row is allowed. */
-  .works-table tbody tr[data-status='Reading'] > td:first-child {
-    box-shadow: inset 2px 0 0 var(--interactive-accent);
+     one meaning — "this is where you are" — and the only colour a quiet card is allowed. */
+  .work-card[data-status='Reading'] {
+    box-shadow: inset 3px 0 0 var(--interactive-accent);
   }
 
-  /* The one column allowed to wrap. Capped rather than free so a long title can't push the
-     numeric columns off the right of a wide screen. */
-  .work-cell {
-    min-width: 22rem;
-    max-width: 36rem;
-    white-space: normal;
+  .work-card-body {
+    min-width: 0;
   }
 
-
-  /* Written after the nowrap rule above and at the same specificity, so this is the one column
-     of words that may wrap: "Teen And Up Audiences" is wider than the numbers beside it. */
-  .works-table td.work-rating-cell {
-    max-width: 9rem;
-    white-space: normal;
-    color: var(--text-muted);
+  /* A card's title is a heading in the text face, one step down from the page's own. */
+  .work-card-title {
+    margin: 0;
+    font-family: var(--h3-font);
+    font-size: var(--h3-size);
+    font-weight: var(--font-medium);
+    line-height: var(--h3-line-height);
+    overflow-wrap: anywhere;
   }
 
-  .work-updated-cell {
-    color: var(--text-muted);
-    font-variant-numeric: tabular-nums;
+  .work-byline {
+    margin: var(--size-2-2) 0 0;
   }
 
-  .work-byline,
   .work-chips {
-    display: block;
-    margin-top: var(--size-2-2);
+    margin-top: var(--size-4-2);
   }
 
-  /* The reader's marks, in the margin of the work: a status that looks like a word until it is
-     hovered, the stars, and the note. Quieter than the title above them on purpose. */
+  /* The archive's numbers: label over value, in a row that wraps. Muted labels, tabular figures,
+     and a fixed minimum per tile so the same fact sits in the same place from card to card. */
+  .work-card-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--size-4-2) var(--size-4-5);
+    align-content: start;
+    margin: 0;
+    font-size: var(--font-ui-small);
+  }
+
+  /* Fixed tracks rather than content-sized ones, so the same fact sits at the same x from card to
+     card and a column of kudos can still be read down the page the way the old table read. */
+  @media (min-width: 900px) {
+    .work-card-facts {
+      display: grid;
+      grid-template-columns: 10rem 5.5rem 9.5rem;
+      gap: var(--size-4-3) var(--size-4-4);
+    }
+  }
+
+  .work-card-fact {
+    min-width: 4.5rem;
+  }
+
+  .work-card-fact dt {
+    color: var(--text-faint);
+    font-size: var(--font-ui-smaller);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .work-card-fact dd {
+    margin: var(--size-2-1) 0 0;
+    color: var(--text-muted);
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  /* "Teen And Up Audiences" is the one fact made of words, and the one allowed to wrap. */
+  .work-card-fact-rating {
+    min-width: 8rem;
+  }
+
+  .work-card-fact-rating dd {
+    white-space: normal;
+  }
+
+  /* The reader's marks, along the foot of the card: a status that looks like a word until it is
+     hovered, the stars, and the note. Quieter than the title above them on purpose, and separated
+     from the archive's facts by a hairline so whose they are is never in question. */
   .work-marks {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--size-4-3);
-    margin-top: var(--size-4-2);
+    gap: var(--size-4-2) var(--size-4-4);
+    padding-top: var(--size-4-3);
+    border-top: 1px solid var(--background-modifier-border);
     font-size: var(--font-ui-smaller);
   }
 
@@ -769,7 +854,7 @@
   }
 
   /* A status the reader has set is theirs, and reads in the body colour; "Not set" stays muted. */
-  tr:not([data-status='None']) .work-marks select {
+  .work-card:not([data-status='None']) .work-marks select {
     color: var(--text-normal);
   }
 
@@ -925,11 +1010,11 @@
 
   /* ----------------------------------------------------------------- one reader's own state */
 
-  /* Why a failed write reads here and not in the page's own error line: it belongs to this row. */
+  /* Why a failed write reads here and not in the page's own error line: it belongs to this card. */
   .work-state-error {
     display: block;
     max-width: 32rem;
-    margin-top: var(--size-2-2);
+    margin: 0;
     white-space: normal;
   }
 
@@ -994,8 +1079,12 @@
     display: inline-flex;
     border-radius: var(--radius-s);
     color: var(--text-faint);
-    font-size: var(--font-ui-medium);
+    /* Large enough that a half-star is a real target: at the interface size each half was under
+       8px wide, and rating three and a half instead of four was a matter of luck. Padding only
+       above and below, since the click handler divides the box's width into ten equal halves. */
+    font-size: 1.5rem;
     line-height: 1;
+    padding-block: var(--size-2-2);
     cursor: pointer;
     opacity: var(--icon-opacity);
     transition: opacity 120ms ease;
@@ -1042,8 +1131,9 @@
     color: var(--text-normal);
   }
 
-  .work-note-row td {
-    white-space: normal;
+  .work-note-editor {
+    padding-top: var(--size-4-3);
+    border-top: 1px solid var(--background-modifier-border);
   }
 
   .work-note-field {
@@ -1400,6 +1490,15 @@
     animation: sw-pulse 1.4s ease-in-out infinite;
   }
 
+  .skeleton-rows[data-kind='card'] {
+    --sw-skeleton-height: 9.5rem;
+    gap: var(--size-4-3);
+  }
+
+  .skeleton-rows[data-kind='card'] .skeleton {
+    border-radius: var(--radius-m);
+  }
+
   .skeleton-rows[data-kind='table'] {
     --sw-skeleton-height: 3.25rem;
   }
@@ -1443,68 +1542,11 @@
 
   /* ------------------------------------------------------------------ works on a phone */
 
-  /* Below the drawer breakpoint an eight-column table is a horizontal scroll with the title as
-     the only thing on screen. Each row becomes a card instead: the work cell on top, the figures
-     under it in one muted line, each carrying its own label since the header is gone. */
+  /* The cards already stack; on a phone they lose their side padding so the title gets the
+     width, and the controls above them fall into two columns. */
   @media (max-width: 700px) {
-    .works-table,
-    .works-table tbody {
-      display: block;
-      overflow: visible;
-    }
-
-    .works-table thead {
-      display: none;
-    }
-
-    .works-table tbody tr {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0 var(--size-4-4);
-      padding: var(--size-4-3) 0 var(--size-4-3) var(--size-4-3);
-      border-bottom: var(--table-border-width) solid var(--table-border-color);
-    }
-
-    .works-table tbody tr[data-status='Reading'] {
-      box-shadow: inset 2px 0 0 var(--interactive-accent);
-    }
-
-    .works-table tbody tr[data-status='Reading'] > td:first-child {
-      box-shadow: none;
-    }
-
-    .works-table td {
-      padding: 0;
-      border: none;
-    }
-
-    .works-table .work-cell {
-      flex-basis: 100%;
-      min-width: 0;
-      max-width: none;
-      margin-bottom: var(--size-4-2);
-    }
-
-    .works-table td[data-label] {
-      max-width: none;
-      color: var(--text-muted);
-      font-size: var(--font-ui-smaller);
-      text-align: left;
-      white-space: normal;
-    }
-
-    .works-table td[data-label]::before {
-      content: attr(data-label) ' ';
-      color: var(--text-faint);
-    }
-
-    .works-table .work-note-row {
-      display: block;
-    }
-
-    .works-table .work-note-row td {
-      display: block;
-      padding: var(--size-4-2) 0;
+    .work-card {
+      padding: var(--size-4-3) var(--size-4-3);
     }
 
     .works-controls {

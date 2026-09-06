@@ -2,10 +2,10 @@ interface SkeletonRowsProps {
   /** How many placeholder rows to draw; match the page size where one is known. */
   rows?: number;
   /**
-   * `table` rows are the height of a works row, `line` the height of a one-line list row, `text` a
-   * line of body copy, `title` a heading.
+   * `card` rows are the height of a work card, `table` the height of a table row, `line` the
+   * height of a one-line list row, `text` a line of body copy, `title` a heading.
    */
-  kind?: 'table' | 'line' | 'text' | 'title';
+  kind?: 'card' | 'table' | 'line' | 'text' | 'title';
 }
 
 /**

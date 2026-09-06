@@ -1,9 +1,8 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
 import type {
   PagedResult,
-  ReadingStatus,
   SavedFilter,
   WatchedShip,
   WorkListItem,
@@ -11,12 +10,8 @@ import type {
   WorkState,
 } from '../api/types';
 import { EmptyState } from '../components/EmptyState';
-import { FavoriteToggle } from '../components/FavoriteToggle';
-import { RatingStars } from '../components/RatingStars';
 import { SkeletonRows } from '../components/Skeleton';
-import { formatDate, formatDateTime } from '../format';
-import { READING_STATUS_LABELS } from '../readingStatus';
-import { warningChipClass } from '../warnings';
+import { WorkCard } from '../components/WorkCard';
 
 const SORT_LABELS: Record<WorkSort, string> = {
   updated: 'Last updated',
@@ -29,12 +24,6 @@ const SORT_LABELS: Record<WorkSort, string> = {
 
 const PAGE_SIZES = [25, 50, 100];
 
-/** Matches `MaxNoteLength` on `UserWorkState.Note`, so an over-long note is refused here first. */
-const MAX_NOTE_LENGTH = 4000;
-
-/** Columns in the works table, for the note editor's row to span all of them. */
-const WORK_COLUMN_COUNT = 7;
-
 const DEFAULT_SORT: WorkSort = 'updated';
 const DEFAULT_PAGE_SIZE = 25;
 
@@ -46,17 +35,6 @@ const SEARCH_DEBOUNCE_MS = 300;
 
 function isSort(value: string | null): value is WorkSort {
   return value !== null && value in SORT_LABELS;
-}
-
-/** AO3 is where the work actually lives; this app only ever holds a description of it. */
-function ao3WorkUrl(id: number): string {
-  return `https://archiveofourown.org/works/${id}`;
-}
-
-function formatUpdated(work: WorkListItem): string {
-  // An approximate timestamp came from a day-granular date, so rendering a time would invent
-  // precision the scrape never had.
-  return work.updatedAtIsApproximate ? formatDate(work.updatedAt) : formatDateTime(work.updatedAt);
 }
 
 /** What the `filter` query parameter means when it says "show me everything I follow". */
@@ -94,7 +72,7 @@ function writeSortPreference(preference: SortPreference) {
 
 interface WorksPageProps {
   /**
-   * The Favorites tab: the same table, narrowed to the works this reader has marked. Everything
+   * The Favorites tab: the same list, narrowed to the works this reader has marked. Everything
    * the reader has favorited, so the saved-filter control and the default set stay out of it — a
    * filter quietly narrowing the list would make "all my favorites" show fewer than there are.
    */
@@ -114,23 +92,23 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
   // change made through the dropdowns is what a later "Everything you follow" pick falls back to,
   // not whatever the page loaded with.
   const [sortPreference, setSortPreference] = useState<SortPreference>(readSortPreference);
-  // Why a failed write to one row's state is not the page's `error`: the list itself loaded fine,
-  // and blanking the works to say so would lose the very row the reader was editing.
+  // Why a failed write to one card's state is not the page's `error`: the list itself loaded fine,
+  // and blanking the works to say so would lose the very card the reader was editing.
   const [stateErrors, setStateErrors] = useState<Record<number, string>>({});
   const [openNoteId, setOpenNoteId] = useState<number | null>(null);
   // Drafts are held per work, and dropped only once the note is saved. Closing an editor — by
-  // Cancel, by the toggle, or by opening another row's — leaves the text where the reader left it,
-  // which is the same promise the row-editor layout was chosen to keep.
+  // Cancel, by the toggle, or by opening another card's — leaves the text where the reader left it,
+  // which is the same promise the in-card editor layout was chosen to keep.
   const [noteDrafts, setNoteDrafts] = useState<Record<number, string>>({});
   const [savingNoteId, setSavingNoteId] = useState<number | null>(null);
-  // One counter per work, bumped on every write. A response is only allowed to touch the row when
-  // its own token is still the newest: two edits to one row in flight together otherwise let the
+  // One counter per work, bumped on every write. A response is only allowed to touch the card when
+  // its own token is still the newest: two edits to one card in flight together otherwise let the
   // slower, older answer land last and undo the newer one.
   const stateWriteTokens = useRef(new Map<number, number>());
-  // The tail of each row's write chain, so two edits to one row are never in flight together. The
-  // token above only decides which *response* may repaint the row; the requests themselves are
+  // The tail of each card's write chain, so two edits to one card are never in flight together. The
+  // token above only decides which *response* may repaint the card; the requests themselves are
   // whole-state replacements, so letting them overlap lets the older one land last and leaves the
-  // database holding the edit the row has already stopped showing.
+  // database holding the edit the card has already stopped showing.
   const stateWriteChains = useRef(new Map<number, Promise<unknown>>());
   // Bumped by every touch of a note editor — typing in one, opening one, closing one. A save
   // captures it and refuses to reset anything if it has moved since: the write is not instant, and
@@ -227,8 +205,8 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
   useEffect(() => {
     let current = true;
 
-    // A different page of works is a different set of rows: an open note editor and a failed write
-    // both belong to rows that are about to be replaced.
+    // A different page of works is a different set of cards: an open note editor and a failed write
+    // both belong to cards that are about to be replaced.
     showNoteEditor(null);
     setNoteDrafts({});
     setSavingNoteId(null);
@@ -266,7 +244,7 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
     };
   }, [page, pageSize, shipId, sort, ascending, savedFilterId, useDefaultFilter, favorites, search]);
 
-  /** Writes one row's state into the loaded page, leaving every other row's copy alone. */
+  /** Writes one card's state into the loaded page, leaving every other card's copy alone. */
   const applyState = (workId: number, state: WorkState) => {
     setResult((current) =>
       current === null
@@ -279,19 +257,19 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
   };
 
   /**
-   * Sends one row's whole state and reconciles the row against what came back. Resolves to whether
-   * the write landed — never rejects, so a caller that only wants the row updated can ignore it.
+   * Sends one card's whole state and reconciles the card against what came back. Resolves to whether
+   * the write landed — never rejects, so a caller that only wants the card updated can ignore it.
    *
    * Whole, because `PUT /works/{id}/state` replaces: a request naming only the field that changed
    * would clear the other two. Optimistic, because a rating that waits on a round trip does not
-   * feel like a click — but the response, not the guess, is what the row ends up showing, and a
+   * feel like a click — but the response, not the guess, is what the card ends up showing, and a
    * rejected write puts the old value back *and says so*.
    */
   const saveState = (work: WorkListItem, next: WorkState): Promise<boolean> => {
     const previous = work.state;
     const token = (stateWriteTokens.current.get(work.id) ?? 0) + 1;
     stateWriteTokens.current.set(work.id, token);
-    // Whether this write is still the newest for this row. It governs what the *row* shows, not
+    // Whether this write is still the newest for this card. It governs what the *card* shows, not
     // what this call reports: a superseded write still happened, and the write that superseded it
     // is the one whose outcome the reader should be looking at.
     const isCurrent = () => stateWriteTokens.current.get(work.id) === token;
@@ -299,8 +277,8 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
     applyState(work.id, next);
     setStateErrors(({ [work.id]: _cleared, ...rest }) => rest);
 
-    // Queued behind this row's last write rather than sent now, so the archive of record ends up
-    // agreeing with the row: the reader's last edit is the last one the server sees. A failed
+    // Queued behind this card's last write rather than sent now, so the archive of record ends up
+    // agreeing with the card: the reader's last edit is the last one the server sees. A failed
     // predecessor still lets this one go — the reader asked for it, and abandoning it silently
     // would be the same lost edit by another route.
     const previousWrite = stateWriteChains.current.get(work.id) ?? Promise.resolve();
@@ -325,7 +303,7 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
     );
 
     stateWriteChains.current.set(work.id, write);
-    // Only the tail is worth keeping: once this write is the last one done for the row, the map
+    // Only the tail is worth keeping: once this write is the last one done for the card, the map
     // entry is a reference to a settled promise that nothing will ever chain onto again.
     void write.then(() => {
       if (stateWriteChains.current.get(work.id) === write) stateWriteChains.current.delete(work.id);
@@ -336,7 +314,7 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
   const openNoteEditor = (work: WorkListItem) => {
     showNoteEditor(work.id);
     setNoteDrafts((drafts) =>
-      // Seeded from the stored note only when nothing is held for this row: a draft that is still
+      // Seeded from the stored note only when nothing is held for this card: a draft that is still
       // here is text the reader typed and never saved, and it outranks what the server has.
       work.id in drafts ? drafts : { ...drafts, [work.id]: work.state.note ?? '' },
     );
@@ -347,7 +325,7 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
    * because Delete would otherwise have to blank the draft first and then send a value this render
    * cannot see yet.
    *
-   * A refused write leaves the editor open holding the text: the row below it already carries the
+   * A refused write leaves the editor open holding the text: the card below it already carries the
    * reason, and closing would throw away what the reader typed as well as the write.
    */
   const commitNote = (work: WorkListItem, note: string | null) => {
@@ -362,7 +340,7 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
     saveState(work, { ...work.state, note })
       .then((saved) => {
         if (!saved) return;
-        // Untouched since the click, and still the row this save was started for: only then is
+        // Untouched since the click, and still the card this save was started for: only then is
         // closing the editor and dropping its draft the reader's own last instruction, rather than
         // an undo of whatever they went on to do.
         if (noteEditorTouches.current !== touchesAtSend) return;
@@ -495,7 +473,7 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
       {result === null ? (
         // Rows the height of real ones rather than a sentence, so the page does not jump when they
         // land. Still guarded on the error: a failed load has nothing on the way.
-        !error && <SkeletonRows rows={8} />
+        !error && <SkeletonRows rows={8} kind="card" />
       ) : works.length === 0 ? (
         search !== null ? (
           // Before every other empty state: whatever else is narrowing the list, the search is the
@@ -569,202 +547,32 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
         )
       ) : (
         <>
-          <table className="works-table" aria-busy={loading}>
-            <thead>
-              <tr>
-                <th>Work</th>
-                {/* Named for whose rating it is: the reader's own sits under the title. */}
-                <th>AO3 rating</th>
-                <th className="numeric">Words</th>
-                <th className="numeric">Chapters</th>
-                <th className="numeric">Kudos</th>
-                <th className="numeric">Hits</th>
-                <th>Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {works.map((work) => (
-                <Fragment key={work.id}>
-                  {/* The status rides the row so the one the reader is in the middle of can carry
-                      the reading spine — see .works-table [data-status='Reading']. */}
-                  <tr data-status={work.state.status}>
-                    <td className="work-cell">
-                      {/* The title opens this app's own page for the work — everything known about
-                          it, and the reader's own marks — rather than leaving for the archive. AO3
-                          is one click further on, in the byline. */}
-                      <Link className="title-link" to={`/works/${work.id}`}>
-                        {work.title}
-                      </Link>
-                      <span className="work-byline">
-                        {work.isAnonymous
-                          ? 'Anonymous'
-                          : work.authors.length > 0
-                            ? work.authors.join(', ')
-                            : 'Unknown author'}
-                        {work.fandoms.length > 0 && <> · {work.fandoms.join(', ')}</>}
-                        {' · '}
-                        <a href={ao3WorkUrl(work.id)} target="_blank" rel="noreferrer">
-                          AO3
-                        </a>
-                      </span>
-                      <span className="work-chips">
-                        {work.ships.map((ship) => (
-                          <span key={ship} className="chip chip-ship">
-                            {ship}
-                          </span>
-                        ))}
-                        {/* A row is here despite a tag having let go either because another
-                            followed tag still carries it or because this reader marked it — see
-                            WorkQueries.Library. Which of the two is visible from the chips beside
-                            this one, so the chip says the fact and not the reason. */}
-                        {work.leftShips.map((ship) => (
-                          <span
-                            key={ship}
-                            className="chip chip-left"
-                            title={`AO3 no longer lists this work under ${ship}. Everything you have marked on it is untouched, and it comes back if the tag lists it again.`}
-                          >
-                            Left {ship}
-                          </span>
-                        ))}
-                        {work.categories.map((category) => (
-                          <span key={category} className="chip">
-                            {category}
-                          </span>
-                        ))}
-                        {work.warnings.map((warning) => (
-                          <span key={warning} className={warningChipClass(warning)}>
-                            {warning}
-                          </span>
-                        ))}
-                        {work.isRestricted && <span className="chip">Registered users only</span>}
-                      </span>
-                      {/* The reader's own marks, under the work they belong to rather than in a
-                          column of controls beside it: the work is the thing, the marks are notes
-                          in its margin. */}
-                      <span className="work-marks">
-                        <FavoriteToggle
-                          title={work.title}
-                          value={work.state.isFavorite}
-                          onChange={(isFavorite) => {
-                            void saveState(work, { ...work.state, isFavorite });
-                          }}
-                        />
-                        <select
-                          aria-label={`Reading status for ${work.title}`}
-                          value={work.state.status}
-                          onChange={(e) => {
-                            void saveState(work, {
-                              ...work.state,
-                              status: e.target.value as ReadingStatus,
-                            });
-                          }}
-                        >
-                          {Object.entries(READING_STATUS_LABELS).map(([value, label]) => (
-                            <option key={value} value={value}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
-                        <RatingStars
-                          label={`Your rating of ${work.title}`}
-                          value={work.state.rating}
-                          onChange={(rating) => {
-                            void saveState(work, { ...work.state, rating });
-                          }}
-                        />
-                        <button
-                          type="button"
-                          className="link"
-                          aria-expanded={openNoteId === work.id}
-                          onClick={() =>
-                            openNoteId === work.id ? showNoteEditor(null) : openNoteEditor(work)
-                          }
-                        >
-                          {work.state.note === null ? 'Add note' : 'Note'}
-                        </button>
-                      </span>
-                      {stateErrors[work.id] && (
-                        <span className="error work-state-error" role="alert">
-                          {stateErrors[work.id]}
-                        </span>
-                      )}
-                    </td>
-                    <td className="work-rating-cell" data-label="AO3 rating">
-                      {work.rating}
-                    </td>
-                    <td className="numeric" data-label="Words">
-                      {work.wordCount.toLocaleString()}
-                    </td>
-                    <td className="numeric" data-label="Chapters">
-                      {work.chapterCount}/{work.plannedChapterCount ?? '?'}
-                      {work.isComplete && <span className="work-complete"> complete</span>}
-                    </td>
-                    <td className="numeric" data-label="Kudos">
-                      {work.kudos.toLocaleString()}
-                    </td>
-                    <td className="numeric" data-label="Hits">
-                      {work.hits.toLocaleString()}
-                    </td>
-                    <td className="work-updated-cell" data-label="Updated">
-                      {formatUpdated(work)}
-                    </td>
-                  </tr>
-                  {openNoteId === work.id && (
-                    // A row of its own rather than a popover: the table already scrolls sideways,
-                    // and a floating editor over a scrolling table is where a half-typed note goes
-                    // to get lost.
-                    <tr className="work-note-row">
-                      <td colSpan={WORK_COLUMN_COUNT}>
-                        <label className="work-note-field">
-                          Your note on “{work.title}”
-                          <textarea
-                            value={noteDrafts[work.id] ?? ''}
-                            maxLength={MAX_NOTE_LENGTH}
-                            rows={4}
-                            autoFocus
-                            onChange={(e) => {
-                              noteEditorTouches.current += 1;
-                              setNoteDrafts((drafts) => ({ ...drafts, [work.id]: e.target.value }));
-                            }}
-                          />
-                        </label>
-                        <div className="button-row">
-                          <button
-                            type="button"
-                            disabled={savingNoteId === work.id}
-                            onClick={() =>
-                              commitNote(work, (noteDrafts[work.id] ?? '').trim() || null)
-                            }
-                          >
-                            Save note
-                          </button>
-                          <button
-                            type="button"
-                            className="link"
-                            onClick={() => showNoteEditor(null)}
-                          >
-                            Close
-                          </button>
-                          {work.state.note !== null && (
-                            // Clearing is emptying the box and saving, which nobody guesses. The
-                            // button says so rather than leaving a note that can only be rewritten.
-                            <button
-                              type="button"
-                              className="link"
-                              disabled={savingNoteId === work.id}
-                              onClick={() => commitNote(work, null)}
-                            >
-                              Delete note
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
+          <ul className="work-cards" aria-busy={loading}>
+            {works.map((work) => (
+              <WorkCard
+                key={work.id}
+                work={work}
+                stateError={stateErrors[work.id]}
+                onStateChange={(next) => {
+                  void saveState(work, next);
+                }}
+                noteEditor={{
+                  open: openNoteId === work.id,
+                  draft: noteDrafts[work.id] ?? '',
+                  saving: savingNoteId === work.id,
+                  onToggle: () =>
+                    openNoteId === work.id ? showNoteEditor(null) : openNoteEditor(work),
+                  onClose: () => showNoteEditor(null),
+                  onDraftChange: (draft) => {
+                    noteEditorTouches.current += 1;
+                    setNoteDrafts((drafts) => ({ ...drafts, [work.id]: draft }));
+                  },
+                  onSave: () => commitNote(work, (noteDrafts[work.id] ?? '').trim() || null),
+                  onDelete: () => commitNote(work, null),
+                }}
+              />
+            ))}
+          </ul>
 
           <div className="pager">
             <button
