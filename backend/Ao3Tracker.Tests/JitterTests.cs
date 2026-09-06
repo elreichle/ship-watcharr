@@ -15,7 +15,8 @@ public class JitterTests
     private const int Samples = 2_000;
 
     private static RateLimitedAo3HttpClient Client(Ao3HttpClientOptions options) =>
-        new(new HttpClient(),
+        new(new Ao3RateGate(Options.Create(options), TimeProvider.System, NullLogger<Ao3RateGate>.Instance),
+            new HttpClient(),
             new Ao3LoginHttpClient(new HttpClient()),
             new MemoryCache(new MemoryCacheOptions()),
             Options.Create(options),

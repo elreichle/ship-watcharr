@@ -123,6 +123,7 @@ public class Ao3ResponseCacheTests : IDisposable
             new StubContacts(() => "emma@example.com"));
 
         return new RateLimitedAo3HttpClient(
+            new Ao3RateGate(options, TimeProvider.System, NullLogger<Ao3RateGate>.Instance),
             new HttpClient(_archive),
             new Ao3LoginHttpClient(new HttpClient(new StubArchive())),
             new MemoryCache(new MemoryCacheOptions()),

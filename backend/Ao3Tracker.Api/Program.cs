@@ -127,6 +127,11 @@ builder.Services.AddScoped<Ao3UserAgentProvider>();
 // same reason as the two above: it re-reads settings and the credential row on every poll.
 builder.Services.AddScoped<ScrapingGate>();
 
+// The one outbound channel: the semaphore every request queues on, the spacing since the last
+// send, and the hold AO3's 429s ask for. A singleton because it *is* the instance-wide fact —
+// see Ao3RateGate — and the scrape worker reads it to defer a job to when AO3 said.
+builder.Services.AddSingleton<Ao3RateGate>();
+
 builder.Services
     .AddHttpClient<IRateLimitedHttpClient, RateLimitedAo3HttpClient>(client =>
     {

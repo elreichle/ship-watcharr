@@ -60,6 +60,12 @@ public class ScrapeWorker : BackgroundService
     private readonly ScrapeWakeSignal _wake;
 
     /// <summary>
+    /// The outbound channel, read for one thing: whether AO3 has asked the instance to wait, and
+    /// until when — so a job can be put back just past that moment rather than run into it.
+    /// </summary>
+    private readonly Ao3RateGate _gate;
+
+    /// <summary>
     /// The clock every scheduling decision reads: what is due, which pass a due job gets, when a
     /// run started and when it went stale.
     /// </summary>
@@ -83,13 +89,15 @@ public class ScrapeWorker : BackgroundService
         ILogger<ScrapeWorker> logger,
         IOptions<Ao3HttpClientOptions> httpOptions,
         ScrapeWakeSignal wake,
-        TimeProvider time)
+        TimeProvider time,
+        Ao3RateGate gate)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
         _httpOptions = httpOptions.Value;
         _wake = wake;
         _time = time;
+        _gate = gate;
     }
 
     /// <summary>Now, from the injected clock — see <see cref="_time"/>.</summary>
@@ -163,6 +171,11 @@ public class ScrapeWorker : BackgroundService
 
     internal async Task RunDueJobsAsync(CancellationToken ct)
     {
+        // The scheduled middle of the gate's order: behind whatever a reader is waiting on, ahead
+        // of the detail pages filling in behind the scenes. Stated rather than left to the default
+        // so that the four workers' places in the queue are all written down somewhere.
+        using var _ = Ao3AmbientPriority.Enter(Ao3RequestPriority.Scheduled);
+
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
@@ -218,6 +231,19 @@ public class ScrapeWorker : BackgroundService
         foreach (var jobId in dueJobIds)
         {
             ct.ThrowIfCancellationRequested();
+
+            // AO3 has asked the instance to wait, and for longer than any one request will hold
+            // itself open. Running the job would send its first request to the gate to park there
+            // for the rest of the hold, and every job behind it in this tick to queue behind that;
+            // deferring is the same wait without the queue, and it leaves the run history clean —
+            // nothing was attempted, so nothing is recorded, the way the configuration gates hold.
+            // A shorter hold is left to the gate: the request waits it out inside itself.
+            if (_gate.HeldUntil is { } heldUntil && heldUntil - _time.GetUtcNow() > _httpOptions.MaxRetryAfter)
+            {
+                using var deferScope = _scopeFactory.CreateScope();
+                await DeferPastTheHoldAsync(deferScope.ServiceProvider, jobId, heldUntil, ct);
+                continue;
+            }
 
             // One scope per job, which is what Program.cs says the worker does. Sharing a scope
             // across the tick shares the AppDbContext, the scraper and the ingestor between every
@@ -466,11 +492,54 @@ public class ScrapeWorker : BackgroundService
             run.CompletedAt = UtcNow;
             run.HeartbeatAt = run.CompletedAt;
             job.LastRunAt = run.CompletedAt;
-            job.NextRunAt = NextRunAfter(job.Interval, UtcNow);
+            job.NextRunAt = run.StopReason == ScrapeStopReason.Throttled
+                ? JustPastTheHold(UtcNow)
+                : NextRunAfter(job.Interval, UtcNow);
 
             await PersistCompletionAsync(db, run, job, ct);
         }
     }
+
+    /// <summary>
+    /// Puts a due job back to when AO3 said, without running it. See the caller for when.
+    /// </summary>
+    private async Task DeferPastTheHoldAsync(
+        IServiceProvider services, int jobId, DateTimeOffset heldUntil, CancellationToken ct)
+    {
+        var db = services.GetRequiredService<AppDbContext>();
+        var job = await db.ScrapeJobs.FirstOrDefaultAsync(j => j.Id == jobId, ct);
+        if (job is null) return;
+
+        job.NextRunAt = JustPastTheHold(UtcNow);
+        await db.SaveChangesAsync(ct);
+
+        _logger.LogInformation(
+            "ScrapeJob {JobId} is deferred to {NextRunAt:u}: AO3 has asked this instance to wait until {HeldUntil:u}, "
+            + "longer than a request is held open for.",
+            job.Id, job.NextRunAt, heldUntil);
+    }
+
+    /// <summary>
+    /// The next-run time for a job that ran into AO3's throttling: the end of the hold, spread the
+    /// way every other next-run time is, or the retry ceiling from now when the gate has no hold on
+    /// record — which happens when the ask was never read, and is a wait AO3 was already owed.
+    /// </summary>
+    /// <remarks>
+    /// Never sooner than a minute: a hold that ends inside this poll would otherwise be re-run on
+    /// the next tick, and a run that stopped for throttling has told AO3 nothing that makes the
+    /// next request more welcome than the last.
+    /// </remarks>
+    private DateTime JustPastTheHold(DateTime now)
+    {
+        var remaining = _gate.HeldUntil is { } heldUntil
+            ? heldUntil.UtcDateTime - now
+            : _httpOptions.MaxRetryAfter;
+
+        if (remaining < TimeSpan.FromMinutes(1)) remaining = TimeSpan.FromMinutes(1);
+
+        return NextRunAfter(remaining, now);
+    }
+
 
     /// <summary>
     /// Writes a finished run and its job's new schedule, and never throws.

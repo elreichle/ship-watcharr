@@ -25,10 +25,11 @@ public sealed class Ao3LoginHttpClient
 }
 
 /// <summary>
-/// Single choke point for all outbound scraping traffic. Requests are serialized through
-/// one semaphore so that no matter how many scrapers/users run concurrently, requests to
-/// AO3 never go out faster than <see cref="Ao3HttpClientOptions.MinDelayBetweenRequests"/>
-/// apart. This is a hard constraint, not a tunable-away nicety.
+/// Single choke point for all outbound scraping traffic. Every request goes through the one
+/// <see cref="Ao3RateGate"/>, so that no matter how many scrapers/users run concurrently, requests
+/// to AO3 never go out faster than <see cref="Ao3HttpClientOptions.MinDelayBetweenRequests"/>
+/// apart, and nothing goes out while AO3 has asked the instance to wait. This is a hard
+/// constraint, not a tunable-away nicety.
 ///
 /// It is also where the instance's AO3 session is attached, and the only place that decides a
 /// session has stopped working. Both belong here for the same reason the rate gate does: a scraper
@@ -36,9 +37,7 @@ public sealed class Ao3LoginHttpClient
 /// </summary>
 public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
 {
-    private static readonly SemaphoreSlim Gate = new(1, 1);
-    private static DateTimeOffset _lastRequestAt = DateTimeOffset.MinValue;
-
+    private readonly Ao3RateGate _gate;
     private readonly HttpClient _httpClient;
     private readonly Ao3LoginHttpClient _loginClient;
     private readonly IMemoryCache _cache;
@@ -49,6 +48,7 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
     private readonly ILogger<RateLimitedAo3HttpClient> _logger;
 
     public RateLimitedAo3HttpClient(
+        Ao3RateGate gate,
         HttpClient httpClient,
         Ao3LoginHttpClient loginClient,
         IMemoryCache cache,
@@ -58,6 +58,7 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
         TimeProvider time,
         ILogger<RateLimitedAo3HttpClient> logger)
     {
+        _gate = gate;
         _httpClient = httpClient;
         _loginClient = loginClient;
         _cache = cache;
@@ -364,57 +365,58 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
             bool mayRetry,
             CancellationToken ct)
     {
-        await Gate.WaitAsync(ct);
+        await _gate.EnterAsync(Ao3AmbientPriority.Current, ct);
         try
         {
-            await WaitForRateLimitSlotAsync(ct);
+            await _gate.WaitForSlotAsync(NextDelayTarget(), ct);
 
-            try
+            using var response = await SendFollowingRedirectsAsync(
+                client, newRequest, cookieHeader, userAgent, completion, followRedirects, ct);
+
+            var url = response.RequestMessage?.RequestUri;
+
+            var isRetryable = response.StatusCode == HttpStatusCode.TooManyRequests ||
+                               (int)response.StatusCode >= 500;
+
+            if (!isRetryable) return (true, await read(response, ct), null, response.StatusCode, url);
+
+            var asked = AskedToWaitFor(response.Headers.RetryAfter);
+
+            // A 429 is AO3 speaking to the instance, not to this request: the ask counts down to
+            // one deadline for the whole penalty window, so the next request from anywhere in this
+            // process would only draw another. Recorded on the gate before anything else is
+            // decided — including whether this request gives up — so that giving up never means
+            // the ship behind it fires into the same window.
+            //
+            // A 5xx is not held on. It is the archive struggling with a page, or with everything,
+            // and the retry below answers that with its own backoff; parking every worker for one
+            // failing page is what moving the retry wait off the gate was for.
+            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                _gate.Hold(asked ?? _options.InitialBackoff);
+
+            if (!mayRetry) return (true, await read(response, ct), null, response.StatusCode, url);
+
+            // Honouring Retry-After is not in question — this project waits when AO3 asks it
+            // to. What is bounded is how long one request may wait *inside* itself: past the
+            // ceiling the answer is to stop asking rather than to come back early, so the
+            // response is read as the failure it is, the caller records it, and the scheduler
+            // defers the run to the hold recorded above. Coming back after the ceiling instead
+            // would be asking again sooner than AO3 said.
+            if (asked > _options.MaxRetryAfter)
             {
-                using var response = await SendFollowingRedirectsAsync(
-                    client, newRequest, cookieHeader, userAgent, completion, followRedirects, ct);
+                _logger.LogWarning(
+                    "AO3 answered {Url} with {StatusCode} and asked for {Asked}, past the "
+                    + "{Ceiling} this instance will hold a request for. Not retrying.",
+                    url, response.StatusCode, asked, _options.MaxRetryAfter);
 
-                var url = response.RequestMessage?.RequestUri;
-
-                var isRetryable = response.StatusCode == HttpStatusCode.TooManyRequests ||
-                                   (int)response.StatusCode >= 500;
-
-                if (!isRetryable || !mayRetry)
-                    return (true, await read(response, ct), null, response.StatusCode, url);
-
-                var asked = AskedToWaitFor(response.Headers.RetryAfter);
-
-                // Honouring Retry-After is not in question — this project waits when AO3 asks it
-                // to. What is bounded is how long one request may wait *inside* itself: past the
-                // ceiling the answer is to stop asking rather than to come back early, so the
-                // response is read as the failure it is, the caller records it, and the run's own
-                // circuit breaker ends the pass. Coming back after the ceiling instead would be
-                // asking again sooner than AO3 said.
-                if (asked > _options.MaxRetryAfter)
-                {
-                    _logger.LogWarning(
-                        "AO3 answered {Url} with {StatusCode} and asked for {Asked}, past the "
-                        + "{Ceiling} this instance will hold a request for. Not retrying.",
-                        url, response.StatusCode, asked, _options.MaxRetryAfter);
-
-                    return (true, await read(response, ct), null, response.StatusCode, url);
-                }
-
-                return (false, default, asked, response.StatusCode, url);
+                return (true, await read(response, ct), null, response.StatusCode, url);
             }
-            finally
-            {
-                // Must be in a finally, not on the success path. A network failure or the 30s
-                // HttpClient timeout throws straight out of the send, and if the timestamp were
-                // only advanced on success the next caller would compute a negative "time since
-                // last request" and fire immediately. That would remove the rate limit precisely
-                // when AO3 is failing and least able to absorb load.
-                _lastRequestAt = DateTimeOffset.UtcNow;
-            }
+
+            return (false, default, asked, response.StatusCode, url);
         }
         finally
         {
-            Gate.Release();
+            _gate.Exit();
         }
     }
 
@@ -474,7 +476,27 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
                 request.Headers.Add("Cookie", cookieHeader);
             }
 
-            var response = await client.SendAsync(request, completion, ct);
+            // Every hop is a request AO3 has to field, so every hop after the first owes the
+            // same spacing as any other request. Before this they went out back to back — a
+            // synonym tag's redirect, or a download's, was two requests within a second, which
+            // is exactly the burst a per-window limiter counts. The gate is held throughout, so
+            // nothing interleaves.
+            if (hop > 0) await _gate.WaitForSlotAsync(NextDelayTarget(), ct);
+
+            HttpResponseMessage response;
+            try
+            {
+                response = await client.SendAsync(request, completion, ct);
+            }
+            finally
+            {
+                // Stamped in a finally, not on the success path. A network failure or the 30s
+                // HttpClient timeout throws straight out of the send, and if the stamp were only
+                // written on success the next caller would compute a negative "time since last
+                // request" and fire immediately — removing the rate limit precisely when AO3 is
+                // failing and least able to absorb load.
+                _gate.MarkSent();
+            }
 
             if (!followRedirects
                 || !IsRedirect(response.StatusCode)
@@ -543,25 +565,12 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
     }
 
     /// <summary>
-    /// Waits out the spacing owed since the previous request, using a fresh random target drawn
-    /// per request from [Min, Max].
+    /// A fresh random spacing target drawn per request from [Min, Max]; the gate waits it out.
     ///
     /// Randomizing raises the mean delay above the floor (5s fixed becomes ~6.5s across 5–8s), so
     /// this strictly reduces request rate. It also breaks up the lockstep that fixed intervals
     /// produce, which is what turns several independent clients into a synchronized load spike.
     /// </summary>
-    private async Task WaitForRateLimitSlotAsync(CancellationToken ct)
-    {
-        var target = NextDelayTarget();
-        var elapsedSinceLast = DateTimeOffset.UtcNow - _lastRequestAt;
-        var remaining = target - elapsedSinceLast;
-        if (remaining > TimeSpan.Zero)
-        {
-            _logger.LogDebug("Rate limiting: waiting {Delay} (target spacing {Target})", remaining, target);
-            await Task.Delay(remaining, ct);
-        }
-    }
-
     internal TimeSpan NextDelayTarget()
     {
         var min = _options.MinDelayBetweenRequests;

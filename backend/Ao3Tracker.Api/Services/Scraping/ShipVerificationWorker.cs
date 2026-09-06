@@ -58,6 +58,10 @@ public class ShipVerificationWorker : BackgroundService
     /// <summary>Internal so a test can run one tick without a host or a timer.</summary>
     internal async Task VerifyDueShipsAsync(CancellationToken ct)
     {
+        // A ship somebody just followed, whose page says "checking" until this answers: served
+        // ahead of the scheduled walks at the gate, in order and not in spacing.
+        using var _ = Ao3AmbientPriority.Enter(Ao3RequestPriority.Interactive);
+
         using var scope = _scopeFactory.CreateScope();
 
         // Checked before touching the database, and re-checked every tick rather than once at

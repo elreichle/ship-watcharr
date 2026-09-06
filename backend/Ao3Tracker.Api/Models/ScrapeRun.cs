@@ -66,9 +66,9 @@ public class ScrapeRun
 
     /// <summary>
     /// One of <c>ScrapeStopReason</c>: "watermark" | "cap" | "timeCap" | "breaker" | "lastPage" |
-    /// "held" | "denied" | "notFound" | "error" | "interrupted". Read as a closed vocabulary by
-    /// <c>Ao3ShipIndexScraper.HeldAfterPageAsync</c>, so a new value belongs in that class rather
-    /// than at its write site.
+    /// "held" | "denied" | "notFound" | "throttled" | "error" | "interrupted". Read
+    /// as a closed vocabulary by <c>Ao3ShipIndexScraper.HeldAfterPageAsync</c>, so a new value
+    /// belongs in that class rather than at its write site.
     /// </summary>
     public string? StopReason { get; set; }
 }

@@ -57,6 +57,20 @@ public static class ScrapeStopReason
     public const string Denied = "denied";
 
     /// <summary>
+    /// AO3 asked this instance to slow down — a 429 the transport could not wait out within
+    /// <see cref="Ao3HttpClientOptions.MaxRetryAfter"/> — so the run stopped rather than keep
+    /// asking. Nothing about the ship is wrong, and nothing about the archive is down: the ask
+    /// names a deadline, the gate holds every request until it, and the scheduler puts the job back
+    /// just past it (see <c>ScrapeWorker.RunJobAsync</c>) instead of a whole interval later, which
+    /// is what an <see cref="Error"/> used to cost it.
+    ///
+    /// Recorded as a failed run, because it is one: the pass read nothing it set out to read, and
+    /// the run history is where an operator sees the archive throttling this instance. Like
+    /// <see cref="Error"/>, it may never move the watermark.
+    /// </summary>
+    public const string Throttled = "throttled";
+
+    /// <summary>
     /// The archive answered 404 for the first page this run asked for, having read none — which is
     /// the archive saying definitively that the page is not there, rather than failing to answer.
     ///
@@ -95,7 +109,7 @@ public static class ScrapeStopReason
     /// can produce. See the call site for why each value is on this list.
     /// </summary>
     public static bool RecordsAsFailure(string? stopReason) =>
-        stopReason is Error or Held or Denied or Breaker or NotFound;
+        stopReason is Error or Held or Denied or Breaker or NotFound or Throttled;
 }
 
 /// <summary>

@@ -126,12 +126,18 @@ the whole system polite, and it is not optional:
   a misconfiguration can only ever slow things down.
 - Retries `429`/`5xx` with exponential backoff (jittered by ±20%), honoring `Retry-After`
   verbatim when present — an explicit instruction is not something to guess on top of.
+- Treats a `429` as addressed to the whole instance, because that is how AO3 sends it: its
+  `Retry-After` counts down to one deadline per penalty window. The gate holds *every* outbound
+  request from every worker until that deadline (capped at `MaxThrottleHold`, default 1h), and a
+  run stopped by one is put back just past it rather than a full interval later. A single request
+  waits out an ask of up to `MaxRetryAfter` (default 15 min) itself; a longer ask fails the
+  request and leaves the hold to the gate.
+- Spaces every redirect hop like any other request — a synonym tag's `302` is a second request AO3
+  has to field, not a free one.
+- Serves waiters at the gate in priority order — downloads and ship verification (somebody is
+  waiting), then the scheduled ship walks, then work detail pages — which changes who goes next
+  and never how far apart.
 - Spreads each job's next run by ±10%, so jobs sharing an interval don't converge onto one tick.
-- Aborts a run after `MaxConsecutiveFailures` (default 3) consecutive failures, and caps each run
-  at `MaxRequestsPerRun` (default 500) requests and `MaxRunDuration` (default 2h).
-- Caches successful responses for `Ao3HttpClient:CacheDuration` (default 15 min) so unchanged
-  pages aren't re-fetched. Cache hits don't count against the per-run budget — they cost AO3
-  nothing.
 
 ### How this instance identifies itself
 

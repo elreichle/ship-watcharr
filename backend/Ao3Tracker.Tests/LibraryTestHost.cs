@@ -158,6 +158,7 @@ internal sealed class LibraryTestHost : IDisposable
         services.AddScoped<Ao3UserAgentProvider>();
 
         services.AddSingleton<IRateLimitedHttpClient>(Http);
+        services.AddSingleton<Ao3RateGate>();
 
         // The real login stack over the fake transport, rather than a stub provider: whether a due
         // job runs now depends on an actual round trip through the actual login parser, so a stub
@@ -261,7 +262,14 @@ internal sealed class LibraryTestHost : IDisposable
         // Resolved, not the Clock field: a test substituting its own TimeProvider through the
         // configure overload would otherwise give the scrapers one clock and the worker another,
         // which is the exact bug the worker reading this clock exists to rule out.
-        _provider.GetRequiredService<TimeProvider>());
+        _provider.GetRequiredService<TimeProvider>(),
+        Gate);
+
+    /// <summary>
+    /// The instance's outbound channel as the worker sees it. Its clock is the fixture's, so a test
+    /// can record a hold and read it back without the wall clock running it out.
+    /// </summary>
+    public Ao3RateGate Gate => _provider.GetRequiredService<Ao3RateGate>();
 
     /// <summary>
     /// One poll of the download worker, without a host or a timer — the same call its loop makes.

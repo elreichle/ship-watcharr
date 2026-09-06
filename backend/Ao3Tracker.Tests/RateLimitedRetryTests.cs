@@ -11,13 +11,15 @@ namespace Ao3Tracker.Tests;
 /// <summary>
 /// What one request's retry costs every other request on the instance.
 ///
-/// The rate gate is a process-wide semaphore, and everything outbound queues behind it — the ship
-/// walk and the download drain alike. So where the wait between attempts happens is not a detail:
-/// inside the gate, one <c>Retry-After</c> is every caller's wait, and the circuit breaker cannot
-/// intervene because nothing is making requests for it to count.
+/// The rate gate (<see cref="Ao3RateGate"/>) is one channel per process, and everything outbound
+/// queues behind it — the ship walk and the download drain alike. So where the wait between
+/// attempts happens is not a detail: inside the gate, one <c>Retry-After</c> is every caller's
+/// wait, and the circuit breaker cannot intervene because nothing is making requests for it to
+/// count.
 ///
-/// Honouring <c>Retry-After</c> is not in question. What these pin is that one request's wait is
-/// not allowed to become the instance's.
+/// Honouring <c>Retry-After</c> is not in question. What these pin is that one request's wait on a
+/// struggling page is not allowed to become the instance's. A 429 is the deliberate exception —
+/// AO3 addresses that to the instance, and <see cref="Ao3RateGateTests"/> pins what it holds.
 /// </summary>
 public class RateLimitedRetryTests : IDisposable
 {
@@ -164,6 +166,7 @@ public class RateLimitedRetryTests : IDisposable
             new StubContacts(() => "emma@example.com"));
 
         return new RateLimitedAo3HttpClient(
+            new Ao3RateGate(options, TimeProvider.System, NullLogger<Ao3RateGate>.Instance),
             new HttpClient(_archive),
             new Ao3LoginHttpClient(new HttpClient(new StubArchive())),
             new MemoryCache(new MemoryCacheOptions()),

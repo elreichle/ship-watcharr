@@ -210,6 +210,11 @@ public class DownloadWorker : BackgroundService
 
     internal async Task DrainQueueAsync(CancellationToken ct)
     {
+        // Somebody clicked for each of these and is watching the row say "queued". At the gate that
+        // puts a download ahead of a listing page or a detail page waiting alongside it — ahead in
+        // order only, never in spacing.
+        using var _ = Ao3AmbientPriority.Enter(Ao3RequestPriority.Interactive);
+
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 

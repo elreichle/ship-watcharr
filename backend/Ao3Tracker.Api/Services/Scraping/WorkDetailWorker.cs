@@ -79,6 +79,10 @@ public class WorkDetailWorker : BackgroundService
 
     internal async Task RunPassAsync(CancellationToken ct)
     {
+        // Nobody is waiting on a detail page in particular, so at the gate these yield to
+        // everything else — the ship walks, and anything a reader asked for.
+        using var _ = Ao3AmbientPriority.Enter(Ao3RequestPriority.Background);
+
         using var scope = _scopeFactory.CreateScope();
 
         if (!await MayFetchAsync(scope.ServiceProvider, ct)) return;

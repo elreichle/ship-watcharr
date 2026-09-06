@@ -41,15 +41,29 @@ public class Ao3HttpClientOptions
     /// <summary>
     /// The longest <c>Retry-After</c> this instance will hold a request open for. AO3 asking for
     /// more than this is not disregarded — it is taken as an answer rather than a wait: the request
-    /// stops being retried, its caller records the failure, and the run's circuit breaker ends the
-    /// pass. Coming back after this ceiling instead would be asking again sooner than AO3 said.
+    /// stops being retried, its caller records the failure, and the scheduler defers the run to
+    /// when AO3 said (see <see cref="Ao3RateGate"/>). Coming back after this ceiling instead would
+    /// be asking again sooner than AO3 said.
     ///
-    /// It exists because <c>Retry-After</c> is a number the archive chooses and this instance has
-    /// to schedule around: without a ceiling a single hour-long ask would keep one request — and,
-    /// before the retry wait was moved off the shared gate, every other request on the instance —
-    /// parked with nothing to show for it.
+    /// Fifteen minutes because of what AO3 actually sends. Its 429s were observed in production
+    /// carrying a <c>Retry-After</c> of two to nine minutes, counting down to one deadline per
+    /// penalty window — and this used to be two minutes, under which every one of them failed its
+    /// run outright and cost the ship a whole interval for a wait of a few minutes. The retry wait
+    /// happens outside the gate, so a request parked here holds nothing but itself.
     /// </summary>
-    public TimeSpan MaxRetryAfter { get; set; } = TimeSpan.FromMinutes(2);
+    public TimeSpan MaxRetryAfter { get; set; } = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// The longest AO3's <c>Retry-After</c> may park the <i>instance</i> for — every outbound
+    /// request, at every priority — as opposed to the one request that drew it, which
+    /// <see cref="MaxRetryAfter"/> bounds.
+    ///
+    /// Larger than that ceiling on purpose: a request that has given up retrying is one thing, and
+    /// the next ship's request going out into the same penalty window is another. The cap exists
+    /// because the deadline is a number the archive chooses, and a misread date header must not be
+    /// able to stop this instance scraping until somebody restarts it.
+    /// </summary>
+    public TimeSpan MaxThrottleHold { get; set; } = TimeSpan.FromHours(1);
 
     /// <summary>
     /// Fraction of the computed backoff added or subtracted at random on each retry (0.2 = ±20%).

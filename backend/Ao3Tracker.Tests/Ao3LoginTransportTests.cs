@@ -397,6 +397,7 @@ public class Ao3LoginTransportTests : IDisposable
             new StubContacts(() => "emma@example.com"));
 
         return new RateLimitedAo3HttpClient(
+            new Ao3RateGate(options, TimeProvider.System, NullLogger<Ao3RateGate>.Instance),
             new HttpClient(_archive),
             new Ao3LoginHttpClient(new HttpClient(_loginArchive)),
             new MemoryCache(new MemoryCacheOptions()),

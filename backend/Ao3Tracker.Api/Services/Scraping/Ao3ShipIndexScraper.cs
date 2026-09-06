@@ -420,6 +420,23 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 break;
             }
 
+            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                // Not an Error, though it reaches this run the same way. A 429 is AO3 asking the
+                // instance to wait, and the transport has already recorded the wait on the gate;
+                // what is left for the run is to stop asking and say why, so that the scheduler can
+                // put the job back just past the deadline rather than a whole interval later — the
+                // interval being what a new ship's first page used to cost when it drew one.
+                _logger.LogWarning(
+                    "AO3 asked this instance to slow down (429) at {Url} for ship {ShipId}; deferring the run",
+                    url, ship.Id);
+
+                stopReason = ScrapeStopReason.Throttled;
+                errorMessage = $"AO3 asked this instance to slow down (429) at {url}; the run is deferred "
+                    + "until the wait AO3 asked for has passed";
+                break;
+            }
+
             if (response.StatusCode != HttpStatusCode.OK)
             {
                 // The walk adds no retry of its own, because one has already happened:
