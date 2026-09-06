@@ -89,6 +89,59 @@ public class ScrapeWorkerSchedulingTests : IDisposable
         Assert.Single(_scraper.Contexts);
     }
 
+    // ---- quiet tags ----------------------------------------------------------------------------
+
+    [Fact]
+    public async Task Stretches_the_interval_once_a_tag_has_been_quiet_and_snaps_back_when_it_moves()
+    {
+        await AQuietShipAsync();
+        var worker = _host.NewScrapeWorker();
+
+        // The plain interval after the first quiet pass; doubling from the second, to a cap.
+        Assert.Equal(1, await WaitAfterNextRunAsync(worker));
+        Assert.Equal(2, await WaitAfterNextRunAsync(worker));
+        Assert.Equal(4, await WaitAfterNextRunAsync(worker));
+        Assert.Equal(4, await WaitAfterNextRunAsync(worker));
+
+        // A pass that found a work: the tag is moving, and the next check is at the plain interval.
+        _scraper.Outcome = ScrapeOutcome.Empty(ScrapeStopReason.Watermark) with { WorksAdded = 1 };
+        Assert.Equal(1, await WaitAfterNextRunAsync(worker));
+
+        // And the count starts again from there.
+        _scraper.Outcome = ScrapeOutcome.Empty(ScrapeStopReason.Watermark);
+        Assert.Equal(1, await WaitAfterNextRunAsync(worker));
+        Assert.Equal(2, await WaitAfterNextRunAsync(worker));
+    }
+
+    [Fact]
+    public async Task A_failed_pass_neither_counts_as_quiet_nor_stretches()
+    {
+        await AQuietShipAsync();
+        var worker = _host.NewScrapeWorker();
+
+        Assert.Equal(1, await WaitAfterNextRunAsync(worker));
+        Assert.Equal(2, await WaitAfterNextRunAsync(worker));
+
+        // An error says nothing about the tag: the next wait is the plain interval, and the quiet
+        // streak behind it is broken — the pass after it starts counting from one again.
+        _scraper.Outcome = ScrapeOutcome.Empty(ScrapeStopReason.Error) with { ErrorMessage = "AO3 returned 503" };
+        Assert.Equal(1, await WaitAfterNextRunAsync(worker));
+
+        _scraper.Outcome = ScrapeOutcome.Empty(ScrapeStopReason.Watermark);
+        Assert.Equal(1, await WaitAfterNextRunAsync(worker));
+        Assert.Equal(2, await WaitAfterNextRunAsync(worker));
+    }
+
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(1, 1)]
+    [InlineData(2, 2)]
+    [InlineData(3, 4)]
+    [InlineData(4, 4)]
+    [InlineData(40, 4)]
+    public void The_stretch_doubles_from_the_second_quiet_pass_and_stops_at_four(int quietInARow, int expected) =>
+        Assert.Equal(expected, ScrapeWorker.QuietStretch(quietInARow));
+
     // ---- helpers -------------------------------------------------------------------------------
 
     /// <summary>

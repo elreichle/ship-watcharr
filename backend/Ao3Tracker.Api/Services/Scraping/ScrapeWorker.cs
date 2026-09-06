@@ -32,6 +32,13 @@ public class ScrapeWorker : BackgroundService
     private const double ScheduleJitterFactor = 0.1;
 
     /// <summary>
+    /// How many incremental runs in a row must find nothing before a job's interval is stretched,
+    /// and the most it is stretched by. See <see cref="QuietStretch"/>.
+    /// </summary>
+    internal const int QuietRunsBeforeStretching = 2;
+    internal const int MaxQuietStretch = 4;
+
+    /// <summary>
     /// How long a ship goes between full sweeps of its listing.
     ///
     /// A sweep is the most expensive thing this application does to one tag: one request per page of
@@ -494,7 +501,7 @@ public class ScrapeWorker : BackgroundService
             job.LastRunAt = run.CompletedAt;
             job.NextRunAt = run.StopReason == ScrapeStopReason.Throttled
                 ? JustPastTheHold(UtcNow)
-                : NextRunAfter(job.Interval, UtcNow);
+                : NextRunAfter(job.Interval * await QuietStretchAsync(db, job, run, ct), UtcNow);
 
             await PersistCompletionAsync(db, run, job, ct);
         }
@@ -540,6 +547,68 @@ public class ScrapeWorker : BackgroundService
         return NextRunAfter(remaining, now);
     }
 
+    /// <summary>
+    /// How many intervals to wait before this job's next incremental pass, given how the last few
+    /// went: one, until <see cref="QuietRunsBeforeStretching"/> passes in a row have found nothing,
+    /// then doubling per further quiet pass up to <see cref="MaxQuietStretch"/>, and back to one the
+    /// moment a pass finds a work.
+    /// </summary>
+    /// <remarks>
+    /// <para>The instance has one outbound channel, and every ship's six-hourly page 1 is a request
+    /// on it whether the tag has moved or not. A tag that updates twice a month answers a hundred
+    /// and twenty of those a month with two that found anything. Stretching the quiet ones to a day
+    /// keeps most of that channel for the tags that are moving, the backfills, and the downloads a
+    /// reader is waiting on — at the cost of seeing a quiet tag's rare new work up to a day late
+    /// instead of six hours, once it has been quiet for the best part of one already.</para>
+    /// <para>Only a succeeded incremental pass counts as quiet, and only incremental passes are
+    /// looked at: a backfill or a sweep touching rows says nothing about whether the tag is active,
+    /// and an error says nothing about the tag at all. A run with anything to show for it resets the
+    /// count — the ship is moving, and the next check comes at the plain interval.</para>
+    /// <para>Read from the run history rather than kept as a column: the history already records
+    /// exactly what this needs, and the count is short. Anything going wrong in the read answers
+    /// one — this runs in a <c>finally</c>, and the schedule must not be lost to a failed query.</para>
+    /// </remarks>
+    private async Task<int> QuietStretchAsync(AppDbContext db, ScrapeJob job, ScrapeRun run, CancellationToken ct)
+    {
+        if (!IsQuiet(run.Mode, run.Status, run.WorksAdded, run.WorksUpdated)) return 1;
+
+        try
+        {
+            var earlier = await db.ScrapeRuns
+                .Where(r => r.ScrapeJobId == job.Id && r.Id != run.Id && r.Mode == ScrapeRunMode.Incremental)
+                .OrderByDescending(r => r.StartedAt)
+                .ThenByDescending(r => r.Id)
+                .Take(QuietRunsBeforeStretching + 2)
+                .Select(r => new { r.Status, r.WorksAdded, r.WorksUpdated })
+                .ToListAsync(ct);
+
+            var quietInARow = 1 + earlier
+                .TakeWhile(r => IsQuiet(ScrapeRunMode.Incremental, r.Status, r.WorksAdded, r.WorksUpdated))
+                .Count();
+
+            return QuietStretch(quietInARow);
+        }
+        catch (Exception ex) when (!ScrapeCancellation.IsShutdown(ex, ct))
+        {
+            _logger.LogWarning(ex, "Could not read ScrapeJob {JobId}'s recent runs; scheduling at the plain interval", job.Id);
+            return 1;
+        }
+    }
+
+    private static bool IsQuiet(ScrapeRunMode mode, ScrapeRunStatus status, int worksAdded, int worksUpdated) =>
+        mode == ScrapeRunMode.Incremental
+        && status == ScrapeRunStatus.Succeeded
+        && worksAdded == 0
+        && worksUpdated == 0;
+
+    /// <summary>The multiplier for a job whose last <paramref name="quietInARow"/> incremental passes found nothing.</summary>
+    internal static int QuietStretch(int quietInARow)
+    {
+        if (quietInARow < QuietRunsBeforeStretching) return 1;
+
+        var stretch = 1 << (quietInARow - QuietRunsBeforeStretching + 1);
+        return stretch > MaxQuietStretch ? MaxQuietStretch : stretch;
+    }
 
     /// <summary>
     /// Writes a finished run and its job's new schedule, and never throws.

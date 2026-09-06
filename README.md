@@ -138,6 +138,9 @@ the whole system polite, and it is not optional:
   waiting), then the scheduled ship walks, then work detail pages — which changes who goes next
   and never how far apart.
 - Spreads each job's next run by ±10%, so jobs sharing an interval don't converge onto one tick.
+- Stretches a quiet ship's interval: once two incremental passes in a row have found nothing, the
+  wait doubles per further quiet pass up to 4× (a day, at the default 6h), and snaps back to the
+  plain interval the moment a pass finds anything.
 
 ### How this instance identifies itself
 
