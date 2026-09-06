@@ -125,6 +125,31 @@ public static class WorkQueries
         works.Where(w => callerStates.Any(s => s.WorkId == w.Id && s.FavoritedAt != null));
 
     /// <summary>
+    /// Narrows <paramref name="works"/> to the ones whose title or byline contains
+    /// <paramref name="search"/>, case-insensitively. A blank search narrows nothing.
+    /// </summary>
+    /// <remarks>
+    /// One box, both fields: a reader hunting for a work half-remembers "that one by so-and-so" as
+    /// readily as a word of the title, and asking them to say which they are typing is a question
+    /// they usually cannot answer. The whole trimmed text is matched as one substring, the way the
+    /// tag and author pickers do, so a search containing a space finds titles containing those
+    /// words in that order.
+    ///
+    /// Matched through the normalized columns, never the display ones — see the remarks on
+    /// <see cref="Tag.NameNormalized"/>. The byline is the pseud's rendered name, which is what a
+    /// reader sees under a title and so what they will type.
+    /// </remarks>
+    public static IQueryable<Work> Search(IQueryable<Work> works, string? search)
+    {
+        if (string.IsNullOrWhiteSpace(search)) return works;
+
+        var term = search.Trim().ToUpperInvariant();
+        return works.Where(w =>
+            w.TitleNormalized.Contains(term)
+            || w.Authors.Any(a => a.Pseud.DisplayNameNormalized.Contains(term)));
+    }
+
+    /// <summary>
     /// Applies the requested sort, always tie-broken by id. Null for a sort that isn't offered.
     ///
     /// The tie-break is what makes paging correct, not merely tidy: thousands of works share a

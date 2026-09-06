@@ -18,7 +18,35 @@ public class Work
     /// </summary>
     public long Id { get; set; }
 
-    public string Title { get; set; } = null!;
+    /// <summary>
+    /// The title as AO3 rendered it. Setting it also sets <see cref="TitleNormalized"/>, so the
+    /// two cannot drift apart — see the remarks there.
+    /// </summary>
+    public string Title
+    {
+        get => _title;
+        set
+        {
+            _title = value;
+            TitleNormalized = value.ToUpperInvariant();
+        }
+    }
+
+    private string _title = null!;
+
+    /// <summary>
+    /// <see cref="Title"/> uppercased with the invariant culture, and the column a title search goes
+    /// through. Same provider-portability requirement as <see cref="Tag.NameNormalized"/>: SQLite's
+    /// LIKE folds case and PostgreSQL's does not, so a search through <see cref="Title"/> itself
+    /// would answer differently on the two providers.
+    ///
+    /// Unlike <see cref="Ao3Pseud.DisplayNameNormalized"/>, this is not left to whoever writes the
+    /// row: the <see cref="Title"/> setter maintains it, because a title is written from several
+    /// places — the blurb ingest, every test fixture — and a forgotten write here does not fail,
+    /// it makes one work unsearchable. EF reads through the backing fields, so materializing a row
+    /// keeps whatever the column holds; the setter only runs when application code assigns a title.
+    /// </summary>
+    public string TitleNormalized { get; private set; } = null!;
 
     /// <summary>Raw HTML from the blurb's summary blockquote. Sanitize at render time, not here.</summary>
     public string? SummaryHtml { get; set; }

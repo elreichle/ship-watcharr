@@ -1303,6 +1303,11 @@
     min-width: 9rem;
   }
 
+  /* Room for a title's worth of text, which is what gets typed into it. */
+  .works-search {
+    min-width: 16rem;
+  }
+
   /* Wide enough for a full relationship tag, which is the whole content of the field. */
   .ship-tag-field {
     min-width: 22rem;
@@ -1510,6 +1515,10 @@
 
     .works-controls label {
       min-width: 0;
+    }
+
+    .works-search {
+      grid-column: 1 / -1;
     }
   }
 

@@ -373,6 +373,62 @@ public class WorksControllerTests : IDisposable
         Assert.Null(work.PlannedChapterCount);
     }
 
+    // ---- search --------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task Finds_a_work_by_part_of_its_title_whatever_the_case()
+    {
+        var emma = _host.SeedUser();
+        var lexa = await SeedShipAsync("Clarke Griffin/Lexa", emma);
+        await SeedWorksAsync(lexa, w => w.Title = "The Long Night", 1);
+        await SeedWorksAsync(lexa, w => w.Title = "Morning After", 2);
+
+        var page = Body(await _host.Works(emma).GetWorks(search: "long NIGHT", ct: default));
+
+        Assert.Equal([1], page.Items.Select(w => w.Id));
+        Assert.Equal(1, page.TotalCount);
+    }
+
+    [Fact]
+    public async Task Finds_a_work_by_its_byline()
+    {
+        var emma = _host.SeedUser();
+        var lexa = await SeedShipAsync("Clarke Griffin/Lexa", emma);
+        await SeedWorksAsync(lexa, 1, 2);
+        await SeedAuthorAsync(1, 1, "Villanelle_writes");
+        await SeedAuthorAsync(2, 2, "somebody_else");
+
+        var page = Body(await _host.Works(emma).GetWorks(search: "villanelle", ct: default));
+
+        Assert.Equal([1], page.Items.Select(w => w.Id));
+    }
+
+    [Fact]
+    public async Task A_blank_search_narrows_nothing()
+    {
+        var emma = _host.SeedUser();
+        await SeedWorksAsync(await SeedShipAsync("Clarke Griffin/Lexa", emma), 1, 2);
+
+        var page = Body(await _host.Works(emma).GetWorks(search: "   ", ct: default));
+
+        Assert.Equal(2, page.TotalCount);
+    }
+
+    [Fact]
+    public async Task A_search_cannot_reach_works_from_ships_you_do_not_follow()
+    {
+        // The search is a narrowing of the library, not a way around it: a title typed exactly
+        // still finds only what the caller's subscriptions carry.
+        var emma = _host.SeedUser("emma");
+        var sam = _host.SeedUser("sam");
+        await SeedWorksAsync(await SeedShipAsync("Clarke Griffin/Lexa", emma), w => w.Title = "Shared Title", 1);
+        await SeedWorksAsync(await SeedShipAsync("Kirk/Spock", sam), w => w.Title = "Shared Title", 2);
+
+        var page = Body(await _host.Works(emma).GetWorks(search: "shared title", ct: default));
+
+        Assert.Equal([1], page.Items.Select(w => w.Id));
+    }
+
     // ---- fixture -------------------------------------------------------------------------------
 
     /// <summary>Creates a ship through the real endpoint, so its schedule is wired up too.</summary>
@@ -396,6 +452,19 @@ public class WorksControllerTests : IDisposable
             db.ShipWorks.Add(new ShipWork { ShipId = shipId, WorkId = id });
         }
 
+        await db.SaveChangesAsync();
+    }
+
+    private async Task SeedAuthorAsync(long workId, int pseudId, string byline)
+    {
+        await using var db = _host.NewContext();
+        db.Ao3Pseuds.Add(new Ao3Pseud
+        {
+            Id = pseudId, Username = byline, PseudName = byline,
+            UsernameNormalized = byline.ToUpperInvariant(), PseudNameNormalized = byline.ToUpperInvariant(),
+            DisplayName = byline, DisplayNameNormalized = byline.ToUpperInvariant(),
+        });
+        db.WorkAuthors.Add(new WorkAuthor { WorkId = workId, PseudId = pseudId, Position = 0 });
         await db.SaveChangesAsync();
     }
 

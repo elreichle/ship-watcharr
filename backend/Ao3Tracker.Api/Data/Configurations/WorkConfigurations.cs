@@ -17,6 +17,9 @@ public class WorkConfiguration : IEntityTypeConfiguration<Work>
         entity.Property(w => w.Id).ValueGeneratedNever();
 
         entity.Property(w => w.Title).HasMaxLength(512).IsRequired();
+        // Same length as Title: ToUpperInvariant is a simple case mapping, so it never grows a
+        // string. Not indexed — a title search is a substring match, which no b-tree answers.
+        entity.Property(w => w.TitleNormalized).HasMaxLength(512).IsRequired();
         entity.Property(w => w.LanguageCode).HasMaxLength(16);
         entity.Property(w => w.LanguageName).HasMaxLength(64);
 

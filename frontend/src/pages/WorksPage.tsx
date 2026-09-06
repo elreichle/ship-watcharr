@@ -38,6 +38,12 @@ const WORK_COLUMN_COUNT = 7;
 const DEFAULT_SORT: WorkSort = 'updated';
 const DEFAULT_PAGE_SIZE = 25;
 
+/**
+ * How long the search box waits after the last keystroke before asking the server. Long enough
+ * that a word typed at speed is one request, short enough that a pause reads as "done".
+ */
+const SEARCH_DEBOUNCE_MS = 300;
+
 function isSort(value: string | null): value is WorkSort {
   return value !== null && value in SORT_LABELS;
 }
@@ -148,6 +154,12 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
   const ascendingParam = searchParams.get('ascending');
   const shipIdParam = searchParams.get('shipId');
   const shipId = shipIdParam === null ? null : Number(shipIdParam);
+  // Only ever the trimmed, non-empty text: "q=" and no q at all are the same search, and treating
+  // them alike is what keeps the effect below from reloading the page for a cleared box.
+  const search = searchParams.get('q')?.trim() || null;
+  // What the box shows, which runs ahead of the URL by one debounce: the URL is the query the page
+  // is showing results for, and typing should not rewrite it on every keystroke.
+  const [searchDraft, setSearchDraft] = useState(search ?? '');
 
   // Three states, and the absent one is not the same as "none": no parameter at all means the
   // server applies whichever saved filter is marked default, which is the point of having one.
@@ -192,6 +204,26 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
     api.getSavedFilters().then(setSavedFilters).catch(() => setSavedFilters([]));
   }, []);
 
+  // The URL reaching the box — the back button, a followed link — rather than the box reaching
+  // the URL, which the effect below does.
+  useEffect(() => {
+    setSearchDraft(search ?? '');
+  }, [search]);
+
+  useEffect(() => {
+    const draft = searchDraft.trim() || null;
+    if (draft === search) return;
+
+    // Replaced rather than pushed: every settled keystroke as a history entry would make the back
+    // button retype the search backwards. The page number still resets, as for any other change.
+    const timer = window.setTimeout(
+      () => updateQuery({ q: draft }, { replace: true }),
+      SEARCH_DEBOUNCE_MS,
+    );
+    return () => window.clearTimeout(timer);
+    // updateQuery is recreated each render; it closes over nothing that changes what it does.
+  }, [searchDraft, search]);
+
   useEffect(() => {
     let current = true;
 
@@ -213,6 +245,7 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
         savedFilterId,
         useDefaultFilter,
         favoritesOnly: favorites,
+        search: search ?? undefined,
       })
       .then((next) => {
         // Guards against a slow first request landing after a faster second one and overwriting it.
@@ -231,7 +264,7 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
     return () => {
       current = false;
     };
-  }, [page, pageSize, shipId, sort, ascending, savedFilterId, useDefaultFilter, favorites]);
+  }, [page, pageSize, shipId, sort, ascending, savedFilterId, useDefaultFilter, favorites, search]);
 
   /** Writes one row's state into the loaded page, leaving every other row's copy alone. */
   const applyState = (workId: number, state: WorkState) => {
@@ -340,7 +373,7 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
   };
 
   /** Any change other than paging invalidates the page number, so it resets unless set explicitly. */
-  const updateQuery = (changes: Record<string, string | null>) => {
+  const updateQuery = (changes: Record<string, string | null>, options?: { replace: boolean }) => {
     setSearchParams((params) => {
       const next = new URLSearchParams(params);
       if (!('page' in changes)) next.delete('page');
@@ -349,7 +382,7 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
         else next.set(key, value);
       }
       return next;
-    });
+    }, options);
   };
 
   const works = result?.items ?? [];
@@ -360,6 +393,16 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
       <h1>{favorites ? 'Favorites' : 'Works'}</h1>
 
       <div className="works-controls">
+        <label className="works-search">
+          Search
+          <input
+            type="search"
+            value={searchDraft}
+            placeholder="Title or author"
+            onChange={(e) => setSearchDraft(e.target.value)}
+          />
+        </label>
+
         {!favorites && (
           <label>
             Filter
@@ -454,7 +497,23 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
         // land. Still guarded on the error: a failed load has nothing on the way.
         !error && <SkeletonRows rows={8} />
       ) : works.length === 0 ? (
-        favorites ? (
+        search !== null ? (
+          // Before every other empty state: whatever else is narrowing the list, the search is the
+          // thing the reader just typed, and the one they will want to take back first.
+          <EmptyState
+            title={`Nothing matches “${search}”`}
+            action={
+              <button type="button" onClick={() => setSearchDraft('')}>
+                Clear the search
+              </button>
+            }
+          >
+            Titles and bylines are searched for the whole text as typed
+            {favorites ? ', among your favorites' : ''}
+            {shipId !== null ? ', under the ship picked above' : ''}
+            {activeFilter ? `, within “${activeFilter.name}”` : ''}.
+          </EmptyState>
+        ) : favorites ? (
           // Before the "follow a ship" prompt: a reader with no ships has no favorites either, but
           // what this tab is for is the heart, and that is the thing to point at.
           <EmptyState

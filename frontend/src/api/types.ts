@@ -278,6 +278,8 @@ export interface WorkQuery {
   useDefaultFilter?: boolean;
   /** Only the works the reader has marked as favorites. Composes with everything else here. */
   favoritesOnly?: boolean;
+  /** Text to find in a title or byline, case-insensitively. Blank finds everything. */
+  search?: string;
 }
 
 export type Ao3TagType = 'Fandom' | 'Relationship' | 'Character' | 'Freeform' | 'Warning';

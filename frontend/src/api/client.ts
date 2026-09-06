@@ -210,6 +210,7 @@ export const api = {
     savedFilterId,
     useDefaultFilter,
     favoritesOnly,
+    search,
   }: WorkQuery = {}) => {
     // Built key by key rather than from the object: a null shipId means "every watched ship", and
     // URLSearchParams would happily send it as the literal string "null". An omitted sort matters
@@ -223,6 +224,7 @@ export const api = {
     if (savedFilterId != null) query.set('savedFilterId', String(savedFilterId));
     if (useDefaultFilter !== undefined) query.set('useDefaultFilter', String(useDefaultFilter));
     if (favoritesOnly) query.set('favoritesOnly', 'true');
+    if (search) query.set('search', search);
 
     return request<PagedResult<WorkListItem>>(`/works?${query}`, undefined, isWorksPage);
   },

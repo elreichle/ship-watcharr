@@ -71,6 +71,8 @@ public class WorksController : ControllerBase
     /// <param name="favoritesOnly">Narrow to the works the caller has marked as favorites. Their
     /// own marks and nobody else's, through the same per-user states the rows carry; composes with
     /// every other narrowing here rather than replacing any of it.</param>
+    /// <param name="search">Text to find in a work's title or byline, case-insensitively. Blank
+    /// finds everything. Composes with the rest like <paramref name="favoritesOnly"/> does.</param>
     [HttpGet]
     public async Task<ActionResult<PagedResult<WorkListItemDto>>> GetWorks(
         [FromQuery] int page = 1,
@@ -81,6 +83,7 @@ public class WorksController : ControllerBase
         [FromQuery] int? savedFilterId = null,
         [FromQuery] bool useDefaultFilter = true,
         [FromQuery] bool favoritesOnly = false,
+        [FromQuery] string? search = null,
         CancellationToken ct = default)
     {
         var userId = CurrentUserId;
@@ -110,6 +113,8 @@ public class WorksController : ControllerBase
         if (filter is not null) query = WorkQueries.ApplyFilter(query, filter, myStates);
 
         if (favoritesOnly) query = WorkQueries.Favorites(query, myStates);
+
+        query = WorkQueries.Search(query, search);
 
         // An explicit sort wins over the set's, so the works page's dropdown keeps working while a
         // saved view is applied. With neither, "updated" is the library's own default.
