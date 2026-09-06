@@ -2,6 +2,8 @@ import type {
   AccountEmail,
   Ao3TagType,
   BackfillRestarted,
+  Book,
+  Chapter,
   CurrentUser,
   DatabaseStatus,
   Download,
@@ -9,6 +11,7 @@ import type {
   FilterVocabulary,
   InstanceAo3Credential,
   PagedResult,
+  ReadingPosition,
   SavedFilter,
   SavedFilterAuthor,
   SavedFilterTag,
@@ -16,6 +19,7 @@ import type {
   ScrapeJob,
   ScrapeRun,
   ScrapingIdentity,
+  SetReadingPositionInput,
   SetWorkStateInput,
   ShipNotification,
   Stats,
@@ -104,6 +108,12 @@ const isStats: ResponseCheck = (body) =>
   Array.isArray(body.corpus.topAuthors) &&
   Array.isArray(body.reading.statusMix) &&
   Array.isArray(body.reading.ratingsAgainstReception);
+
+/** A book. The reader maps over `chapters` and reads each one's title on every render. */
+const isBook: ResponseCheck = (body) => isRecord(body) && Array.isArray(body.chapters);
+
+/** A chapter. Its `html` goes straight into the page, so it has to be a string and not a hole. */
+const isChapter: ResponseCheck = (body) => isRecord(body) && typeof body.html === 'string';
 
 async function request<T>(path: string, init?: RequestInit, isValid?: ResponseCheck): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -268,6 +278,28 @@ export const api = {
    * buffer a whole PDF in the page to hand it straight back.
    */
   downloadFileUrl: (id: number) => `/api/downloads/${id}/file`,
+
+  /** A downloaded EPUB, opened: its title and chapters, without their text. */
+  getBook: (downloadId: number) => request<Book>(`/downloads/${downloadId}/book`, undefined, isBook),
+
+  /** One chapter of it, sanitized by the server for rendering as markup. */
+  getChapter: (downloadId: number, index: number) =>
+    request<Chapter>(`/downloads/${downloadId}/book/chapters/${index}`, undefined, isChapter),
+
+  /** Where the caller is in a work, or undefined where they have not opened it in the app. */
+  getReadingPosition: (workId: number) =>
+    request<ReadingPosition | undefined>(`/works/${workId}/reading-position`),
+
+  /**
+   * Replaces where the caller is in a work. Sent with keepalive so that the save the reader page
+   * makes on its way out — a tab closing, the sidebar taking them elsewhere — outlives the page.
+   */
+  setReadingPosition: (workId: number, position: SetReadingPositionInput) =>
+    request<ReadingPosition>(`/works/${workId}/reading-position`, {
+      method: 'PUT',
+      body: JSON.stringify(position),
+      keepalive: true,
+    }),
 
   /**
    * The caller's notifications, newest first. `unreadOnly` narrows to what has not been marked

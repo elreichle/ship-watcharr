@@ -34,17 +34,20 @@ public class DownloadsController : ControllerBase
     private readonly AppDbContext _db;
     private readonly DownloadWakeSignal _wake;
     private readonly StoragePaths _paths;
+    private readonly StoredCopyResolver _copies;
     private readonly ILogger<DownloadsController> _logger;
 
     public DownloadsController(
         AppDbContext db,
         DownloadWakeSignal wake,
         StoragePaths paths,
+        StoredCopyResolver copies,
         ILogger<DownloadsController> logger)
     {
         _db = db;
         _wake = wake;
         _paths = paths;
+        _copies = copies;
         _logger = logger;
     }
 
@@ -261,7 +264,8 @@ public class DownloadsController : ControllerBase
     /// Streamed from disk rather than read into memory: an EPUB is small and a PDF of a long work
     /// is not, and this endpoint is the one place in the app where a whole file passes through it.
     ///
-    /// Three answers, and they mean different things. A request that is not this reader's — or that
+    /// Which file, if any, is <see cref="StoredCopyResolver"/>'s decision, shared with the in-app
+    /// reader. The answers mean different things. A request that is not this reader's — or that
     /// never existed — is a bare 404 alike, the same rule <see cref="DeleteDownload"/> follows, so
     /// that no id can be probed for whose it is. The other two are about the caller's own row and
     /// therefore say what is wrong with it: a request with nothing behind it at all is a 409, and
@@ -269,82 +273,40 @@ public class DownloadsController : ControllerBase
     /// opening a missing path would otherwise be.
     ///
     /// A request that is not Complete is still served where the reader is holding a copy from
-    /// before it was re-armed (<see cref="Download.PreviousWorkDownloadFileId"/>): those bytes were
-    /// theirs to read a moment ago and asking for a newer version is not a reason to take them
-    /// away. That is a different column from the one the request reports, which is what keeps
-    /// "a request never answers with bytes of a version it claims to have moved past" true — the
-    /// file a non-Complete request <i>names</i> is still refused, and the Downloads page labels
-    /// what it offers here as the earlier copy rather than as the fetch that has not happened.
+    /// before it was re-armed (<see cref="Download.PreviousWorkDownloadFileId"/>); the Downloads
+    /// page labels what it offers here as the earlier copy rather than as the fetch that has not
+    /// happened.
     /// </remarks>
     [HttpGet("downloads/{id:int}/file")]
     public async Task<IActionResult> GetDownloadFile(int id, CancellationToken ct)
     {
-        var userId = CurrentUserId;
+        StoredCopy.Found copy;
 
-        var request = await _db.Downloads
-            .Where(d => d.Id == id && d.UserId == userId)
-            .Select(d => new
-            {
-                d.WorkId,
-                d.Format,
-                d.Status,
-                WorkTitle = d.Work.Title,
-                RelativePath = d.File == null ? null : d.File.RelativePath,
-                PreviousRelativePath = d.PreviousFile == null ? null : d.PreviousFile.RelativePath,
-            })
-            .FirstOrDefaultAsync(ct);
-
-        if (request is null) return NotFound();
-
-        // Complete is the only status whose own file is an answer; anything else falls back to the
-        // copy the reader was already holding, and to nothing when there is none.
-        var reportsItsOwnFile = request.Status == DownloadStatus.Complete && request.RelativePath is not null;
-        var relativePath = reportsItsOwnFile ? request.RelativePath : request.PreviousRelativePath;
-
-        if (relativePath is null)
+        switch (await _copies.ResolveAsync(id, CurrentUserId, ct))
         {
-            return Problem(
-                statusCode: StatusCodes.Status409Conflict,
-                detail: "This download has no file yet. It is still queued, or the fetch failed.");
-        }
+            case StoredCopy.Found found:
+                copy = found;
+                break;
 
-        // Resolved through DownloadPaths rather than treated as a path: what is stored is relative
-        // to the data directory precisely so the volume can be mounted somewhere else tomorrow.
-        var dataDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(_paths.DataDirectory));
-        var absolutePath = Path.GetFullPath(DownloadPaths.Absolute(dataDirectory, relativePath));
-
-        // Nothing writes a RelativePath today but DownloadPaths.Relative, which builds it out of a
-        // work id and an enum and can no more escape the data directory than it can misspell it. It
-        // is checked anyway because this is the one place in the app where a value out of the
-        // database becomes a file handed to whoever asked: a row saying "../../etc/passwd" — from a
-        // migration, from a restored database, from a future writer with a different idea of what
-        // belongs in that column — would otherwise be served in full to any signed-in reader.
-        if (!absolutePath.StartsWith(dataDirectory + Path.DirectorySeparatorChar, StringComparison.Ordinal))
-        {
-            _logger.LogError(
-                "Download {DownloadId} names {RelativePath}, which is not inside the data directory. "
-                + "Nothing was served.", id, relativePath);
-
-            return Problem(
-                statusCode: StatusCodes.Status500InternalServerError,
-                detail: "This download names a file outside this instance's data directory, so it "
-                    + "was not served. Check the server log.");
-        }
-
-        if (!System.IO.File.Exists(absolutePath))
-        {
-            // 410 only for a request that says it has this file: that row is wrong about the world
-            // and re-asking is what repairs it. A queued or failed request whose earlier copy has
-            // also gone is not wrong about anything — it has no file, which is what it already
-            // says — so it answers as the request it is.
-            return reportsItsOwnFile
-                ? Problem(
-                    statusCode: StatusCodes.Status410Gone,
-                    detail: "The stored copy of this file is no longer on disk. Ask for it again to "
-                        + "have it fetched.")
-                : Problem(
+            case StoredCopy.NoFile:
+                return Problem(
                     statusCode: StatusCodes.Status409Conflict,
                     detail: "This download has no file yet. It is still queued, or the fetch failed.");
+
+            case StoredCopy.Gone:
+                return Problem(
+                    statusCode: StatusCodes.Status410Gone,
+                    detail: "The stored copy of this file is no longer on disk. Ask for it again to "
+                        + "have it fetched.");
+
+            case StoredCopy.Unsafe:
+                return Problem(
+                    statusCode: StatusCodes.Status500InternalServerError,
+                    detail: "This download names a file outside this instance's data directory, so it "
+                        + "was not served. Check the server log.");
+
+            default:
+                return NotFound();
         }
 
         // Private, because the file is served against this reader's request row and a shared cache
@@ -356,9 +318,9 @@ public class DownloadsController : ControllerBase
         Response.Headers.XContentTypeOptions = "nosniff";
 
         return PhysicalFile(
-            absolutePath,
-            ContentTypeFor(request.Format),
-            FileNameFor(request.WorkId, request.WorkTitle, request.Format));
+            copy.AbsolutePath,
+            ContentTypeFor(copy.Format),
+            FileNameFor(copy.WorkId, copy.WorkTitle, copy.Format));
     }
 
     /// <summary>

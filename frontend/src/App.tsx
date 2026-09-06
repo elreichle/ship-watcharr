@@ -7,6 +7,7 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { WorksPage } from './pages/WorksPage';
 import { WorkDetailPage } from './pages/WorkDetailPage';
+import { ReaderPage } from './pages/ReaderPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { FiltersPage } from './pages/FiltersPage';
 import { ShipsPage } from './pages/ShipsPage';
@@ -44,6 +45,8 @@ export default function App() {
           <Route path="/favorites" element={<WorksPage key="favorites" favorites />} />
           {/* A work of its own, under the list it is reached from, so the sidebar keeps Works lit. */}
           <Route path="/works/:workId" element={<WorkDetailPage />} />
+          {/* The work's EPUB, read in the app. Under the work for the same reason its page is. */}
+          <Route path="/works/:workId/read" element={<ReaderPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/filters" element={<FiltersPage />} />
           <Route path="/ships" element={<ShipsPage />} />

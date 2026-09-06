@@ -174,6 +174,7 @@ internal sealed class LibraryTestHost : IDisposable
         // The real fetcher over the same database and the same fake archive: what these tests are
         // about is which rows and which files a drain leaves behind.
         services.AddScoped<IDownloadFetcher, DownloadFetcher>();
+        services.AddScoped<StoredCopyResolver>();
 
         // The real ingestor and the real ship-index scraper, over the same in-memory database as
         // everything else here: what these tests are about is which rows a walk leaves behind, and a
@@ -505,7 +506,38 @@ internal sealed class LibraryTestHost : IDisposable
                 scope.ServiceProvider.GetRequiredService<AppDbContext>(),
                 scope.ServiceProvider.GetRequiredService<DownloadWakeSignal>(),
                 scope.ServiceProvider.GetRequiredService<StoragePaths>(),
+                scope.ServiceProvider.GetRequiredService<StoredCopyResolver>(),
                 scope.ServiceProvider.GetRequiredService<ILogger<DownloadsController>>()),
+            user,
+            scope.ServiceProvider);
+    }
+
+    /// <summary>
+    /// A book controller on a scope of its own: the tests queue a download through one request and
+    /// open it through the next.
+    /// </summary>
+    public BookController NewBookRequest(ApplicationUser user)
+    {
+        var scope = _provider.CreateScope();
+        _perRequestScopes.Add(scope);
+
+        return Build(
+            new BookController(scope.ServiceProvider.GetRequiredService<StoredCopyResolver>()),
+            user,
+            scope.ServiceProvider);
+    }
+
+    /// <summary>
+    /// A reading-position controller on a scope of its own, for the reason
+    /// <see cref="NewWorksRequest"/> gives: a save through one request is read back through the next.
+    /// </summary>
+    public ReadingPositionsController NewReadingPositionRequest(ApplicationUser user)
+    {
+        var scope = _provider.CreateScope();
+        _perRequestScopes.Add(scope);
+
+        return Build(
+            new ReadingPositionsController(scope.ServiceProvider.GetRequiredService<AppDbContext>()),
             user,
             scope.ServiceProvider);
     }

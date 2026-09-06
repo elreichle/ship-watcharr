@@ -520,6 +520,54 @@ export interface Download {
   completedAt: string | null;
 }
 
+/** One chapter's place and name in a book's reading order, without its text. */
+export interface ChapterHeading {
+  index: number;
+  title: string;
+}
+
+/**
+ * A downloaded EPUB opened for reading in the app: the body of `GET /api/downloads/{id}/book`.
+ * The text of a chapter is a separate request, so opening a long work costs one chapter's markup
+ * rather than the whole book's.
+ */
+export interface Book {
+  downloadId: number;
+  workId: number;
+  title: string;
+  /** True where the bytes are the copy the reader held before asking for a newer version. */
+  isEarlierCopy: boolean;
+  chapters: ChapterHeading[];
+}
+
+/**
+ * One chapter, sanitized by the server: an allowlist of elements and three checked attributes,
+ * so `html` can be rendered as markup without a sanitizer on this side.
+ */
+export interface Chapter {
+  index: number;
+  title: string;
+  html: string;
+}
+
+/**
+ * Where the reader is in a work. `blockIndex` is the chapter's top-level block at the top of the
+ * view, not a scroll offset, so the place survives a change of text size. PER-USER.
+ */
+export interface ReadingPosition {
+  chapterIndex: number;
+  blockIndex: number;
+  /** How far through the whole book, 0 to 1. */
+  progress: number;
+  updatedAt: string;
+}
+
+export interface SetReadingPositionInput {
+  chapterIndex: number;
+  blockIndex: number;
+  progress: number;
+}
+
 /**
  * One "a ship you follow gained a work" row.
  *

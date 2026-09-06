@@ -26,8 +26,17 @@ export function WorkDownloads({ workId }: { workId: number }) {
       <p className="hint">
         A copy fetched from AO3 and kept on this server. It joins a queue behind the same rate limit
         the scraper uses, so it arrives shortly after it is asked for rather than at once — the{' '}
-        <Link to="/downloads">Downloads</Link> page lists every request you have made.
+        <Link to="/downloads">Downloads</Link> page lists every request you have made. The EPUB can
+        also be read here, in the app.
       </p>
+
+      <div className="button-row">
+        {/* The reader page handles "no EPUB yet" itself, so this is one link whatever the queue
+            holds rather than a button that changes its name with the request's status. */}
+        <Link className="button" to={`/works/${workId}/read`}>
+          Read in the app
+        </Link>
+      </div>
 
       <div className="button-row download-formats">
         {DOWNLOAD_FORMATS.map((format) => (
@@ -65,6 +74,7 @@ export function WorkDownloads({ workId }: { workId: number }) {
                   <a href={api.downloadFileUrl(download.id)} download>
                     Save
                   </a>
+                  {download.format === 'Epub' && <Link to={`/works/${workId}/read`}>Read</Link>}
                 </>
               )}
               {/* Asking again for a work AO3 has updated re-queues the request, and until the new
@@ -76,6 +86,9 @@ export function WorkDownloads({ workId }: { workId: number }) {
                   <a href={api.downloadFileUrl(download.id)} download>
                     Save earlier copy
                   </a>
+                  {download.format === 'Epub' && (
+                    <Link to={`/works/${workId}/read`}>Read earlier copy</Link>
+                  )}
                 </>
               )}
               <button type="button" className="link" onClick={() => void remove(download.id)}>

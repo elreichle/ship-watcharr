@@ -1976,4 +1976,255 @@
     font-size: var(--font-ui-smaller);
     white-space: nowrap;
   }
+
+  /* ------------------------------------------------------------------------------- the reader */
+
+  /* Full width and no top padding: the bar below is the page's own chrome and sits flush. The
+     text column sets its own measure. */
+  .reader-page {
+    max-width: none;
+    padding-top: 0;
+  }
+
+  /* Sticks to the top of the scroll area so the chapter picker is always a glance away. Bled out to
+     the page's edges so the border runs the full width rather than stopping at the padding. */
+  .reader-bar {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: var(--size-4-2);
+    margin: 0 calc(-1 * var(--size-4-6));
+    padding: var(--size-4-3) var(--size-4-6);
+    border-bottom: 1px solid var(--background-modifier-border);
+    background-color: var(--background-primary);
+  }
+
+  .reader-bar-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--size-4-3);
+    align-items: center;
+  }
+
+  .reader-bar .back-link {
+    margin-bottom: 0;
+  }
+
+  .reader-bar-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    font-family: var(--font-text);
+    font-weight: var(--font-semibold);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* The picker takes what is left of the row, so on a phone Previous, the picker and Next share
+     one line rather than stacking three high under a sticky bar. */
+  .reader-toc {
+    flex: 1;
+    min-width: 8ch;
+  }
+
+  .reader-toc select {
+    width: 100%;
+    max-width: 40ch;
+  }
+
+  .reader-count {
+    white-space: nowrap;
+  }
+
+  /* The text controls: a disclosure on the bar's right, opening a small panel over the text. */
+  .reader-settings {
+    position: relative;
+    margin-left: auto;
+  }
+
+  .reader-settings summary {
+    padding: var(--size-4-1) var(--size-4-3);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--button-radius);
+    font-family: var(--font-text);
+    font-size: var(--font-ui-medium);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .reader-settings summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .reader-settings-panel {
+    position: absolute;
+    top: calc(100% + var(--size-4-1));
+    right: 0;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    gap: var(--size-4-2);
+    min-width: 16rem;
+    padding: var(--size-4-3);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m);
+    background-color: var(--background-secondary);
+    box-shadow: var(--shadow-s);
+  }
+
+  .reader-settings-panel label {
+    display: flex;
+    gap: var(--size-4-3);
+    align-items: center;
+    font-size: var(--font-ui-small);
+  }
+
+  .reader-settings-panel label > span,
+  .reader-settings-panel label {
+    width: auto;
+  }
+
+  .reader-settings-panel input[type='range'] {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* The text column. The three custom properties are the reader's own settings, set inline on the
+     page by ReaderPage; the fallbacks are the defaults it starts from. */
+  .reader-body {
+    max-width: var(--reader-measure, 66ch);
+    margin: 0 auto;
+    padding: var(--size-4-8) 0 var(--size-4-16);
+    font-family: var(--font-text);
+    font-size: var(--reader-font-size, 18px);
+    line-height: var(--reader-line-height, 1.65);
+  }
+
+  .reader-chapter-title {
+    margin: 0 0 var(--size-4-6);
+    font-family: var(--h1-font);
+    font-size: var(--h1-size);
+    font-weight: var(--h1-weight);
+    line-height: var(--h1-line-height);
+  }
+
+  /* The author's markup, set in the reader's type. Nothing from the EPUB's own stylesheet reaches
+     here — the server strips every style — so these rules are the whole of the typography. */
+  .reader-chapter * {
+    /* Restoring a place scrolls a block to the top of the scroll area, which the sticky bar
+       covers; this keeps it below the bar instead. */
+    scroll-margin-top: 7rem;
+  }
+
+  .reader-chapter p,
+  .reader-chapter ul,
+  .reader-chapter ol,
+  .reader-chapter dl,
+  .reader-chapter pre {
+    margin: 0 0 1em;
+  }
+
+  .reader-chapter h1,
+  .reader-chapter h2,
+  .reader-chapter h3,
+  .reader-chapter h4,
+  .reader-chapter h5,
+  .reader-chapter h6 {
+    margin: 1.5em 0 0.5em;
+    font-family: var(--font-text);
+    line-height: 1.25;
+  }
+
+  .reader-chapter h1 {
+    font-size: 1.5em;
+  }
+
+  .reader-chapter h2 {
+    font-size: 1.3em;
+  }
+
+  .reader-chapter h3,
+  .reader-chapter h4,
+  .reader-chapter h5,
+  .reader-chapter h6 {
+    font-size: 1.1em;
+  }
+
+  .reader-chapter blockquote {
+    margin: 0 0 1em;
+    padding-left: var(--size-4-4);
+    border-left: 3px solid var(--background-modifier-border);
+    color: var(--text-muted);
+  }
+
+  .reader-chapter hr {
+    width: 30%;
+    margin: 2em auto;
+    border: 0;
+    border-top: 1px solid var(--background-modifier-border);
+  }
+
+  .reader-chapter img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 1em auto;
+  }
+
+  .reader-chapter figure {
+    margin: 1em 0;
+  }
+
+  .reader-chapter figcaption {
+    color: var(--text-muted);
+    font-size: var(--font-smaller);
+    text-align: center;
+  }
+
+  /* A table wider than the column scrolls on its own rather than pushing the page sideways. */
+  .reader-chapter table {
+    display: block;
+    max-width: 100%;
+    margin: 0 0 1em;
+    overflow-x: auto;
+    border-collapse: collapse;
+    font-size: var(--font-smaller);
+  }
+
+  .reader-chapter th,
+  .reader-chapter td {
+    padding: 0.3em 0.6em;
+    border: 1px solid var(--background-modifier-border);
+    vertical-align: top;
+  }
+
+  .reader-chapter pre {
+    overflow-x: auto;
+  }
+
+  .reader-chapter center {
+    text-align: center;
+  }
+
+  .reader-foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--size-4-3);
+    justify-content: space-between;
+    margin-top: var(--size-4-12);
+    padding-top: var(--size-4-6);
+    border-top: 1px solid var(--background-modifier-border);
+  }
+
+  /* Off-screen but read aloud: a label for a control whose meaning is plain by sight. */
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
 }

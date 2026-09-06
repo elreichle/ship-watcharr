@@ -96,6 +96,9 @@ export function DownloadsPage() {
                       Save
                     </a>
                   )}
+                  {download.status === 'Complete' && download.format === 'Epub' && (
+                    <Link to={`/works/${download.workId}/read`}>Read</Link>
+                  )}
                   {/* The copy this reader had before they asked for a newer version. Offered
                       under a name that says which it is: the request itself has not finished, and
                       the point of keeping the reference is that a fetch that fails — or has simply
@@ -105,6 +108,11 @@ export function DownloadsPage() {
                       Save earlier copy
                     </a>
                   )}
+                  {download.status !== 'Complete' &&
+                    download.previousSizeBytes !== null &&
+                    download.format === 'Epub' && (
+                      <Link to={`/works/${download.workId}/read`}>Read earlier copy</Link>
+                    )}
                   {download.status === 'Failed' && (
                     <button
                       type="button"

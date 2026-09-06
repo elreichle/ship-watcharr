@@ -206,6 +206,10 @@ builder.Services.AddScoped<IShipVerifier, Ao3ShipVerifier>();
 // the worker resolved it in, one per queued request.
 builder.Services.AddScoped<IDownloadFetcher, DownloadFetcher>();
 
+// The rules for which file, if any, stands behind a reader's request — shared by the endpoint
+// that serves the bytes and the one that opens them as a book, so the two cannot disagree.
+builder.Services.AddScoped<StoredCopyResolver>();
+
 // ---- Background workers ----
 // Singleton, and registered before the worker that waits on it: the signal is the one piece of
 // state a scoped request and the long-lived worker have to share.

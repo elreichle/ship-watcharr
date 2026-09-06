@@ -30,6 +30,7 @@ public abstract class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<SavedWorkFilterTag> SavedWorkFilterTags => Set<SavedWorkFilterTag>();
     public DbSet<SavedWorkFilterAuthor> SavedWorkFilterAuthors => Set<SavedWorkFilterAuthor>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<ReadingPosition> ReadingPositions => Set<ReadingPosition>();
 
     // Global — scraped data
     public DbSet<Work> Works => Set<Work>();

@@ -123,3 +123,24 @@ public class NotificationConfiguration : IEntityTypeConfiguration<Notification>
         entity.HasIndex(n => new { n.UserId, n.ReadAt });
     }
 }
+
+public class ReadingPositionConfiguration : IEntityTypeConfiguration<ReadingPosition>
+{
+    public void Configure(EntityTypeBuilder<ReadingPosition> entity)
+    {
+        entity.HasKey(p => p.Id);
+
+        entity.HasOne(p => p.User)
+            .WithMany()
+            .HasForeignKey(p => p.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        entity.HasOne(p => p.Work)
+            .WithMany()
+            .HasForeignKey(p => p.WorkId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // One place per reader per work: a second save replaces the first rather than joining it.
+        entity.HasIndex(p => new { p.UserId, p.WorkId }).IsUnique();
+    }
+}
