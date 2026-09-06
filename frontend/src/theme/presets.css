@@ -1,0 +1,599 @@
+/*
+ * The built-in palettes other than the default. Each is a pair of blocks — one per colour mode —
+ * that re-declare the colour tokens of obsidian-defaults.css for one `data-theme` value. Nothing
+ * else changes between palettes: type, spacing, radii and the nav tokens stay the defaults, and a
+ * pasted theme (unlayered) still wins over all of it.
+ *
+ * Two selectors per block. `[data-theme='x'] > .theme-dark` reaches <body> from the attribute the
+ * boot script and theme.ts put on <html>; `[data-theme='x'].theme-dark` reaches an element that
+ * carries both itself — the swatches on the Appearance page, which preview a palette without
+ * changing the page. The compound also matches <html>, harmlessly.
+ *
+ * Every value is the palette's own unless a comment says otherwise. Where a palette's status
+ * colour (red/orange/green, used as text) or muted grey failed 4.5:1 on the palette's page, it is
+ * deepened toward the palette's text colour by the smallest step that passes; the scratch script
+ * that found the steps is described in obsidian-defaults.css. Faint text is decorative and keeps
+ * the palette's colour whatever its ratio.
+ *
+ * Chrome-vs-page: Obsidian's own shape puts the sidebar (secondary) a step *lighter* than the
+ * page (primary) in dark mode, Tokyo Night the other way round, so every block below maps the
+ * four backgrounds explicitly rather than trusting the default's order.
+ */
+
+@layer obsidian-defaults {
+  /* ------------------------------------------------------------------------------- Solarized */
+  /* Ethan Schoonover. The accent is Solarized blue; lightened two steps on dark and darkened one
+     on light so it reads on base02/base2 as well as on the page. */
+
+  [data-theme='solarized'] > .theme-dark,
+  [data-theme='solarized'].theme-dark {
+    --accent-h: 205;
+    --accent-s: 69%;
+    --accent-l: 58%;
+
+    --color-base-00: #002b36;
+    --color-base-05: #00303c;
+    --color-base-10: #023442;
+    --color-base-20: #073642;
+    --color-base-25: #0b3d4a;
+    --color-base-30: #12434f;
+    --color-base-35: #1c4d58;
+    --color-base-40: #2f5e68;
+    --color-base-50: #586e75;
+    --color-base-60: #657b83;
+    --color-base-70: #93a1a1;
+    --color-base-100: #eee8d5;
+
+    --color-red: #e16961; /* #dc322f, 30% toward text */
+    --color-orange: #d47448; /* #cb4b16, 26% toward text */
+    --color-yellow: #b58900;
+    --color-green: #859900;
+    --color-cyan: #2aa198;
+    --color-blue: #268bd2;
+    --color-purple: #6c71c4;
+    --color-pink: #d33682;
+
+    --background-primary: var(--color-base-00);
+    --background-primary-alt: var(--color-base-10);
+    --background-secondary: var(--color-base-20);
+    --background-secondary-alt: var(--color-base-25);
+  }
+
+  [data-theme='solarized'] > .theme-light,
+  [data-theme='solarized'].theme-light {
+    --accent-h: 205;
+    --accent-s: 69%;
+    --accent-l: 46%;
+
+    --color-base-00: #fdf6e3;
+    --color-base-05: #f9f1dc;
+    --color-base-10: #f5eed8;
+    --color-base-20: #eee8d5;
+    --color-base-25: #e9e2cd;
+    --color-base-30: #ddd6c1;
+    --color-base-35: #cfc8b4;
+    --color-base-40: #b5b0a0;
+    --color-base-50: #93a1a1;
+    --color-base-60: #839496;
+    --color-base-70: #556c73; /* base01, 4% toward text */
+    --color-base-100: #073642;
+
+    --color-red: #d33230; /* 4% toward text */
+    --color-orange: #c34a18; /* 4% toward text */
+    --color-yellow: #b58900;
+    --color-green: #5d7915; /* #859900, 32% toward text */
+    --color-cyan: #2aa198;
+    --color-blue: #268bd2;
+    --color-purple: #6c71c4;
+    --color-pink: #d33682;
+
+    --background-primary: var(--color-base-00);
+    --background-primary-alt: var(--color-base-10);
+    --background-secondary: var(--color-base-20);
+    --background-secondary-alt: var(--color-base-25);
+  }
+
+  /* ------------------------------------------------------------------------------ Catppuccin */
+  /* Mocha and Latte. Mauve is the accent, as in the project's own ports. Mocha's chrome sits on
+     mantle, a step darker than base, like Tokyo Night. */
+
+  [data-theme='catppuccin'] > .theme-dark,
+  [data-theme='catppuccin'].theme-dark {
+    --accent-h: 267;
+    --accent-s: 84%;
+    --accent-l: 81%;
+
+    --color-base-00: #11111b;
+    --color-base-05: #181825;
+    --color-base-10: #1e1e2e;
+    --color-base-20: #24243a;
+    --color-base-25: #313244;
+    --color-base-30: #3a3b4f;
+    --color-base-35: #45475a;
+    --color-base-40: #585b70;
+    --color-base-50: #6c7086;
+    --color-base-60: #9399b2;
+    --color-base-70: #bac2de;
+    --color-base-100: #cdd6f4;
+
+    --color-red: #f38ba8;
+    --color-orange: #fab387;
+    --color-yellow: #f9e2af;
+    --color-green: #a6e3a1;
+    --color-cyan: #94e2d5;
+    --color-blue: #89b4fa;
+    --color-purple: #cba6f7;
+    --color-pink: #f5c2e7;
+
+    --background-primary: var(--color-base-10);
+    --background-primary-alt: var(--color-base-20);
+    --background-secondary: var(--color-base-05);
+    --background-secondary-alt: var(--color-base-25);
+  }
+
+  [data-theme='catppuccin'] > .theme-light,
+  [data-theme='catppuccin'].theme-light {
+    --accent-h: 266;
+    --accent-s: 85%;
+    --accent-l: 58%;
+
+    --color-base-00: #eff1f5;
+    --color-base-05: #eaedf2;
+    --color-base-10: #e6e9ef;
+    --color-base-20: #dce0e8;
+    --color-base-25: #d5d9e2;
+    --color-base-30: #ccd0da;
+    --color-base-35: #bcc0cc;
+    --color-base-40: #acb0be;
+    --color-base-50: #8c8fa1;
+    --color-base-60: #7c7f93;
+    --color-base-70: #5c5f77;
+    --color-base-100: #4c4f69;
+
+    --color-red: #d20f39;
+    --color-orange: #a55a3a; /* peach #fe640b, 50% toward text */
+    --color-yellow: #df8e1d;
+    --color-green: #467949; /* #40a02b, 48% toward text */
+    --color-cyan: #179299;
+    --color-blue: #1e66f5;
+    --color-purple: #8839ef;
+    --color-pink: #ea76cb;
+
+    --background-primary: var(--color-base-00);
+    --background-primary-alt: var(--color-base-10);
+    --background-secondary: var(--color-base-10);
+    --background-secondary-alt: var(--color-base-20);
+  }
+
+  /* --------------------------------------------------------------------------------- Gruvbox */
+  /* Pavel Pertsev, medium contrast. Orange is the accent. Dark chrome sits on bg0_h, a step
+     harder than the page. */
+
+  [data-theme='gruvbox'] > .theme-dark,
+  [data-theme='gruvbox'].theme-dark {
+    --accent-h: 27;
+    --accent-s: 99%;
+    --accent-l: 55%;
+
+    --color-base-00: #1d2021;
+    --color-base-05: #242627;
+    --color-base-10: #282828;
+    --color-base-20: #32302f;
+    --color-base-25: #3c3836;
+    --color-base-30: #453e3c;
+    --color-base-35: #504945;
+    --color-base-40: #665c54;
+    --color-base-50: #928374;
+    --color-base-60: #a89984;
+    --color-base-70: #d5c4a1;
+    --color-base-100: #ebdbb2;
+
+    --color-red: #fa553e; /* #fb4934, 8% toward text */
+    --color-orange: #fe8019;
+    --color-yellow: #fabd2f;
+    --color-green: #b8bb26;
+    --color-cyan: #8ec07c;
+    --color-blue: #83a598;
+    --color-purple: #d3869b;
+    --color-pink: #d3869b;
+
+    --background-primary: var(--color-base-10);
+    --background-primary-alt: var(--color-base-20);
+    --background-secondary: var(--color-base-00);
+    --background-secondary-alt: var(--color-base-25);
+  }
+
+  [data-theme='gruvbox'] > .theme-light,
+  [data-theme='gruvbox'].theme-light {
+    --accent-h: 19;
+    --accent-s: 97%;
+    --accent-l: 35%;
+
+    --color-base-00: #fbf1c7;
+    --color-base-05: #f9f5d7;
+    --color-base-10: #f5ecc4;
+    --color-base-20: #f2e5bc;
+    --color-base-25: #ede2b8;
+    --color-base-30: #ebdbb2;
+    --color-base-35: #d5c4a1;
+    --color-base-40: #bdae93;
+    --color-base-50: #a89984;
+    --color-base-60: #928374;
+    --color-base-70: #665c54;
+    --color-base-100: #3c3836;
+
+    --color-red: #9d0006;
+    --color-orange: #af3a03;
+    --color-yellow: #b57614;
+    --color-green: #757010; /* #79740e, 6% toward text */
+    --color-cyan: #427b58;
+    --color-blue: #076678;
+    --color-purple: #8f3f71;
+    --color-pink: #8f3f71;
+
+    --background-primary: var(--color-base-00);
+    --background-primary-alt: var(--color-base-10);
+    --background-secondary: var(--color-base-20);
+    --background-secondary-alt: var(--color-base-25);
+  }
+
+  /* ------------------------------------------------------------------------------------ Nord */
+  /* Arctic Ice Studio. Frost nord8 is the dark accent, nord10 the light one. Nord's Snow Storm
+     greys are the light backgrounds, the way its own light ports lay them out. */
+
+  [data-theme='nord'] > .theme-dark,
+  [data-theme='nord'].theme-dark {
+    --accent-h: 193;
+    --accent-s: 43%;
+    --accent-l: 67%;
+
+    --color-base-00: #242933;
+    --color-base-05: #2e3440;
+    --color-base-10: #333a48;
+    --color-base-20: #3b4252;
+    --color-base-25: #3f4757;
+    --color-base-30: #434c5e;
+    --color-base-35: #4c566a;
+    --color-base-40: #5a6577;
+    --color-base-50: #7b88a1;
+    --color-base-60: #9da8bd;
+    --color-base-70: #c2cad8;
+    --color-base-100: #eceff4;
+
+    --color-red: #cd8c93; /* nord11 #bf616a, 30% toward text */
+    --color-orange: #d18b75; /* nord12 #d08770, 4% toward text */
+    --color-yellow: #ebcb8b;
+    --color-green: #a3be8c;
+    --color-cyan: #88c0d0;
+    --color-blue: #81a1c1;
+    --color-purple: #b48ead;
+    --color-pink: #b48ead;
+
+    --background-primary: var(--color-base-05);
+    --background-primary-alt: var(--color-base-10);
+    --background-secondary: var(--color-base-20);
+    --background-secondary-alt: var(--color-base-25);
+  }
+
+  [data-theme='nord'] > .theme-light,
+  [data-theme='nord'].theme-light {
+    --accent-h: 213;
+    --accent-s: 32%;
+    --accent-l: 48%;
+
+    --color-base-00: #eceff4;
+    --color-base-05: #e9ecf2;
+    --color-base-10: #e5e9f0;
+    --color-base-20: #d8dee9;
+    --color-base-25: #d2d9e5;
+    --color-base-30: #c6cedb;
+    --color-base-35: #b6bfcf;
+    --color-base-40: #9aa5b8;
+    --color-base-50: #7b88a1;
+    --color-base-60: #616e85;
+    --color-base-70: #4c566a;
+    --color-base-100: #2e3440;
+
+    --color-red: #9f5761; /* nord11, 22% toward text */
+    --color-orange: #89625b; /* nord12, 44% toward text */
+    --color-yellow: #ebcb8b;
+    --color-green: #617161; /* nord14, 56% toward text */
+    --color-cyan: #88c0d0;
+    --color-blue: #81a1c1;
+    --color-purple: #b48ead;
+    --color-pink: #b48ead;
+
+    --background-primary: var(--color-base-00);
+    --background-primary-alt: var(--color-base-10);
+    --background-secondary: var(--color-base-20);
+    --background-secondary-alt: var(--color-base-25);
+  }
+
+  /* ------------------------------------------------------------------------------- Rosé Pine */
+  /* Main and Dawn. Love is the accent; rose itself is too pale on Dawn's paper to carry a link.
+     Main's surface is a step lighter than base, Obsidian's shape. */
+
+  [data-theme='rose-pine'] > .theme-dark,
+  [data-theme='rose-pine'].theme-dark {
+    --accent-h: 343;
+    --accent-s: 76%;
+    --accent-l: 68%;
+
+    --color-base-00: #191724;
+    --color-base-05: #1f1d2e;
+    --color-base-10: #21202e;
+    --color-base-20: #26233a;
+    --color-base-25: #2a283e;
+    --color-base-30: #332f49;
+    --color-base-35: #403d52;
+    --color-base-40: #524f67;
+    --color-base-50: #6e6a86;
+    --color-base-60: #908caa;
+    --color-base-70: #b5b1cb;
+    --color-base-100: #e0def4;
+
+    --color-red: #eb6f92;
+    --color-orange: #f6c177;
+    --color-yellow: #f6c177;
+    --color-green: #9ccfd8;
+    --color-cyan: #9ccfd8;
+    --color-blue: #31748f;
+    --color-purple: #c4a7e7;
+    --color-pink: #ebbcba;
+
+    --background-primary: var(--color-base-00);
+    --background-primary-alt: var(--color-base-10);
+    --background-secondary: var(--color-base-05);
+    --background-secondary-alt: var(--color-base-20);
+  }
+
+  [data-theme='rose-pine'] > .theme-light,
+  [data-theme='rose-pine'].theme-light {
+    --accent-h: 343;
+    --accent-s: 34%;
+    --accent-l: 55%;
+
+    --color-base-00: #faf4ed;
+    --color-base-05: #fffaf3;
+    --color-base-10: #f4ede8;
+    --color-base-20: #f2e9e1;
+    --color-base-25: #ede4dc;
+    --color-base-30: #dfdad9;
+    --color-base-35: #d4cfd0;
+    --color-base-40: #cecacd;
+    --color-base-50: #9893a5;
+    --color-base-60: #797593;
+    --color-base-70: #6e6a8a;
+    --color-base-100: #575279;
+
+    --color-red: #9a5e7a; /* love #b4637a, 28% toward text */
+    --color-orange: #866a63; /* gold #ea9d34, 68% toward text */
+    --color-yellow: #ea9d34;
+    --color-green: #57738c; /* foam #56949f, 50% toward text */
+    --color-cyan: #56949f;
+    --color-blue: #286983;
+    --color-purple: #907aa9;
+    --color-pink: #d7827e;
+
+    --background-primary: var(--color-base-00);
+    --background-primary-alt: var(--color-base-10);
+    --background-secondary: var(--color-base-05);
+    --background-secondary-alt: var(--color-base-20);
+  }
+
+  /* ------------------------------------------------------------------------------ Everforest */
+  /* Sainnhe Park, medium. Green is the accent. The light variant is soft by design; its muted
+     grey and status colours had the furthest to travel, and the palette's page is still its own. */
+
+  [data-theme='everforest'] > .theme-dark,
+  [data-theme='everforest'].theme-dark {
+    --accent-h: 88;
+    --accent-s: 34%;
+    --accent-l: 63%;
+
+    --color-base-00: #1e2326;
+    --color-base-05: #232a2e;
+    --color-base-10: #272e33;
+    --color-base-20: #2e383c;
+    --color-base-25: #374145;
+    --color-base-30: #414b50;
+    --color-base-35: #495156;
+    --color-base-40: #4f5b58;
+    --color-base-50: #7a8478;
+    --color-base-60: #859289;
+    --color-base-70: #9da9a0;
+    --color-base-100: #d3c6aa;
+
+    --color-red: #e67e80;
+    --color-orange: #e69875;
+    --color-yellow: #dbbc7f;
+    --color-green: #a7c080;
+    --color-cyan: #83c092;
+    --color-blue: #7fbbb3;
+    --color-purple: #d699b6;
+    --color-pink: #d699b6;
+
+    --background-primary: var(--color-base-10);
+    --background-primary-alt: var(--color-base-20);
+    --background-secondary: var(--color-base-05);
+    --background-secondary-alt: var(--color-base-25);
+  }
+
+  [data-theme='everforest'] > .theme-light,
+  [data-theme='everforest'].theme-light {
+    --accent-h: 68;
+    --accent-s: 99%;
+    --accent-l: 30%;
+
+    --color-base-00: #fdf6e3;
+    --color-base-05: #f8f3dd;
+    --color-base-10: #f4f0d9;
+    --color-base-20: #efebd4;
+    --color-base-25: #eae6cf;
+    --color-base-30: #e6e2cc;
+    --color-base-35: #e0dcc7;
+    --color-base-40: #bdc3af;
+    --color-base-50: #939f91;
+    --color-base-60: #829181;
+    --color-base-70: #616f72; /* grey2 #829181, 78% toward text */
+    --color-base-100: #5c6a72;
+
+    --color-red: #9a6265; /* #f85552, 60% toward text */
+    --color-orange: #7e6e61; /* #f57d26, 78% toward text */
+    --color-yellow: #dfa000;
+    --color-green: #677659; /* #8da101, 78% toward text */
+    --color-cyan: #35a77c;
+    --color-blue: #3a94c5;
+    --color-purple: #df69ba;
+    --color-pink: #df69ba;
+
+    --background-primary: var(--color-base-00);
+    --background-primary-alt: var(--color-base-10);
+    --background-secondary: var(--color-base-10);
+    --background-secondary-alt: var(--color-base-20);
+  }
+
+  /* --------------------------------------------------------------------------------- Dracula */
+  /* Zeno Rocha. Purple is the accent. The light half is Alucard, Dracula's own 2025 light
+     variant, rather than an inversion. */
+
+  [data-theme='dracula'] > .theme-dark,
+  [data-theme='dracula'].theme-dark {
+    --accent-h: 265;
+    --accent-s: 89%;
+    --accent-l: 78%;
+
+    --color-base-00: #191a21;
+    --color-base-05: #21222c;
+    --color-base-10: #282a36;
+    --color-base-20: #2c2e3b;
+    --color-base-25: #343746;
+    --color-base-30: #3b3d4e;
+    --color-base-35: #44475a;
+    --color-base-40: #565869;
+    --color-base-50: #6272a4;
+    --color-base-60: #8890b8;
+    --color-base-70: #b1b6cf;
+    --color-base-100: #f8f8f2;
+
+    --color-red: #ff5555;
+    --color-orange: #ffb86c;
+    --color-yellow: #f1fa8c;
+    --color-green: #50fa7b;
+    --color-cyan: #8be9fd;
+    --color-blue: #bd93f9;
+    --color-purple: #bd93f9;
+    --color-pink: #ff79c6;
+
+    --background-primary: var(--color-base-10);
+    --background-primary-alt: var(--color-base-20);
+    --background-secondary: var(--color-base-05);
+    --background-secondary-alt: var(--color-base-25);
+  }
+
+  [data-theme='dracula'] > .theme-light,
+  [data-theme='dracula'].theme-light {
+    --accent-h: 252;
+    --accent-s: 53%;
+    --accent-l: 54%;
+
+    --color-base-00: #fffbeb;
+    --color-base-05: #fbf6e3;
+    --color-base-10: #f7f2df;
+    --color-base-20: #f2ecd9;
+    --color-base-25: #ece6d3;
+    --color-base-30: #e3ddca;
+    --color-base-35: #d6d0be;
+    --color-base-40: #cfcfde;
+    --color-base-50: #9a9585;
+    --color-base-60: #7d7868;
+    --color-base-70: #6c664b;
+    --color-base-100: #1f1f1f;
+
+    --color-red: #cb3a2a;
+    --color-orange: #a34d14;
+    --color-yellow: #846e15;
+    --color-green: #14710a;
+    --color-cyan: #036a96;
+    --color-blue: #036a96;
+    --color-purple: #644ac9;
+    --color-pink: #a3144d;
+
+    --background-primary: var(--color-base-00);
+    --background-primary-alt: var(--color-base-10);
+    --background-secondary: var(--color-base-20);
+    --background-secondary-alt: var(--color-base-25);
+  }
+
+  /* -------------------------------------------------------------------------------- One Dark */
+  /* Atom's One Dark and One Light. Blue is the accent. One Dark's text (#abb2bf) sits at 6.6:1,
+     a little under the 7:1 the default reaches; it is the palette's own and stays. */
+
+  [data-theme='one-dark'] > .theme-dark,
+  [data-theme='one-dark'].theme-dark {
+    --accent-h: 207;
+    --accent-s: 82%;
+    --accent-l: 66%;
+
+    --color-base-00: #181a1f;
+    --color-base-05: #21252b;
+    --color-base-10: #23272e;
+    --color-base-20: #282c34;
+    --color-base-25: #2c313c;
+    --color-base-30: #353b45;
+    --color-base-35: #3e4451;
+    --color-base-40: #4b5263;
+    --color-base-50: #5c6370;
+    --color-base-60: #828997;
+    --color-base-70: #9da5b4;
+    --color-base-100: #abb2bf;
+
+    --color-red: #db737c; /* #e06c75, 10% toward text */
+    --color-orange: #d19a66;
+    --color-yellow: #e5c07b;
+    --color-green: #98c379;
+    --color-cyan: #56b6c2;
+    --color-blue: #61afef;
+    --color-purple: #c678dd;
+    --color-pink: #c678dd;
+
+    --background-primary: var(--color-base-20);
+    --background-primary-alt: var(--color-base-25);
+    --background-secondary: var(--color-base-05);
+    --background-secondary-alt: var(--color-base-30);
+  }
+
+  [data-theme='one-dark'] > .theme-light,
+  [data-theme='one-dark'].theme-light {
+    --accent-h: 221;
+    --accent-s: 87%;
+    --accent-l: 59%;
+
+    --color-base-00: #fafafa;
+    --color-base-05: #f5f5f6;
+    --color-base-10: #f0f0f1;
+    --color-base-20: #eaeaeb;
+    --color-base-25: #e5e5e6;
+    --color-base-30: #dbdbdc;
+    --color-base-35: #cfcfd1;
+    --color-base-40: #bfbfc2;
+    --color-base-50: #9d9d9f;
+    --color-base-60: #8c8d93;
+    --color-base-70: #666974; /* mono-2 #696c77, 6% toward text */
+    --color-base-100: #383a42;
+
+    --color-red: #be5047; /* #e45649, 22% toward text */
+    --color-orange: #986801;
+    --color-yellow: #c18401;
+    --color-green: #48804b; /* #50a14f, 32% toward text */
+    --color-cyan: #0184bc;
+    --color-blue: #4078f2;
+    --color-purple: #a626a4;
+    --color-pink: #a626a4;
+
+    --background-primary: var(--color-base-00);
+    --background-primary-alt: var(--color-base-10);
+    --background-secondary: var(--color-base-20);
+    --background-secondary-alt: var(--color-base-25);
+  }
+}

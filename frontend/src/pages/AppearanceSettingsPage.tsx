@@ -1,6 +1,7 @@
 import { useState, type ChangeEvent } from 'react';
 import { useTheme } from '../theme/ThemeContext';
 import type { ThemeMode } from '../theme/theme';
+import { THEME_PRESETS, type ThemePresetId } from '../theme/presets';
 
 const MODES: { value: ThemeMode; label: string }[] = [
   { value: 'system', label: 'System' },
@@ -9,7 +10,8 @@ const MODES: { value: ThemeMode; label: string }[] = [
 ];
 
 export function AppearanceSettingsPage() {
-  const { mode, setMode, customCss, setCustomCss, safeMode } = useTheme();
+  const { mode, resolvedMode, setMode, preset, setPreset, customCss, setCustomCss, safeMode } =
+    useTheme();
   const [draft, setDraft] = useState(customCss);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -23,6 +25,16 @@ export function AppearanceSettingsPage() {
       setMode(next);
     } catch {
       setError('Could not save your theme mode — this browser is blocking local storage.');
+    }
+  };
+
+  const onChangePreset = (next: ThemePresetId) => {
+    setError(null);
+    setMessage(null);
+    try {
+      setPreset(next);
+    } catch {
+      setError('Could not save your theme — this browser is blocking local storage.');
     }
   };
 
@@ -96,6 +108,49 @@ export function AppearanceSettingsPage() {
           Sets <code>theme-light</code> or <code>theme-dark</code> on the page, the same switch
           Obsidian themes are written against. <strong>System</strong> follows your OS and updates
           live when it changes.
+        </p>
+      </section>
+
+      <section>
+        <h2>Theme</h2>
+        {/* Each swatch carries the mode class and the palette's data-theme itself, so the palette
+            CSS paints it directly: a preview that cannot drift from what applying it would show. */}
+        <div className="theme-grid" role="radiogroup" aria-label="Theme">
+          {THEME_PRESETS.map((option) => {
+            const selected = preset === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                className={selected ? 'theme-card is-selected' : 'theme-card'}
+                onClick={() => onChangePreset(option.id)}
+              >
+                <span
+                  className={`theme-swatch theme-${resolvedMode}`}
+                  data-theme={option.id}
+                  aria-hidden="true"
+                >
+                  <span className="theme-swatch-side" />
+                  <span className="theme-swatch-page">
+                    <span className="theme-swatch-title">Aa</span>
+                    <span className="theme-swatch-line" />
+                    <span className="theme-swatch-accent" />
+                  </span>
+                </span>
+                <span className="theme-card-name">{option.name}</span>
+                <span className="theme-card-variants">
+                  {option.dark} · {option.light}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="hint">
+          Each has a dark and a light half; the colour scheme above picks which one shows, and the
+          swatches show the half in use now. A custom theme pasted below sits on top of whichever
+          you choose here.
         </p>
       </section>
 

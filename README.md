@@ -318,22 +318,32 @@ Note that neither one is licence to swallow a failure: a page that cannot load i
 `WorksPage` in particular distinguishes "you follow no ships" from "the ship list didn't load",
 because claiming the former sends someone off to re-add ships they already have.
 
-### Bring your own theme
+### Built-in palettes, or bring your own theme
 
-Every pixel of the UI is painted from **Obsidian's CSS variables** — `--background-primary`,
-`--text-normal`, `--interactive-accent`, `--nav-item-color` and the rest of the ~400-name
-vocabulary documented at [docs.obsidian.md](https://docs.obsidian.md/Reference/CSS+variables/CSS+variables).
-Paste an Obsidian community theme's `theme.css` into **Settings → Appearance** and it restyles the
-app. Three things make that work:
+**Settings → Appearance** offers nine palettes, each with a dark and a light half that the colour
+scheme (System / Light / Dark) picks between: Tokyo Night (the default — Night and Day),
+Catppuccin (Mocha / Latte), Solarized, Gruvbox, Nord, Rosé Pine (Main / Dawn), Everforest,
+Dracula (with Alucard for light) and One Dark / One Light. Every text-on-background pair in them
+was checked against WCAG's 4.5:1; where a palette's own status red or green fell short on its
+light paper, it is deepened toward the palette's text colour by the smallest step that passes,
+and the CSS says which. The picker's swatches are painted by the palettes' own CSS, so a preview
+cannot drift from what applying it shows.
 
-- **Obsidian's defaults ship with the app** (`frontend/src/theme/obsidian-defaults.css`). Themes
-  only override the subset they care about — one that sets nothing but `--accent-h/s/l` is
-  perfectly normal — so without a full default layer underneath, a partial theme would leave half
-  the interface unpainted.
-- **Cascade layers, not specificity.** Our defaults live in `@layer obsidian-defaults` and our
-  component rules in `@layer app`; the user's CSS is injected *unlayered*, and unlayered rules
-  outrank every layered one regardless of specificity. That's what lets an arbitrary theme win
-  without us knowing which selectors it uses.
+Underneath, every pixel of the UI is painted from **Obsidian's CSS variables** —
+`--background-primary`, `--text-normal`, `--interactive-accent`, `--nav-item-color` and the rest
+of the ~400-name vocabulary documented at
+[docs.obsidian.md](https://docs.obsidian.md/Reference/CSS+variables/CSS+variables). So an
+Obsidian community theme's `theme.css` pasted into the same page restyles the app, on top of
+whichever palette is picked. Three things make that work:
+
+- **Obsidian's defaults ship with the app** (`frontend/src/theme/obsidian-defaults.css`, with the
+  other palettes as `data-theme` overrides in `presets.css`). Themes only override the subset they
+  care about — one that sets nothing but `--accent-h/s/l` is perfectly normal — so without a full
+  default layer underneath, a partial theme would leave half the interface unpainted.
+- **Cascade layers, not specificity.** Our defaults and palettes live in `@layer obsidian-defaults`
+  and our component rules in `@layer app`; the user's CSS is injected *unlayered*, and unlayered
+  rules outrank every layered one regardless of specificity. That's what lets an arbitrary theme
+  win without us knowing which selectors it uses.
 - **`theme-dark` / `theme-light` on `<body>`**, the same switch Obsidian themes are written
   against, mirrored onto `<html>` for themes that reach for `:root.theme-dark`.
 
@@ -341,7 +351,7 @@ What does *not* carry over is a theme's structural rules — its styling for Obs
 panes and ribbon has nothing to match here. A theme reads as its palette and typography rather
 than as Obsidian.
 
-Themes are stored in `localStorage`, never sent to the server. That keeps the login page themed
+The palette and any pasted theme are stored in `localStorage`, never sent to the server. That keeps the login page themed
 and avoids a flash of unstyled content (an inline script in `index.html` applies the theme before
 React mounts), at the cost of the theme not following you to another browser. If a theme leaves
 the interface unusable, load any page with **`?safemode`** to skip it and clear it from Appearance.

@@ -14,6 +14,13 @@
  *
  * Naming follows docs.obsidian.md exactly. Deviating would silently break themes, so when adding
  * a token, check it against the reference rather than inventing a name.
+ *
+ * The colours themselves are Tokyo Night (dark) and Tokyo Night Day (light), by enkia. The other
+ * built-in palettes live in presets.css and override this file's colour blocks by `data-theme`;
+ * everything that is not a colour — type, spacing, radii, icons, nav — is shared and stays here.
+ * Every foreground/background pair in a built-in palette was checked against WCAG 4.5:1 with a
+ * script; where a palette's own colour fell short (most light modes' status reds and greens), the
+ * value here is that colour deepened toward the text colour until it passed, and says so.
  */
 
 @layer obsidian-defaults, app;
@@ -21,16 +28,19 @@
 @layer obsidian-defaults {
   /* ---------------------------------------------------------------- mode-independent tokens */
 
-  body {
-    /* Accent. Themes very often set only these three parts and expect every accent-derived
-       colour to follow, so --color-accent must stay a derivation and never a literal. */
-    --accent-h: 350;
-    --accent-s: 58%;
-    --accent-l: 60%;
+  /* Accent. Themes very often set only --accent-h/s/l and expect every accent-derived colour to
+     follow, so --color-accent must stay a derivation and never a literal. The three parts are set
+     per mode below (a palette's light and dark accents rarely share a lightness); the derivations
+     sit on the mode selectors rather than on body so that any element carrying a mode class — the
+     theme swatches on the Appearance page — resolves its own accent, not the page's. */
+  .theme-light,
+  .theme-dark {
     --color-accent: hsl(var(--accent-h), var(--accent-s), var(--accent-l));
     --color-accent-1: hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) - 3.8%));
     --color-accent-2: hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) - 7.6%));
+  }
 
+  body {
     /* Typography. The -theme hooks are what themes actually set; the fallback chain after each
        is what we render with when they don't. The interface face is the system sans and carries
        the chrome; the text face is a serif and carries what a reader reads — work titles, page
@@ -164,37 +174,43 @@
   .theme-light {
     color-scheme: light;
 
-    /* Obsidian's lightness ladder, warmed a few points towards hue 35. Paper rather than screen
-       white, without tipping into cream. */
-    --color-base-00: #fdfdfc;
-    --color-base-05: #fcfbfa;
-    --color-base-10: #faf9f7;
-    --color-base-20: #f8f6f4;
-    --color-base-25: #f1efed;
-    --color-base-30: #e7e4e1;
-    --color-base-35: #dedbd6;
-    --color-base-40: #c0beba;
-    --color-base-50: #afaca7;
-    --color-base-60: #76716a;
-    --color-base-70: #615d57;
-    --color-base-100: #242220;
+    /* Tokyo Night Day. The blue that the palette uses for body text in an editor would make a
+       reading page a page of blue, so text here is the deeper slate the palette's first light
+       variant used (#343b58); the surfaces, greys and colours are Day's own. */
+    --accent-h: 215;
+    --accent-s: 81%;
+    --accent-l: 48%;
+
+    --color-base-00: #e1e2e7;
+    --color-base-05: #dcdee6;
+    --color-base-10: #d8dbe4;
+    --color-base-20: #d0d5e3;
+    --color-base-25: #cacfdf;
+    --color-base-30: #c4c8da;
+    --color-base-35: #b7bccf;
+    --color-base-40: #a8aecb;
+    --color-base-50: #8990b3;
+    --color-base-60: #68709a;
+    --color-base-70: #4c5580;
+    --color-base-100: #343b58;
 
     --mono-0: #ffffff;
     --mono-100: #000000;
     --mono-rgb-0: 255, 255, 255;
     --mono-rgb-100: 0, 0, 0;
 
-    /* Extended palette. These are our defaults chosen to sit naturally against the base scale —
-       Obsidian documents the names but not the values. Themes routinely replace them, and the
-       only ones the UI depends on are red and green (error/success text). */
-    --color-red: #e93147;
-    --color-orange: #ec7500;
-    --color-yellow: #e0ac00;
-    --color-green: #08b94e;
-    --color-cyan: #00bfbc;
-    --color-blue: #086ddd;
-    --color-purple: #7852ee;
-    --color-pink: #d53984;
+    /* Extended palette. Obsidian documents the names but not the values; themes routinely replace
+       them, and the only ones the UI depends on are red, orange and green (error, warning and
+       success text). Those three are Day's colours deepened toward the text colour until they
+       clear 4.5:1 on the page — Day's own values sit at 3.0–4.0. */
+    --color-red: #b72f61;
+    --color-orange: #965513;
+    --color-yellow: #8c6c3e;
+    --color-green: #526c3e;
+    --color-cyan: #007197;
+    --color-blue: #2e7de9;
+    --color-purple: #9854f1;
+    --color-pink: #d20065;
 
     --background-primary: var(--color-base-00);
     --background-primary-alt: var(--color-base-10);
@@ -205,17 +221,17 @@
     --background-modifier-border: var(--color-base-30);
     --background-modifier-border-hover: var(--color-base-35);
     --background-modifier-border-focus: var(--color-base-40);
-    --background-modifier-error: rgba(233, 49, 71, 0.1);
-    --background-modifier-error-hover: rgba(233, 49, 71, 0.16);
-    --background-modifier-success: rgba(8, 185, 78, 0.1);
+    --background-modifier-error: color-mix(in srgb, var(--color-red) 10%, transparent);
+    --background-modifier-error-hover: color-mix(in srgb, var(--color-red) 16%, transparent);
+    --background-modifier-success: color-mix(in srgb, var(--color-green) 10%, transparent);
     --background-modifier-message: rgba(0, 0, 0, 0.9);
     --background-modifier-form-field: var(--color-base-00);
 
     --interactive-normal: var(--color-base-00);
     --interactive-hover: var(--color-base-10);
-    /* One step down the accent's own lightness: white on it reads at 4.7:1 for button labels,
-       and the same colour as link text reaches 4.6:1 on this paper. The step stays a derivation
-       of --accent-h/s/l so a theme that sets only those three moves it too. */
+    /* One step down the accent's own lightness: white on it reads for button labels, and the
+       same colour as link text clears 4.5:1 on both surfaces. The step stays a derivation of
+       --accent-h/s/l so a theme that sets only those three moves it too. */
     --interactive-accent: var(--color-accent-2);
     --interactive-accent-hover: hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) - 14%));
 
@@ -244,63 +260,72 @@
   .theme-dark {
     color-scheme: dark;
 
-    /* Obsidian's lightness ladder, warmed a few points towards hue 30: paper in a lit room rather
-       than a terminal. A tint, not a colour — the greys still read as grey. */
-    --color-base-00: #1d1c1b;
-    --color-base-05: #222120;
-    --color-base-10: #242322;
-    --color-base-20: #2a2826;
-    --color-base-25: #302e2c;
-    --color-base-30: #353331;
-    --color-base-35: #423f3c;
-    --color-base-40: #585552;
-    --color-base-50: #6a6662;
-    --color-base-60: #9c9996;
-    --color-base-70: #b5b3b1;
-    --color-base-100: #dbdad9;
+    /* Tokyo Night. The ladder climbs from the palette's darker chrome background through its
+       page, storm and highlight surfaces to its foreground; base-40/50/60 are its gutter, comment
+       and dim-text greys. */
+    --accent-h: 221;
+    --accent-s: 89%;
+    --accent-l: 72%;
+
+    --color-base-00: #16161e;
+    --color-base-05: #1a1b26;
+    --color-base-10: #1f2029;
+    --color-base-20: #24283b;
+    --color-base-25: #292e42;
+    --color-base-30: #2f3549;
+    --color-base-35: #3b4261;
+    --color-base-40: #414868;
+    --color-base-50: #565f89;
+    --color-base-60: #737aa2;
+    --color-base-70: #a9b1d6;
+    --color-base-100: #c0caf5;
 
     --mono-0: #000000;
     --mono-100: #ffffff;
     --mono-rgb-0: 0, 0, 0;
     --mono-rgb-100: 255, 255, 255;
 
-    /* Lighter variants — the light-mode hues are too dark to read on a dark surface. */
-    --color-red: #fb464c;
-    --color-orange: #e9973f;
-    --color-yellow: #e0de71;
-    --color-green: #44cf6e;
-    --color-cyan: #53dfdd;
-    --color-blue: #027aff;
-    --color-purple: #a882ff;
-    --color-pink: #fa99cd;
+    --color-red: #f7768e;
+    --color-orange: #ff9e64;
+    --color-yellow: #e0af68;
+    --color-green: #9ece6a;
+    --color-cyan: #7dcfff;
+    --color-blue: #7aa2f7;
+    --color-purple: #bb9af7;
+    --color-pink: #ff007c;
 
-    --background-primary: var(--color-base-00);
+    /* Tokyo Night keeps its chrome a shade darker than its page — the sidebar, cards and table
+       headers sit on the palette's dark background and the page on its editor background — so
+       the mapping runs the other way from Obsidian's own. Presets that follow Obsidian's shape
+       (chrome lighter than page) say so in presets.css. */
+    --background-primary: var(--color-base-05);
     --background-primary-alt: var(--color-base-10);
-    --background-secondary: var(--color-base-20);
-    --background-secondary-alt: var(--color-base-05);
+    --background-secondary: var(--color-base-00);
+    --background-secondary-alt: var(--color-base-20);
     --background-modifier-hover: rgba(var(--mono-rgb-100), 0.075);
     --background-modifier-active-hover: rgba(var(--mono-rgb-100), 0.11);
     --background-modifier-border: var(--color-base-30);
     --background-modifier-border-hover: var(--color-base-35);
     --background-modifier-border-focus: var(--color-base-40);
-    --background-modifier-error: rgba(251, 70, 76, 0.12);
-    --background-modifier-error-hover: rgba(251, 70, 76, 0.2);
-    --background-modifier-success: rgba(68, 207, 110, 0.12);
+    --background-modifier-error: color-mix(in srgb, var(--color-red) 12%, transparent);
+    --background-modifier-error-hover: color-mix(in srgb, var(--color-red) 20%, transparent);
+    --background-modifier-success: color-mix(in srgb, var(--color-green) 12%, transparent);
     --background-modifier-message: rgba(0, 0, 0, 0.9);
     --background-modifier-form-field: var(--color-base-25);
 
     --interactive-normal: var(--color-base-30);
     --interactive-hover: var(--color-base-35);
-    /* Buttons take the accent one step darker so white labels read on them; links keep the full
-       lightness, which is what reaches 4.5:1 on the dark paper. Both stay derivations. */
-    --interactive-accent: var(--color-accent-2);
-    --interactive-accent-hover: hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) - 14%));
+    /* Dark palettes of this family put their darkest background on a filled accent rather than
+       white on a darkened one — a Tokyo Night badge, a Catppuccin button. So the button is the
+       accent at full lightness and its label is base-00, and both move with a pasted accent. */
+    --interactive-accent: var(--color-accent);
+    --interactive-accent-hover: hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) + 6%));
 
     --text-normal: var(--color-base-100);
     --text-muted: var(--color-base-70);
     --text-faint: var(--color-base-50);
-    --text-on-accent: #ffffff;
-    --text-on-accent-inverted: #000000;
+    --text-on-accent: var(--color-base-00);
+    --text-on-accent-inverted: var(--color-base-100);
     --text-error: var(--color-red);
     --text-warning: var(--color-orange);
     --text-success: var(--color-green);

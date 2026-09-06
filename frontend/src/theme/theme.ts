@@ -4,15 +4,18 @@
  * Kept separate from ThemeContext so the pure helpers can be read (and reasoned about) without
  * React in the way — and so ThemeContext stays a components-only module for fast refresh.
  *
- * The storage keys and the style element id are duplicated verbatim by the inline boot script in
- * index.html, which has to run before any bundle loads and therefore cannot import from here.
- * Change one, change both.
+ * The storage keys, the style element id and the `data-theme` attribute are duplicated verbatim
+ * by the inline boot script in index.html, which has to run before any bundle loads and therefore
+ * cannot import from here. Change one, change both.
  */
+
+import { DEFAULT_THEME_PRESET, isThemePresetId, type ThemePresetId } from './presets';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type ResolvedMode = 'light' | 'dark';
 
 export const THEME_MODE_KEY = 'shipwatcharr.theme.mode';
+export const THEME_PRESET_KEY = 'shipwatcharr.theme.preset';
 export const THEME_CSS_KEY = 'shipwatcharr.theme.css';
 export const USER_THEME_STYLE_ID = 'user-theme';
 
@@ -38,6 +41,18 @@ export function readMode(): ThemeMode {
   return 'system';
 }
 
+export function readPreset(): ThemePresetId {
+  try {
+    const stored = window.localStorage.getItem(THEME_PRESET_KEY);
+    // A preset that has since been renamed or removed falls back to the default rather than
+    // leaving <html> pointing at CSS that no longer exists.
+    if (isThemePresetId(stored)) return stored;
+  } catch {
+    // Storage blocked; the default palette is the only one we can promise.
+  }
+  return DEFAULT_THEME_PRESET;
+}
+
 export function readCustomCss(): string {
   try {
     return window.localStorage.getItem(THEME_CSS_KEY) ?? '';
@@ -49,6 +64,12 @@ export function readCustomCss(): string {
 /** Throws if storage is unavailable or full, so callers can tell the user the save didn't stick. */
 export function writeMode(mode: ThemeMode): void {
   window.localStorage.setItem(THEME_MODE_KEY, mode);
+}
+
+/** Throws if storage is unavailable. The default is stored as an absence, like the mode. */
+export function writePreset(preset: ThemePresetId): void {
+  if (preset === DEFAULT_THEME_PRESET) window.localStorage.removeItem(THEME_PRESET_KEY);
+  else window.localStorage.setItem(THEME_PRESET_KEY, preset);
 }
 
 /** Throws on quota exhaustion — themes run to hundreds of KB, so this is a real possibility. */
@@ -84,6 +105,16 @@ export function applyMode(resolved: ResolvedMode): void {
     element.classList.remove(previous);
     element.classList.add(next);
   }
+}
+
+/**
+ * A palette is selected by one attribute on <html>: presets.css keys its colour blocks on
+ * `[data-theme='…'] > .theme-dark`, so the mode class and the attribute together pick the block.
+ * The default palette has no block of its own — it is what obsidian-defaults.css paints — but the
+ * attribute is set for it too, so the DOM always says which palette is showing.
+ */
+export function applyPreset(preset: ThemePresetId): void {
+  document.documentElement.dataset.theme = preset;
 }
 
 /**

@@ -12,15 +12,17 @@
       load. Has to be inline and here (first child of <body>, where document.body exists) because
       anything imported from the bundle arrives too late to beat first paint.
 
-      The keys and the style id are duplicated from src/theme/theme.ts, which cannot be imported
-      from an inline script. Change one, change both.
+      The keys, the style id and the data-theme attribute are duplicated from src/theme/theme.ts,
+      which cannot be imported from an inline script. Change one, change both.
     -->
     <script>
       (function () {
         var mode = 'system';
+        var preset = null;
         var css = null;
         try {
           mode = localStorage.getItem('shipwatcharr.theme.mode') || 'system';
+          preset = localStorage.getItem('shipwatcharr.theme.preset');
           css = localStorage.getItem('shipwatcharr.theme.css');
         } catch (e) {
           // Storage blocked. Fall through with the defaults — following the OS is the right
@@ -33,6 +35,13 @@
         var themeClass = dark ? 'theme-dark' : 'theme-light';
         document.documentElement.classList.add(themeClass);
         document.body.classList.add(themeClass);
+
+        // The built-in palette. An id the bundle no longer knows matches no CSS and shows the
+        // default, which is also what React settles on once it validates the stored value.
+        document.documentElement.setAttribute(
+          'data-theme',
+          preset && /^[a-z0-9-]{1,40}$/.test(preset) ? preset : 'tokyo-night',
+        );
 
         // ?safemode suppresses the user's CSS for this load only — the recovery route when a
         // pasted theme hides the UI. The mode class above still applies, so safe mode is a

@@ -2,16 +2,20 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import {
   applyCustomCss,
   applyMode,
+  applyPreset,
   isSafeMode,
   readCustomCss,
   readMode,
+  readPreset,
   resolveMode,
   watchPrefersDark,
   writeCustomCss,
   writeMode,
+  writePreset,
   type ResolvedMode,
   type ThemeMode,
 } from './theme';
+import type { ThemePresetId } from './presets';
 
 interface ThemeContextValue {
   /** What the user chose. 'system' tracks the OS preference live. */
@@ -19,6 +23,9 @@ interface ThemeContextValue {
   /** What that currently works out to — this is the class on <body>. */
   resolvedMode: ResolvedMode;
   setMode: (mode: ThemeMode) => void;
+  /** Which built-in palette paints the page. A pasted theme sits on top of it. */
+  preset: ThemePresetId;
+  setPreset: (preset: ThemePresetId) => void;
   customCss: string;
   /** Throws if localStorage rejects the write (blocked, or the theme exceeds quota). */
   setCustomCss: (css: string) => void;
@@ -31,6 +38,7 @@ const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const safeMode = useMemo(isSafeMode, []);
   const [mode, setModeState] = useState<ThemeMode>(readMode);
+  const [preset, setPresetState] = useState<ThemePresetId>(readPreset);
   const [customCss, setCustomCssState] = useState<string>(readCustomCss);
   const [resolvedMode, setResolvedMode] = useState<ResolvedMode>(() => resolveMode(readMode()));
 
@@ -48,6 +56,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [mode]);
 
   useEffect(() => {
+    applyPreset(preset);
+  }, [preset]);
+
+  useEffect(() => {
     applyCustomCss(safeMode ? '' : customCss);
   }, [customCss, safeMode]);
 
@@ -58,14 +70,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setModeState(next);
   }, []);
 
+  const setPreset = useCallback((next: ThemePresetId) => {
+    writePreset(next);
+    setPresetState(next);
+  }, []);
+
   const setCustomCss = useCallback((css: string) => {
     writeCustomCss(css);
     setCustomCssState(css);
   }, []);
 
   const value = useMemo(
-    () => ({ mode, resolvedMode, setMode, customCss, setCustomCss, safeMode }),
-    [mode, resolvedMode, setMode, customCss, setCustomCss, safeMode],
+    () => ({ mode, resolvedMode, setMode, preset, setPreset, customCss, setCustomCss, safeMode }),
+    [mode, resolvedMode, setMode, preset, setPreset, customCss, setCustomCss, safeMode],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
