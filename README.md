@@ -144,6 +144,8 @@ the whole system polite, and it is not optional:
 - Stops a monthly full sweep on page 1 when the tag's own count of works matches the number the
   library holds under the ship — no work has left, and the remaining pages would cost a request
   each to say so. The sweep walks whenever the counts differ.
+- Re-reads a work's own page after a revision no more than once a week; the first read is owed at
+  once.
 
 ### How this instance identifies itself
 

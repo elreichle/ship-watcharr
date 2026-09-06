@@ -133,9 +133,45 @@ public class Ao3WorkPageDetailFetchTests : IDisposable
             await db.SaveChangesAsync();
         }
 
+        // A week on: a revision re-opens a work only once its last read is that old.
+        _host.Clock.Now = _host.Clock.Now.AddDays(7);
+
         var second = await _host.FetchWorkDetailsAsync();
 
         Assert.Equal(1, second.WorksRead);
+        Assert.Single(_host.Http.Requested);
+    }
+
+    [Fact]
+    public async Task A_revision_within_a_week_of_the_last_read_waits_for_the_week()
+    {
+        // Most revisions are chapters, and a work posting one a day was costing a detail request a
+        // day for a tag list that had not moved. The floor turns that into one a week; what it
+        // costs is a tag added mid-week arriving at the end of it — a stale tag, never a lost one.
+        var shipId = await FollowAsync();
+        await IngestAsync(shipId, Captured);
+        ServeTheCapturedWorkPage();
+
+        await _host.FetchWorkDetailsAsync();
+        _host.Http.Requested.Clear();
+
+        await using (var db = _host.NewContext())
+        {
+            var work = await db.Works.SingleAsync(w => w.Id == Captured);
+            work.UpdatedAt = work.DetailFetchedAt!.Value.AddDays(1);
+            await db.SaveChangesAsync();
+        }
+
+        _host.Clock.Now = _host.Clock.Now.AddDays(6);
+        var tooSoon = await _host.FetchWorkDetailsAsync();
+
+        Assert.Equal(0, tooSoon.WorksSelected);
+        Assert.Empty(_host.Http.Requested);
+
+        _host.Clock.Now = _host.Clock.Now.AddDays(1);
+        var aWeekOn = await _host.FetchWorkDetailsAsync();
+
+        Assert.Equal(1, aWeekOn.WorksRead);
         Assert.Single(_host.Http.Requested);
     }
 
@@ -362,6 +398,9 @@ public class Ao3WorkPageDetailFetchTests : IDisposable
             work.UpdatedAt = work.DetailFetchedAt!.Value.AddDays(1);
             await db.SaveChangesAsync();
         }
+
+        // A week on: a revision re-opens a work only once its last read is that old.
+        _host.Clock.Now = _host.Clock.Now.AddDays(7);
 
         await _host.FetchWorkDetailsAsync();
 

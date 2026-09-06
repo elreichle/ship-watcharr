@@ -68,6 +68,20 @@ public sealed class Ao3WorkDetailScraper : IAo3WorkDetailScraper
     /// </summary>
     internal const int MaxWorksPerPass = 10;
 
+    /// <summary>
+    /// How long after a work's page was read before a revision to the work earns another read.
+    /// </summary>
+    /// <remarks>
+    /// The page is re-read after a revision for one reason: the author may have changed the tags,
+    /// which the blurb carries an abbreviated copy of. But most revisions are chapters, and a work
+    /// posting a chapter a day was costing a detail request a day for a tag list that had not
+    /// moved. A week's floor turns that into one request a week, and what it costs is a tag added
+    /// mid-week showing up at the end of it rather than the next pass — a stale tag, never a lost
+    /// one, which is the side <c>WorkIngestor.ApplyTags</c> already chooses to err on. A work never
+    /// read is unaffected: its first read is owed at once.
+    /// </remarks>
+    internal static readonly TimeSpan MinTimeBetweenReads = TimeSpan.FromDays(7);
+
     private readonly AppDbContext _db;
     private readonly IRateLimitedHttpClient _http;
     private readonly IWorkIngestor _ingestor;
@@ -240,11 +254,15 @@ public sealed class Ao3WorkDetailScraper : IAo3WorkDetailScraper
         // not a table. See WorkDetailAttempts for what a work has to do to get on it.
         var writtenOff = _attempts.WrittenOff;
 
+        // A revised work waits until its last read is a week old — see MinTimeBetweenReads.
+        var readBefore = _time.GetUtcNow().UtcDateTime - MinTimeBetweenReads;
+
         return await _db.Works
             .Where(w => !w.IsDeleted)
             .Where(w => !writtenOff.Contains(w.Id))
             .Where(w => _db.ShipWorks.Any(sw => sw.WorkId == w.Id))
-            .Where(w => w.DetailFetchedAt == null || w.UpdatedAt > w.DetailFetchedAt)
+            .Where(w => w.DetailFetchedAt == null
+                || (w.UpdatedAt > w.DetailFetchedAt && w.DetailFetchedAt <= readBefore))
             .OrderBy(w => w.DetailFetchedAt == null ? 0 : 1)
             .ThenByDescending(w => w.UpdatedAt)
 
