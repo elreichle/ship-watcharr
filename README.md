@@ -131,7 +131,6 @@ community theme's `theme.css` into the same page and the app takes on its palett
 Themes live in your browser only, never on the server. If one ever leaves the interface
 unusable, open any page with `?safemode` and clear it.
 
-![Filters in the light half of the default palette](docs/images/filters-light.png)
 
 ## PostgreSQL, if you want it
 
