@@ -495,3 +495,8 @@ seam rather than putting a clock through every writer of a Ship row, and says so
 **The sweep is its own line on the Ships page, not part of the status label.** The two are
 independent — a ship whose back catalogue was given up on can be mid-sweep — and one slot would
 have dropped one to say the other.
+
+## 2026-09-10 — T88 commits land on `main`
+The loop policy names `devloop/dashboard-completion`, but the repo was recreated on 2026-09-10 and
+only `main` exists now, with the post-loop work already on it. Task commits go on `main` and are
+not pushed; a separate branch for one lint fix was rejected as ceremony with no reader.

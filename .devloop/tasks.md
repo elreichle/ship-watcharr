@@ -2144,3 +2144,16 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   contradicted for some time. The docker note is already corrected. T86's sweep line on the Ships
   page is new and worth a mention where the Ships view is described.
 
+
+## T88 — The works-list search debounce trips exhaustive-deps
+- status: done
+- attempts: 0
+- blocked-by: none
+- delivers: `npm run lint` back to the two known react-refresh warnings, with the search debounce
+  effect on `WorksPage` naming every dependency it reads.
+- verification: `cd frontend && npm run build && npm run lint`, and the warning count is 2.
+- notes: The finish check found it. The search feature (12eb2f5, after T87) added an effect that
+  calls `updateQuery`, which is recreated each render, and left it out of the dependency array
+  with a comment saying why. `useCallback` on `updateQuery` keyed on `setSearchParams` makes the
+  dependency honest; the effect's early return on `draft === search` keeps a URL-driven re-run
+  harmless.

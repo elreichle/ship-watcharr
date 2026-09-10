@@ -367,3 +367,12 @@ Append-only. One entry per iteration, newest last.
   and a follow, and kept all three across `down` + `up`.
 - commit: 1cf7724
 - next: the list is finished.
+
+## 2026-09-10 — T88 The works-list search debounce trips exhaustive-deps — done
+- did: Memoized `updateQuery` on `setSearchParams` and listed it in the search debounce effect's
+  dependencies, removing the comment that excused its absence.
+- files: `frontend/src/pages/WorksPage.tsx`
+- ran: `npm run build` clean; `npm run lint` → 2 known; `dotnet test` → 1146.
+- commit: 622fb6e
+- next: the finish check — T88 closed the only gap this pass found; README and docker were checked
+  by T87 and the post-loop commits touched only README prose and scheduling.

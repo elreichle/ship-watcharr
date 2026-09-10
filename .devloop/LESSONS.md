@@ -32,3 +32,4 @@ A journal `next:` is for *this* handoff; a lesson is what would have saved a pas
 - A guard that restates a streak's own rule is a second copy to keep in step: put the split in the predicate the streak already applies to every row, first one included.
 - A guard that reads one table and writes another in a later statement races the controller clearing both; put the condition in the UPDATE's own WHERE (`ExecuteUpdateAsync`).
 - A correlated `EXISTS` inside a `SelectMany`'s collection selector needs SQL APPLY (SQLite has none): filter the flattened rows instead.
+- A finish check reruns lint and counts: work landed outside the loop after the last journal can add a warning the journal's "known" figure does not cover.
