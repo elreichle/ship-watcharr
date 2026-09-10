@@ -1,3 +1,4 @@
+using System.Globalization;
 using Ao3Tracker.Api.Data;
 using Ao3Tracker.Api.Dtos;
 using Ao3Tracker.Api.Models;
@@ -176,6 +177,82 @@ public class AdminShipsController : ControllerBase
             ship.BackfillState.ToString(),
             ship.BackfillNextPage,
             ship.BackfillStalledRuns));
+    }
+
+    /// <summary>
+    /// Asks for a full sweep of the ship at its next scheduled check: a re-read of the whole listing,
+    /// logged in, which is what brings in restricted works an earlier walk read logged out.
+    /// </summary>
+    /// <remarks>
+    /// Admin-only for the reason the restart above is. The walk is a request per listing page on
+    /// behalf of everyone watching the tag, and while it runs it displaces that ship's pass for new
+    /// works, so it is not something any one reader should be able to set off.
+    ///
+    /// The schedule is left alone, as the restart leaves it: the sweep starts at the ship's next
+    /// check rather than jumping the queue, which keeps request spacing decided in one place.
+    /// </remarks>
+    [HttpPost("{shipId:int}/sweep")]
+    public async Task<ActionResult<FullSweepQueuedDto>> QueueFullSweep(int shipId, CancellationToken ct)
+    {
+        if (!await IsCurrentUserAdminAsync()) return Forbid();
+
+        var ship = await _db.Ships.FirstOrDefaultAsync(s => s.Id == shipId, ct);
+        if (ship is null) return NotFound();
+
+        // The scraper returns before its first request for a denied tag, so a queued sweep would sit
+        // there reading "queued" for ever.
+        if (ship.VerificationState == ShipVerificationState.NotFoundOnAo3)
+        {
+            return Conflict(new
+            {
+                message = $"AO3 has no tag called {ship.CanonicalTagName}, so nothing will check it, "
+                    + "and a re-read of its listing would never start.",
+            });
+        }
+
+        var job = await _db.ScrapeJobs.FirstOrDefaultAsync(j => j.ShipId == shipId && j.IsEnabled, ct);
+        if (job is null)
+        {
+            return Conflict(new
+            {
+                message = $"{ship.CanonicalTagName} has no enabled schedule, so a queued re-read would "
+                    + "never run. Follow the tag to schedule it again.",
+            });
+        }
+
+        // The worker backfills a ship still reading its back catalogue ahead of any sweep, so a
+        // request now would wait out the whole backfill and then walk the same listing again.
+        if (ship.BackfillState is ShipBackfillState.NotStarted or ShipBackfillState.InProgress)
+        {
+            return Conflict(new
+            {
+                message = $"{ship.CanonicalTagName} is still reading its back catalogue for the first "
+                    + "time. Wait for that to finish; the Ships page then says whether every page was "
+                    + "read logged in.",
+            });
+        }
+
+        if (ship.FullSweepNextPage is { } page)
+        {
+            return Conflict(new
+            {
+                message = $"{ship.CanonicalTagName} is already being re-read in full, and is up to page "
+                    + $"{page.ToString(CultureInfo.InvariantCulture)}.",
+            });
+        }
+
+        // Kept rather than overwritten when an admin asks twice: the first request is the one still
+        // waiting, and nothing about a second click moves it.
+        ship.FullSweepRequestedAt ??= DateTime.UtcNow;
+
+        await _db.SaveChangesAsync(ct);
+
+        _logger.LogInformation(
+            "Full sweep of ship {ShipId} ({Tag}) queued for its next check by {UserId}",
+            ship.Id, ship.CanonicalTagName, _userManager.GetUserId(User));
+
+        return Ok(new FullSweepQueuedDto(
+            ship.Id, ship.CanonicalTagName, ship.FullSweepRequestedAt.Value, job.NextRunAt));
     }
 
     /// <summary>

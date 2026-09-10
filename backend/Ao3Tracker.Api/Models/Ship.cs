@@ -184,6 +184,23 @@ public class Ship
     /// </summary>
     public int? FullSweepNextPage { get; set; }
 
+    /// <summary>
+    /// When an admin asked for a full sweep ahead of the schedule, or null when nobody has or the
+    /// sweep asked for has begun.
+    ///
+    /// Makes the ship due a sweep at its next check whatever the interval says
+    /// (<c>ScrapeWorker.FullSweepIsDue</c>), and is cleared by that sweep starting
+    /// (<c>Ao3ShipIndexScraper.BeginSweep</c>), so one request is one walk. It exists for
+    /// <see cref="WholeListingReadLoggedInAt"/>: a ship whose listing was read logged out would
+    /// otherwise wait up to two sweep intervals for the scheduled sweep to fill the gap.
+    ///
+    /// Its own column rather than a write to <see cref="LastFullSweepStartedAt"/> or
+    /// <see cref="FullSweepNextPage"/>, because both already mean something a request is not. The
+    /// start dates what a sweep may conclude and spaces the next one; the cursor says a walk is under
+    /// way, and the Ships page reports it as pages being read.
+    /// </summary>
+    public DateTime? FullSweepRequestedAt { get; set; }
+
     // --- Whether the library has seen what only a logged-in reader sees ---
 
     /// <summary>

@@ -1344,6 +1344,11 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
     /// </summary>
     private void BeginSweep(Ship ship)
     {
+        // Answered by any sweep run, a resumed one included: the request asks for the listing to be
+        // walked, and a walk under way is that. Left standing, it would start a second sweep the
+        // moment this one finished.
+        ship.FullSweepRequestedAt = null;
+
         if (ship.FullSweepNextPage is not null) return;
 
         ship.LastFullSweepStartedAt = _time.GetUtcNow().UtcDateTime;

@@ -3,6 +3,7 @@ import type {
   AccountPreferences,
   Ao3TagType,
   BackfillRestarted,
+  FullSweepQueued,
   Book,
   Chapter,
   CurrentUser,
@@ -218,6 +219,14 @@ export const api = {
    * above: the check spends a request against a tag the archive has already refused, on behalf of
    * everyone watching it. The schedule stays off until AO3 answers for the tag.
    */
+  /**
+   * Asks for a full logged-in re-read of a ship's listing at its next check. Admin-only and shared,
+   * like the restart above: the walk is a request per listing page on behalf of everyone watching
+   * the tag, and that ship's check for new works waits until it finishes.
+   */
+  queueFullSweep: (shipId: number) =>
+    request<FullSweepQueued>(`/admin/ships/${shipId}/sweep`, { method: 'POST' }),
+
   recheckVerification: (shipId: number) =>
     request<VerificationRechecked>(`/admin/ships/${shipId}/verification/recheck`, { method: 'POST' }),
 

@@ -61,7 +61,8 @@ public record WatchedShipDto(
     int? FullSweepNextPage,
     DateTime? LastFullSweepStartedAt,
     DateTime? LastFullSweepCompletedAt,
-    DateTime? WholeListingReadLoggedInAt);
+    DateTime? WholeListingReadLoggedInAt,
+    DateTime? FullSweepRequestedAt);
 
 /// <summary>
 /// The ships list, wrapped so it can carry one instance-wide fact alongside them.
@@ -130,3 +131,14 @@ public record BackfillRestartedDto(
 /// admin who may not be watching it at all.
 /// </summary>
 public record VerificationRecheckedDto(int ShipId, string TagName, string VerificationState);
+
+/// <summary>
+/// What queuing a sweep left on the ship, and when the check that will start it is due. A
+/// <see cref="BackfillRestartedDto"/>'s sibling, and not a <see cref="WatchedShipDto"/> for the same
+/// reason.
+/// </summary>
+public record FullSweepQueuedDto(
+    int ShipId,
+    string TagName,
+    DateTime FullSweepRequestedAt,
+    DateTime? NextScrapeAt);

@@ -81,6 +81,11 @@ export interface WatchedShip {
    * including every ship whose walks happened before this was recorded.
    */
   wholeListingReadLoggedInAt: string | null;
+  /**
+   * When an admin asked for a full re-read ahead of the schedule, or null. The ship's next check
+   * starts it, and starting it clears this.
+   */
+  fullSweepRequestedAt: string | null;
 }
 
 /** What an admin's restart left on a ship whose backfill this instance had given up on. */
@@ -90,6 +95,14 @@ export interface BackfillRestarted {
   backfillState: WatchedShip['backfillState'];
   backfillNextPage: number | null;
   backfillStalledRuns: number;
+}
+
+/** What an admin's request for a full re-read left on a ship, and when its next check is due. */
+export interface FullSweepQueued {
+  shipId: number;
+  tagName: string;
+  fullSweepRequestedAt: string;
+  nextScrapeAt: string | null;
 }
 
 /** What an admin's recheck left on a ship AO3 had denied. */

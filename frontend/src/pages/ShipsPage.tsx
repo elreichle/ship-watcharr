@@ -62,6 +62,23 @@ function canRestartBackfill(ship: WatchedShip): boolean {
 }
 
 /**
+ * Whether an admin asking for a full re-read of this ship would be accepted and would ever run.
+ *
+ * The endpoint's refusals, mirrored so the button is only offered where it does something: a denied
+ * or unscheduled ship is never walked, a ship still reading its back catalogue is walking the whole
+ * listing already, and one being re-read or already queued has nothing more to ask for.
+ */
+function canQueueSweep(ship: WatchedShip): boolean {
+  return (
+    ship.verificationState !== 'NotFoundOnAo3' &&
+    ship.isScheduled &&
+    (ship.backfillState === 'Complete' || ship.backfillState === 'Failed') &&
+    ship.fullSweepNextPage === null &&
+    ship.fullSweepRequestedAt === null
+  );
+}
+
+/**
  * The sweep, in one line — or null for a ship that has never had one.
  *
  * Beside the status rather than inside it, because the two are independent: a ship whose back
@@ -76,6 +93,13 @@ function describeSweep(ship: WatchedShip): string | null {
     return (
       `Re-reading the whole listing to find works that have left the tag — next up is page ` +
       `${ship.fullSweepNextPage}. Its pass for new works waits until this finishes.`
+    );
+  }
+
+  if (ship.fullSweepRequestedAt !== null) {
+    return (
+      'A full re-read of the listing is queued and starts at this ship’s next check. Its pass for ' +
+      'new works waits until that finishes.'
     );
   }
 
@@ -370,6 +394,11 @@ export function ShipsPage() {
                       {user?.isAdmin && canRestartBackfill(ship) && (
                         <BackfillRestart ship={ship} onRestarted={() => void load().catch(() => {})} />
                       )}
+                      {/* Admin-only for the same reason as the restart: the re-read walks every
+                          page of the listing on behalf of everyone who follows the tag. */}
+                      {user?.isAdmin && canQueueSweep(ship) && (
+                        <FullSweepQueue ship={ship} onQueued={() => void load().catch(() => {})} />
+                      )}
                       {/* Admin-only for the same two reasons, and the only thing in the product
                           that moves a ship out of NotFoundOnAo3. */}
                       {user?.isAdmin && ship.verificationState === 'NotFoundOnAo3' && (
@@ -470,6 +499,48 @@ function BackfillRestart({ ship, onRestarted }: { ship: WatchedShip; onRestarted
         </span>
       )}
     </form>
+  );
+}
+
+/**
+ * The way to fill in a listing that was read logged out, without waiting for the scheduled re-read.
+ *
+ * One button, like the recheck below: there is nothing about a full re-read for an admin to choose.
+ * Like the restart above, it waits for the ship's next check rather than jumping the queue, and the
+ * note under it says so, so nothing happening straight away does not look like a broken button.
+ */
+function FullSweepQueue({ ship, onQueued }: { ship: WatchedShip; onQueued: () => void }) {
+  const [queuing, setQueuing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const queue = async () => {
+    setError(null);
+    setQueuing(true);
+    try {
+      await api.queueFullSweep(ship.shipId);
+      onQueued();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to queue a full re-read.');
+    } finally {
+      setQueuing(false);
+    }
+  };
+
+  return (
+    <div className="ship-action">
+      <button type="button" disabled={queuing} onClick={() => void queue()}>
+        {queuing ? 'Queuing…' : 'Re-read whole listing'}
+      </button>
+      <span className="ship-status-detail">
+        Logged in, one page at a time, starting at this ship’s next check. New works for this ship
+        wait until it finishes.
+      </span>
+      {error && (
+        <span className="error" role="alert">
+          {error}
+        </span>
+      )}
+    </div>
   );
 }
 

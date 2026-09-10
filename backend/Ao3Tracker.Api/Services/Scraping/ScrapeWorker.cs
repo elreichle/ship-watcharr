@@ -342,6 +342,10 @@ public class ScrapeWorker : BackgroundService
     {
         if (ship.FullSweepNextPage is not null) return true;
 
+        // An admin asked for one. Not spaced like the scheduled sweep, because the request is the
+        // spacing: it is one walk, and starting that walk is what clears it.
+        if (ship.FullSweepRequestedAt is not null) return true;
+
         var lastWholeListing =
             ship.LastFullSweepStartedAt ?? ship.BackfillCompletedAt ?? ship.CreatedAt;
 

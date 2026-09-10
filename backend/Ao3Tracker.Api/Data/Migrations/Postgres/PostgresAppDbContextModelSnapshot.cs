@@ -660,6 +660,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Postgres
                     b.Property<int?>("FullSweepNextPage")
                         .HasColumnType("integer");
 
+                    b.Property<DateTime?>("FullSweepRequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime?>("IncrementalWatermarkUtc")
                         .HasColumnType("timestamp with time zone");
 
