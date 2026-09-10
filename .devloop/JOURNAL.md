@@ -376,3 +376,13 @@ Append-only. One entry per iteration, newest last.
 - commit: 622fb6e
 - next: the finish check — T88 closed the only gap this pass found; README and docker were checked
   by T87 and the post-loop commits touched only README prose and scheduling.
+
+## 2026-09-10 — Finish check — done
+- did: Reran the definition of done on the tree after T88 and the post-loop work: suite, build,
+  lint, README clauses, and a fresh `docker compose up --build` on port 18080 that registered an
+  admin, stored an instance credential and contact, followed a ship, and kept all of it across
+  `down` + `up`. Stack and volume removed afterwards.
+- files: none
+- ran: `dotnet test` → 1146; `npm run build` clean; `npm run lint` → 2 known; compose cycle green.
+- commit: e73cd8d
+- next: the list is finished; one display oddity from the compose check is in BACKLOG.md.
