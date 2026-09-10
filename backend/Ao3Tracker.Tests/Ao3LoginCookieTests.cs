@@ -149,6 +149,40 @@ public class Ao3LoginCookieTests
         Assert.Equal(Now.AddHours(1), expiry);
     }
 
+    [Theory]
+    [InlineData("__cf_bm")]
+    [InlineData("_cfuvid")]
+    [InlineData("cf_clearance")]
+    [InlineData("__cflb")]
+    [InlineData("__cfruid")]
+    [InlineData("__cfseq")]
+    [InlineData("__cfwaitingroom")]
+    [InlineData("cf_ob_info")]
+    [InlineData("cf_use_ob")]
+    [InlineData("__cf_logged_in")]
+    [InlineData("cf_chl_rc_i")]
+    public void Recognises_the_cookies_cloudflare_documents_as_its_own(string name) =>
+        Assert.True(Ao3Cookies.IsCloudflareCookie(name));
+
+    [Theory]
+    [InlineData("_otwarchive_session")]
+    [InlineData("remember_user_token")]
+    [InlineData("user_credentials")]
+    [InlineData("cf_something_the_archive_set")]
+    [InlineData("__CF_BM")]
+    public void Leaves_every_other_cookie_to_the_archive(string name) =>
+        Assert.False(Ao3Cookies.IsCloudflareCookie(name));
+
+    [Fact]
+    public void Takes_cloudflares_cookies_out_of_a_jar_and_leaves_the_rest()
+    {
+        var jar = Ao3Cookies.WithoutCloudflareCookies(Apply(
+            "__cf_bm=bot; Max-Age=1800", "_otwarchive_session=abc; Max-Age=1209600", "_cfuvid=u"));
+
+        Assert.Equal("_otwarchive_session=abc", Ao3Cookies.ToHeader(jar));
+        Assert.Equal(Now.AddDays(14), Ao3Cookies.EarliestExpiry(jar));
+    }
+
     [Fact]
     public void Drops_a_cookie_whose_max_age_is_zero()
     {

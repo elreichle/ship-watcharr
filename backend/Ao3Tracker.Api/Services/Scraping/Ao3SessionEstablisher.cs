@@ -140,8 +140,15 @@ public sealed class Ao3SessionEstablisher : IAo3SessionEstablisher
         // Merging first and then asking "are there any cookies" answers yes on the strength of the
         // anonymous pre-login cookie, so a response that set nothing at all would be accepted and
         // that anonymous cookie stored as the instance's session.
-        var established = Ao3Cookies.Apply(Ao3Cookies.Empty, posted.SetCookies, now);
-        var afterLogin = Ao3Cookies.Apply(jar, posted.SetCookies, now);
+        //
+        // Both without Cloudflare's cookies, which belong to the network in front of the archive and
+        // not to the login: a POST that only refreshed the bot cookie has signed nothing in, and a
+        // bot cookie's 30 minutes must not date a session AO3 keeps for two weeks. The form fetch's
+        // jar above still carries them to the POST itself, the way a browser would.
+        var established = Ao3Cookies.WithoutCloudflareCookies(
+            Ao3Cookies.Apply(Ao3Cookies.Empty, posted.SetCookies, now));
+        var afterLogin = Ao3Cookies.WithoutCloudflareCookies(
+            Ao3Cookies.Apply(jar, posted.SetCookies, now));
 
         var rejection = RejectionReason(posted, established);
         if (rejection is not null) return Failed(rejection);

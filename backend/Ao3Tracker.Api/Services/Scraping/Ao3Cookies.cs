@@ -16,7 +16,9 @@ public sealed record Ao3Cookie(string Value, DateTime? ExpiresAt);
 /// cache that dies with the socket. A container would be a second, divergent copy of the session.
 ///
 /// Nothing here knows AO3's cookie names. The session is "whatever the login response set", which is
-/// the only description that survives the archive renaming anything.
+/// the only description that survives the archive renaming anything. The one set of names it does
+/// know is Cloudflare's, which sits in front of the archive and is not the archive: see
+/// <see cref="IsCloudflareCookie"/>.
 ///
 /// The jar carries each cookie's expiry alongside its value rather than deriving the session's
 /// lifetime from the raw headers, because those are not the same set: a header can announce a
@@ -86,6 +88,44 @@ public static class Ao3Cookies
 
         return earliest;
     }
+
+    /// <summary>
+    /// Whether <paramref name="name"/> is a cookie Cloudflare sets for itself, as opposed to one the
+    /// archive behind it sets.
+    ///
+    /// These are not part of an AO3 login and must not be treated as part of one, for a measured
+    /// reason. An anonymous request for <c>/users/login</c> on 2026-09-10 came back with
+    /// <c>__cf_bm</c> expiring in 30 minutes beside an <c>_otwarchive_session</c> expiring in two
+    /// weeks. Carried into the session, the bot cookie was the soonest expiry in the jar
+    /// (<see cref="EarliestExpiry"/>), so every login was declared dead half an hour after it was made.
+    /// The worker only logs in at the start of a poll, so a run longer than that went on without a
+    /// session: a backfill quietly read the rest of its pages logged out and missed their restricted
+    /// works, and a full sweep abandoned itself on the first such page. Production logged a fresh
+    /// login every half hour, all day, which is also two requests AO3 did not need to serve.
+    ///
+    /// The names are the ones Cloudflare's own cookie reference lists
+    /// (developers.cloudflare.com/fundamentals/reference/policies-compliances/cloudflare-cookies,
+    /// read 2026-09-10), taken as a list rather than a prefix rule so an archive cookie that merely
+    /// happens to start with "cf" is never mistaken for one. The challenge cookies are the one family
+    /// documented by prefix.
+    /// </summary>
+    public static bool IsCloudflareCookie(string name) =>
+        CloudflareCookieNames.Contains(name) || name.StartsWith("cf_chl_", StringComparison.Ordinal);
+
+    private static readonly HashSet<string> CloudflareCookieNames = new(StringComparer.Ordinal)
+    {
+        "__cf_bm", "_cfuvid", "cf_clearance", "__cflb", "__cfruid", "__cfseq", "__cfwaitingroom",
+        "cf_ob_info", "cf_use_ob", "__cf_logged_in",
+    };
+
+    /// <summary>
+    /// <paramref name="jar"/> without Cloudflare's cookies. See <see cref="IsCloudflareCookie"/> for
+    /// why a login is judged, dated and stored without them.
+    /// </summary>
+    public static IReadOnlyDictionary<string, Ao3Cookie> WithoutCloudflareCookies(
+        IReadOnlyDictionary<string, Ao3Cookie> jar) =>
+        jar.Where(pair => !IsCloudflareCookie(pair.Key))
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
 
     /// <summary>
     /// When a cookie stops being valid. <c>Max-Age</c> wins over <c>Expires</c> where both are

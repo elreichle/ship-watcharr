@@ -275,6 +275,50 @@ public class Ao3LoginEstablisherTests : IDisposable
         Assert.DoesNotContain("flash_notice", session.SessionCookie);
     }
 
+    [Fact]
+    public async Task Does_not_let_cloudflares_bot_cookie_date_the_session()
+    {
+        // The shape production was served on 2026-09-10: `__cf_bm` for 30 minutes beside a
+        // fortnight's `_otwarchive_session`. Dated by the bot cookie, every session died half an hour
+        // in and a long run finished its walk logged out. See Ao3Cookies.IsCloudflareCookie.
+        _host.Clock.Now = new DateTimeOffset(2026, 9, 10, 12, 0, 0, TimeSpan.Zero);
+        _host.Http.RespondsToLoginPage = url => new ScrapeHttpResponse(
+            Fixtures.Load(Fixtures.LoginPage), HttpStatusCode.OK, FromCache: false, FinalUrl: url,
+            SetCookieHeaders:
+            [
+                "_otwarchive_session=anonymous; path=/; Max-Age=1209600",
+                "__cf_bm=bot; path=/; Max-Age=1800",
+                "_cfuvid=visitor; path=/",
+            ]);
+        _host.Http.RespondsToPost = url => new ScrapeHttpResponse(
+            "", HttpStatusCode.Found, FromCache: false, FinalUrl: url,
+            SetCookieHeaders: ["_otwarchive_session=logged-in; path=/; Max-Age=1209600"],
+            Location: "https://ao3.test/users/shipwatcharr");
+
+        await _host.SaveAo3LoginAsync();
+        Assert.True((await _host.LogInToAo3Async()).Success);
+
+        var session = await _host.WithCredentialStoreAsync(store => store.GetSessionAsync());
+        Assert.Equal(_host.Clock.Now.UtcDateTime.AddDays(14), session!.ExpiresAt);
+        Assert.Equal("_otwarchive_session=logged-in", session.SessionCookie);
+    }
+
+    [Fact]
+    public async Task Refuses_a_login_whose_only_new_cookie_is_cloudflares()
+    {
+        // Cloudflare may refresh its bot cookie on any response, the refused ones included. That is
+        // not the archive signing anybody in.
+        _host.Http.RespondsToPost = url => new ScrapeHttpResponse(
+            "", HttpStatusCode.Found, FromCache: false, FinalUrl: url,
+            SetCookieHeaders: ["__cf_bm=refreshed; path=/; Max-Age=1800"],
+            Location: "https://ao3.test/users/shipwatcharr");
+
+        await _host.SaveAo3LoginAsync();
+
+        Assert.False((await _host.LogInToAo3Async()).Success);
+        Assert.Null(await _host.WithCredentialStoreAsync(store => store.GetSessionAsync()));
+    }
+
     // ---- giving up before posting anything ----------------------------------------------------
 
     [Fact]
