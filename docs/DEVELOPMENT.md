@@ -72,6 +72,8 @@ polite, and it is not optional:
   finds anything.
 - Stops a monthly full pass on page 1 when the tag's own work count matches what the library
   holds under the ship. The full pass is the only one allowed to conclude a work has *left* a tag.
+- Runs a full pass for one ship ahead of the schedule only when an admin queues it from the Ships
+  page, and then at that ship's next check rather than straight away.
 - Re-reads a work's own page after a revision no more than once a week.
 - Accepts compressed responses.
 - Aborts a run after `MaxConsecutiveFailures` (default 3), and caps each run at
@@ -115,6 +117,17 @@ says so. Like the contact gate, this is re-checked every poll. The two gates are
 concerns: the contact is how requests are *attributed*, the login is what they are *authorised*
 as.
 
+**A session lasts as long as AO3's own cookies say.** AO3 is served through Cloudflare, which sets
+a bot cookie that expires after 30 minutes. The cookies Cloudflare documents as its own are left out
+of the stored session, so they neither date it nor count as proof that a login worked. Before that,
+every run longer than half an hour finished logged out.
+
+**Works for registered users only need a logged-in walk.** AO3 leaves them out of any listing it
+serves logged out, and the pass for new works only reads the newest end of a tag. So
+`Ship.WholeListingReadLoggedInAt` records when a walk of the whole listing last finished with every
+page read logged in, and the Ships page shows it. A backfill that read any page logged out does not
+earn it; a full pass that did is abandoned instead.
+
 **The app never writes to AO3.** It will not leave kudos, comments or bookmarks, subscribe to
 anything, or post, even though it holds a session that could. Keep it that way.
 
@@ -132,7 +145,7 @@ Global (from AO3):
 - `Ao3Pseuds` / `WorkAuthors`: creators, in byline order.
 - `Ao3Series` / `WorkSeries`: series membership and part number.
 - `Ships`: a followed relationship tag, and where all sync state lives: incremental watermark,
-  backfill cursor, full-pass timestamps.
+  backfill cursor, full-pass timestamps, and when the whole listing was last read logged in.
 - `ShipWorks`: "this work appeared in this ship's listing". Separate from tags because AO3 tag
   synonyms mean a work returned by the canonical tag may not carry it in its own blurb.
   `MissingSinceAt` is when a full pass first walked the whole listing without seeing it.

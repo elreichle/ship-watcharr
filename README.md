@@ -109,7 +109,7 @@ stored AO3 login is encrypted with the keys inside it.
 | **Favorites** | Everything you have starred, in one list. |
 | **Notifications** | New works under your ships since you last looked. Mark one read, or all at once. |
 | **Filters** | Named, reusable criteria, with a live count of how many works each one matches. |
-| **Ships** | Follow and unfollow tags, and see when each ship was last checked and when it is next due. |
+| **Ships** | Follow and unfollow tags, see when each ship was last checked and when it is next due, and whether its whole listing has been read while logged in. An admin can queue a full re-read of a ship from here. |
 | **Downloads** | Files you have asked for, and the in-app reader for EPUBs. |
 | **Statistics** | A ship's corpus against your own reading. |
 | **Schedules** | A read-only view of the checking schedule and each run's outcome. |

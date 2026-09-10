@@ -34,3 +34,4 @@ A journal `next:` is for *this* handoff; a lesson is what would have saved a pas
 - A correlated `EXISTS` inside a `SelectMany`'s collection selector needs SQL APPLY (SQLite has none): filter the flattened rows instead.
 - A finish check reruns lint and counts: work landed outside the loop after the last journal can add a warning the journal's "known" figure does not cover.
 - `settings.json` is layered into configuration at boot without reload: a key the app also reads from the file on demand gets shadowed after a restart, so the two sources look identical — keep such keys out of the layer (`PersistedSettingsLayer`).
+- Hand-written AO3 markup proves nothing about AO3: the lock selector passed for weeks on a `class="symbol"` AO3 never renders. Copy test markup from a capture or from otwarchive's own templates, and check which cookies a jar holds before trusting its soonest expiry.
