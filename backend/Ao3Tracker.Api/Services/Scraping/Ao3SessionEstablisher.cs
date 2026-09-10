@@ -209,7 +209,7 @@ public sealed class Ao3SessionEstablisher : IAo3SessionEstablisher
         return state == Ao3SessionState.LoggedIn
             ? null
             : "AO3 did not sign this instance in. Check the username and password saved at "
-              + "System → Scraping — a rejected login is answered with the login page again.";
+              + "System → AO3 — a rejected login is answered with the login page again.";
     }
 
     /// <summary>

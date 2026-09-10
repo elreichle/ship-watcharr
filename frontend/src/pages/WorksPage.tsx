@@ -533,7 +533,7 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
           </EmptyState>
         ) : (
           <EmptyState
-            title="No works scraped yet"
+            title="No works yet"
             action={
               <Link className="button" to="/ships">
                 Check the ships you follow
@@ -541,7 +541,7 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
             }
           >
             Nothing has arrived yet for the ships you follow. The{' '}
-            <Link to="/ships">Ships</Link> tab says when each was last scraped and when it is next
+            <Link to="/ships">Ships</Link> tab says when each was last checked and when it is next
             due.
           </EmptyState>
         )

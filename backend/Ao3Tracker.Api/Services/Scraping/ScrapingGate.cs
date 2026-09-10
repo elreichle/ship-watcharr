@@ -25,8 +25,8 @@ public sealed class ScrapingGate
     /// password, so its absence means a login is due, not that anything is missing.
     /// </summary>
     internal const string NoAo3LoginMessage =
-        "No AO3 login is stored for this instance. Scraped data is shared, so the deployment "
-        + "scrapes as one AO3 account; until an admin saves one at System → Scraping, due jobs are "
+        "No AO3 login is stored for this instance. The library is shared, so the deployment "
+        + "signs in as one AO3 account; until an admin saves one at System → AO3, due jobs are "
         + "held unrun.";
 
     private readonly Ao3UserAgentProvider _userAgents;

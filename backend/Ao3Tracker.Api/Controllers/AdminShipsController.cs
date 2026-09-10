@@ -70,7 +70,7 @@ public class AdminShipsController : ControllerBase
         {
             return Conflict(new
             {
-                message = $"AO3 has no tag called {ship.CanonicalTagName}, so nothing will scrape it. "
+                message = $"AO3 has no tag called {ship.CanonicalTagName}, so nothing will check it. "
                     + "Follow the tag under the name AO3 files it under, or send this one back for "
                     + "checking if the archive has since renamed or restored it.",
             });
@@ -83,7 +83,7 @@ public class AdminShipsController : ControllerBase
         {
             return Conflict(new
             {
-                message = $"{ship.CanonicalTagName} has no enabled scrape schedule, so a restarted "
+                message = $"{ship.CanonicalTagName} has no enabled schedule, so a restarted "
                     + "backfill would never run. Follow the tag to schedule it again.",
             });
         }
@@ -210,7 +210,7 @@ public class AdminShipsController : ControllerBase
         {
             return Conflict(new
             {
-                message = $"Nobody follows {ship.CanonicalTagName} any more, so nothing would scrape it "
+                message = $"Nobody follows {ship.CanonicalTagName} any more, so nothing would check it "
                     + "even if AO3 confirmed the tag. Follow it again to have it checked.",
             });
         }

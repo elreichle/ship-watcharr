@@ -48,3 +48,6 @@ backend/Ao3Tracker.Api/design-time.db
 # folder) on case-insensitive filesystems (Windows/macOS) — git would otherwise silently
 # ignore new files under Data/ too. Don't rename this back to "data/".
 backend/Ao3Tracker.Api/appdata/
+
+# Claude Code session notes, checkpoints and screenshots — local to one machine.
+.claude/

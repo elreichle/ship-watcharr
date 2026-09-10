@@ -233,7 +233,7 @@ export function ShipsPage() {
       <h1>Ships</h1>
 
       <p className="hint">
-        Follow a relationship tag and this instance scrapes it for everyone who follows it — once,
+        Follow a relationship tag and this instance checks it for everyone who follows it — once,
         not once per person. Enter the tag exactly as AO3 writes it, e.g.{' '}
         <code>Clarke Griffin/Lexa</code> for a romantic pairing or <code>Sam Winchester &amp; Dean
         Winchester</code> for a platonic one.
@@ -275,7 +275,7 @@ export function ShipsPage() {
         !error && <SkeletonRows rows={3} kind="line" />
       ) : ships.length === 0 ? (
         <EmptyState title="You aren’t following any ships yet">
-          Follow a relationship tag above and this instance starts scraping it for you.
+          Follow a relationship tag above and this instance starts checking it for you.
         </EmptyState>
       ) : (
         <>
@@ -286,25 +286,25 @@ export function ShipsPage() {
           {!ao3LoginConfigured && (
             <p className="callout callout-error">
               <strong>Nothing is being fetched.</strong> The ships you follow are scheduled, but
-              this instance has no AO3 login saved, so every scrape is held. Your library stays
+              this instance has no AO3 login saved, so every check is paused. Your library stays
               empty until one is saved.{' '}
               {user?.isAdmin
-                ? 'Add it under System → Scraping.'
-                : 'Ask an admin of this instance to add one under System → Scraping.'}
+                ? 'Add it under System → AO3.'
+                : 'Ask an admin of this instance to add one under System → AO3.'}
             </p>
           )}
 
           {!verificationEnabled && (
             <p className="callout callout-warning">
               Tags can’t be checked right now: this instance has no operator contact, so it isn’t
-              allowed to contact AO3 at all. An admin can set one under System → Scraping.
+              allowed to contact AO3 at all. An admin can set one under System → AO3.
             </p>
           )}
 
           {ships.every((ship) => !ship.scraperAvailable) && (
             <p className="callout callout-warning">
               Nothing is being fetched yet. This build schedules the ships you follow but has no AO3
-              scraper registered to run them, so work counts stay at zero until one lands.
+              source registered to run them, so work counts stay at zero until one lands.
             </p>
           )}
 
@@ -314,8 +314,8 @@ export function ShipsPage() {
                 <th>Tag</th>
                 <th className="numeric">Works</th>
                 <th>Status</th>
-                <th>Last scraped</th>
-                <th>Next scrape</th>
+                <th>Last checked</th>
+                <th>Next check</th>
                 <th className="numeric">Also followed by</th>
                 <th />
               </tr>
@@ -377,7 +377,7 @@ export function ShipsPage() {
           </table>
 
           <p className="hint">
-            Unfollowing only removes your subscription. Scraped works stay, so following the tag
+            Unfollowing only removes your subscription. Works already in the library stay, so following the tag
             again picks up where it left off instead of re-fetching everything from AO3.
           </p>
         </>
@@ -439,7 +439,7 @@ function BackfillRestart({ ship, onRestarted }: { ship: WatchedShip; onRestarted
         {restarting ? 'Restarting…' : 'Restart'}
       </button>
       <span className="ship-status-detail">
-        Picks up on this ship’s next scheduled scrape, not straight away.
+        Picks up on this ship’s next scheduled check, not straight away.
       </span>
       {error && (
         <span className="error" role="alert">
@@ -485,7 +485,7 @@ function VerificationRecheck({ ship, onRechecked }: { ship: WatchedShip; onReche
         {rechecking ? 'Sending…' : 'Check with AO3 again'}
       </button>
       <span className="ship-status-detail">
-        For a tag that was renamed or briefly gone. Nothing is scraped until AO3 confirms it.
+        For a tag that was renamed or briefly gone. Nothing is fetched until AO3 confirms it.
       </span>
       {error && (
         <span className="error" role="alert">

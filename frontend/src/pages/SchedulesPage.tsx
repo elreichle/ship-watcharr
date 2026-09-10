@@ -68,7 +68,7 @@ export function SchedulesPage() {
 
   return (
     <div className="page">
-      <h1>Scrape schedules</h1>
+      <h1>Schedules</h1>
 
       <p className="hint">
         One schedule per ship, shared by everyone watching it. Add and remove ships on the{' '}
@@ -102,7 +102,7 @@ export function SchedulesPage() {
           <thead>
             <tr>
               <th>Ship</th>
-              <th>Scraper</th>
+              <th>Source</th>
               <th className="numeric">Interval</th>
               <th>Enabled</th>
               <th>Last run</th>

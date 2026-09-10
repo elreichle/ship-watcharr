@@ -166,7 +166,7 @@ export function NotificationsPage() {
           </EmptyState>
         ) : (
           <EmptyState title="Nothing yet">
-            A ship you follow gaining a work is what puts a line here — the first scrape of a newly
+            A ship you follow gaining a work is what puts a line here — the first check of a newly
             followed ship fills the library rather than this list.
           </EmptyState>
         )

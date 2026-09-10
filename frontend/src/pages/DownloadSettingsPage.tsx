@@ -73,7 +73,7 @@ export function DownloadSettingsPage() {
         </label>
         <p className="hint">
           Marking a work a favorite then asks for its EPUB exactly as the button on the work's page
-          would: it joins the queue behind the same rate limit the scraper uses, and a copy the
+          would: it joins the queue behind the same rate limit every AO3 request shares, and a copy the
           server already holds at the current version is used without touching AO3. Only the moment
           the mark goes on — re-rating a favorite does not ask again, and taking the mark off leaves
           the file where it is. Works you favorited before turning this on are not fetched; ask for

@@ -15,7 +15,7 @@ export function DownloadsPage() {
 
       <p className="hint">
         Copies of works fetched from AO3 and kept here. Ask for one from a work’s own page — every
-        request waits its turn behind the same rate limit the scraper uses, so a file appears a
+        request waits its turn behind the same rate limit every AO3 request shares, so a file appears a
         little after it is asked for rather than at once.
       </p>
 

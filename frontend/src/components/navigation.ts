@@ -48,7 +48,7 @@ export const NAV_SECTIONS: NavSection[] = [
     icon: 'zap',
     adminOnly: true,
     children: [
-      { label: 'Scraping', to: '/system/scraping' },
+      { label: 'AO3', to: '/system/ao3' },
       { label: 'Database', to: '/system/database' },
     ],
   },

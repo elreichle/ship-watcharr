@@ -10,7 +10,7 @@ const SOURCE_LABELS: Record<ScrapingIdentity['contactSource'], string> = {
   None: 'not set',
 };
 
-export function AdminScrapingPage() {
+export function Ao3SettingsPage() {
   const [identity, setIdentity] = useState<ScrapingIdentity | null>(null);
   const [contact, setContact] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +46,7 @@ export function AdminScrapingPage() {
   };
 
   useEffect(() => {
-    load().catch(() => setError('Failed to load scraping settings.'));
+    load().catch(() => setError('Failed to load the AO3 settings.'));
     loadCredential().catch(() => setCredentialError('Failed to load the AO3 login.'));
   }, []);
 
@@ -68,7 +68,7 @@ export function AdminScrapingPage() {
       const next = await api.setInstanceAo3Credential(ao3Username.trim(), ao3Password);
       setAo3Username('');
       setAo3Password('');
-      await applyCredential(next, 'Saved. Scraping picks this up on the next poll.');
+      await applyCredential(next, 'Saved. The next check signs in with this login.');
     } catch (err) {
       setLoginError(err instanceof ApiError ? err.message : 'Failed to save the AO3 login.');
     } finally {
@@ -82,7 +82,7 @@ export function AdminScrapingPage() {
     setSavingLogin(true);
     try {
       const next = await api.removeInstanceAo3Credential();
-      await applyCredential(next, 'Removed. Scraping is held until a login is saved.');
+      await applyCredential(next, 'Removed. Checks are paused until a login is saved.');
     } catch (err) {
       setLoginError(err instanceof ApiError ? err.message : 'Failed to remove the AO3 login.');
     } finally {
@@ -114,7 +114,7 @@ export function AdminScrapingPage() {
   if (!identity) {
     return (
       <div className="page">
-        <h1>Scraping identity</h1>
+        <h1>AO3 connection</h1>
         {error ? (
           <p className="error" role="alert">
             {error}
@@ -128,7 +128,7 @@ export function AdminScrapingPage() {
 
   return (
     <div className="page">
-      <h1>Scraping identity</h1>
+      <h1>AO3 connection</h1>
 
       {/* Every user sees the same fact on the Ships page; an admin sees it here, where the form
           that fixes it is. Not gated on the identity being configured too: an instance missing
@@ -136,7 +136,7 @@ export function AdminScrapingPage() {
           says anything about the login. */}
       {!identity.ao3LoginConfigured && (
         <p className="callout callout-error">
-          Scraping is held: no AO3 login is stored for this instance. Followed ships stay scheduled
+          Checks are paused: no AO3 login is stored for this instance. Followed ships stay scheduled
           and nothing is fetched until one is saved below.
         </p>
       )}
@@ -245,8 +245,8 @@ export function AdminScrapingPage() {
         <h2>AO3 login</h2>
 
         <p className="hint">
-          One AO3 account for the whole deployment, not one per user: a ship is scraped once for
-          everyone following it, so there is no per-user answer to whose session that scrape runs as.
+          One AO3 account for the whole deployment, not one per user: a ship is checked once for
+          everyone following it, so there is no per-user answer to whose session that check runs as.
           The password is stored encrypted and is never shown again. It is used to read the archive
           and nothing else — this app never posts, kudos, bookmarks or subscribes.
         </p>
@@ -276,14 +276,14 @@ export function AdminScrapingPage() {
                   {/* Said plainly because it is easy to mistake for a problem: the cookie is a cache
                       of the password, so its absence costs one login and nothing else. */}
                   <span className="hint">
-                    a cache of the login — its absence just means the next scrape logs in again
+                    a cache of the login — its absence just means the next check logs in again
                   </span>
                 </td>
               </tr>
             </tbody>
           </table>
         ) : (
-          <p className="hint">No AO3 login stored. Scraping is held until there is one.</p>
+          <p className="hint">No AO3 login stored. Checks are paused until there is one.</p>
         )}
 
         <form onSubmit={(e) => void onSubmitLogin(e)}>

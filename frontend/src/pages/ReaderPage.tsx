@@ -141,7 +141,7 @@ function NoBookYet({
         {download === null
           ? 'Reading here needs a copy of the work as EPUB, fetched from AO3 and kept on this server. It joins the same queue every download does, so it arrives shortly after it is asked for.'
           : inFlight
-            ? 'The EPUB is on its way. It waits its turn behind the same rate limit the scraper uses, and this page opens it the moment it lands.'
+            ? 'The EPUB is on its way. It waits its turn behind the same rate limit every AO3 request shares, and this page opens it the moment it lands.'
             : (download.errorMessage ?? 'The fetch failed.')}
       </EmptyState>
       {error !== null && (

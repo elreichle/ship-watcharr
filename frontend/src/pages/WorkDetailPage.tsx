@@ -203,7 +203,7 @@ export function WorkDetailPage() {
             </Link>
           }
         >
-          Nothing you follow carries this work — either it was never scraped, or the ship it came
+          Nothing you follow carries this work — either it was never fetched, or the ship it came
           from is one you have since unfollowed.
         </EmptyState>
       </div>

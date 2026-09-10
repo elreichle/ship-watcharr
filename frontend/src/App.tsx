@@ -17,7 +17,7 @@ import { SchedulesPage } from './pages/SchedulesPage';
 import { AccountSettingsPage } from './pages/AccountSettingsPage';
 import { AppearanceSettingsPage } from './pages/AppearanceSettingsPage';
 import { DownloadSettingsPage } from './pages/DownloadSettingsPage';
-import { AdminScrapingPage } from './pages/AdminScrapingPage';
+import { Ao3SettingsPage } from './pages/Ao3SettingsPage';
 import { AdminDatabasePage } from './pages/AdminDatabasePage';
 
 export default function App() {
@@ -61,10 +61,10 @@ export default function App() {
           <Route path="/settings/downloads" element={<DownloadSettingsPage />} />
 
           <Route
-            path="/system/scraping"
+            path="/system/ao3"
             element={
               <AdminRoute>
-                <AdminScrapingPage />
+                <Ao3SettingsPage />
               </AdminRoute>
             }
           />
@@ -78,7 +78,8 @@ export default function App() {
           />
 
           {/* Admin pages moved under /system to match the sidebar's Settings/System split. */}
-          <Route path="/admin/scraping" element={<Navigate to="/system/scraping" replace />} />
+          <Route path="/admin/scraping" element={<Navigate to="/system/ao3" replace />} />
+          <Route path="/system/scraping" element={<Navigate to="/system/ao3" replace />} />
           <Route path="/admin/database" element={<Navigate to="/system/database" replace />} />
         </Route>
 

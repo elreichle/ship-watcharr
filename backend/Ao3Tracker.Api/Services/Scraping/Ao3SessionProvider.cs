@@ -80,7 +80,7 @@ public sealed class Ao3SessionProvider : IAo3SessionProvider
             {
                 return new Ao3LoginResult(false, Error:
                     $"The last attempt to log in to AO3 did not succeed. The next one is due at "
-                    + $"{_backoff.RetryAfter:u}; saving the login again at System → Scraping tries "
+                    + $"{_backoff.RetryAfter:u}; saving the login again at System → AO3 tries "
                     + "immediately. Due jobs are held until then, with nothing recorded against them.");
             }
 

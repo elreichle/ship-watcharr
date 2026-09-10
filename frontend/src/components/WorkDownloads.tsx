@@ -35,7 +35,7 @@ export function WorkDownloads({ workId, revision = 0 }: WorkDownloadsProps) {
 
       <p className="hint">
         A copy fetched from AO3 and kept on this server. It joins a queue behind the same rate limit
-        the scraper uses, so it arrives shortly after it is asked for rather than at once — the{' '}
+        every AO3 request shares, so it arrives shortly after it is asked for rather than at once — the{' '}
         <Link to="/downloads">Downloads</Link> page lists every request you have made. The EPUB can
         also be read here, in the app.
       </p>

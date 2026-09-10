@@ -190,14 +190,14 @@ export function AccountSettingsPage() {
           </label>
           <p className="hint">
             Not needed to sign in — you log in with your username. The one thing it is used for: if
-            you are the admin of this instance, it becomes the contact AO3 sees in the scraper's
+            you are the admin of this instance, it becomes the contact AO3 sees in this app’s
             User-Agent, so they can reach you instead of blocking you. Leave it blank to clear it,
-            or set the contact directly under System → Scraping.
+            or set the contact directly under System → AO3.
           </p>
           {accountEmail?.isUsedAsOperatorContact && (
             <p className="hint">
               <strong>In use:</strong> this address is the operator contact AO3 currently sees.
-              Clearing it disables scraping until another contact is set.
+              Clearing it pauses every check until another contact is set.
             </p>
           )}
           {emailMessage && (

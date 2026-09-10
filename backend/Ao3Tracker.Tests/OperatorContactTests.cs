@@ -27,7 +27,7 @@ public class OperatorContactValidationTests
     public void Rejects_missing_contacts(string? contact)
     {
         Assert.False(Ao3UserAgentProvider.ValidateContact(contact, out var error));
-        Assert.Contains("scraping is disabled", error);
+        Assert.Contains("every check is paused", error);
     }
 
     [Theory]
@@ -64,6 +64,6 @@ public class OperatorContactValidationTests
         // The page moved from Settings to System when the sidebar gained a Settings/System split,
         // so this asserts the current location rather than just the word "Settings".
         Assert.Contains("admin account", error);
-        Assert.Contains("System → Scraping", error);
+        Assert.Contains("System → AO3", error);
     }
 }

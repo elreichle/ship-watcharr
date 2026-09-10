@@ -340,21 +340,21 @@ export function StatsPage() {
             ) : !ao3LoginConfigured ? (
               <>
                 <strong>Nothing to count yet.</strong> The ships you follow are scheduled, but this
-                instance has no AO3 login saved, so every scrape is held and no works have arrived.{' '}
+                instance has no AO3 login saved, so every check is paused and no works have arrived.{' '}
                 {user?.isAdmin
-                  ? 'Add it under System → Scraping.'
-                  : 'Ask an admin of this instance to add one under System → Scraping.'}
+                  ? 'Add it under System → AO3.'
+                  : 'Ask an admin of this instance to add one under System → AO3.'}
               </>
             ) : selectedShip !== null ? (
               <>
                 <strong>Nothing to count yet.</strong> No works have been fetched for{' '}
                 {selectedShip.tagName}. <Link to="/ships">Ships</Link> says when it was last
-                scraped and when it is next due.
+                checked and when it is next due.
               </>
             ) : (
               <>
                 <strong>Nothing to count yet.</strong> The ships you follow have no works in them
-                so far. <Link to="/ships">Ships</Link> says when each was last scraped and when it
+                so far. <Link to="/ships">Ships</Link> says when each was last checked and when it
                 is next due.
               </>
             )}
