@@ -21,8 +21,9 @@ builder.Services.AddSingleton(storagePaths);
 // appsettings.json/appsettings.{Environment}.json here. This intentionally makes the
 // persisted file win over environment variables/command-line args too: once someone
 // saves a choice through the admin UI, that's the source of truth until they change it
-// again (or an operator deletes settings.json). See README for the full precedence story.
-builder.Configuration.AddJsonFile(storagePaths.SettingsFilePath, optional: true, reloadOnChange: false);
+// again (or an operator deletes settings.json). The operator contact is the one key the
+// file is not allowed to shadow — see PersistedSettingsLayer for why.
+PersistedSettingsLayer.Add(builder.Configuration, storagePaths.SettingsFilePath);
 
 // ---- Database (SQLite by default — zero-config, one file, works out of the box for a
 // self-hosted install. PostgreSQL is opt-in, configured either via the admin UI or the

@@ -49,8 +49,9 @@ public class PersistedSettingsStore : IPersistedSettingsStore
                 section["OperatorContact"] = operatorContact.Trim();
 
             // Don't leave an empty section behind. settings.json is layered over appsettings.json
-            // at startup as the highest-precedence source, so anything left here is something a
-            // future reader has to reason about — keep the file to what is actually overridden.
+            // at startup as the highest-precedence source (this key excepted, see
+            // PersistedSettingsLayer), so anything left here is something a future reader has to
+            // reason about — keep the file to what is actually overridden.
             if (section.Count == 0)
                 root.Remove("Ao3HttpClient");
             else
