@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
 import type {
@@ -81,6 +81,23 @@ interface WorksPageProps {
 
 export function WorksPage({ favorites = false }: WorksPageProps) {
   const [searchParams, setSearchParams] = useSearchParams();
+
+  /** Any change other than paging invalidates the page number, so it resets unless set explicitly. */
+  const updateQuery = useCallback(
+    (changes: Record<string, string | null>, options?: { replace: boolean }) => {
+      setSearchParams((params) => {
+        const next = new URLSearchParams(params);
+        if (!('page' in changes)) next.delete('page');
+        for (const [key, value] of Object.entries(changes)) {
+          if (value === null) next.delete(key);
+          else next.set(key, value);
+        }
+        return next;
+      }, options);
+    },
+    [setSearchParams],
+  );
+
   const [result, setResult] = useState<PagedResult<WorkListItem> | null>(null);
   // null means "we could not find out", which is not the same as "you follow none" — saying the
   // latter when the request failed sends someone off to re-add ships they already have.
@@ -199,8 +216,7 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
       SEARCH_DEBOUNCE_MS,
     );
     return () => window.clearTimeout(timer);
-    // updateQuery is recreated each render; it closes over nothing that changes what it does.
-  }, [searchDraft, search]);
+  }, [searchDraft, search, updateQuery]);
 
   useEffect(() => {
     let current = true;
@@ -348,19 +364,6 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
         setNoteDrafts(({ [workId]: _saved, ...rest }) => rest);
       })
       .finally(() => setSavingNoteId((saving) => (saving === workId ? null : saving)));
-  };
-
-  /** Any change other than paging invalidates the page number, so it resets unless set explicitly. */
-  const updateQuery = (changes: Record<string, string | null>, options?: { replace: boolean }) => {
-    setSearchParams((params) => {
-      const next = new URLSearchParams(params);
-      if (!('page' in changes)) next.delete('page');
-      for (const [key, value] of Object.entries(changes)) {
-        if (value === null) next.delete(key);
-        else next.set(key, value);
-      }
-      return next;
-    }, options);
   };
 
   const works = result?.items ?? [];
