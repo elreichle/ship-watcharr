@@ -6,8 +6,6 @@ Name the relationship tags you care about. Ship Watcharr keeps an eye on them, t
 new work lands, and gives you one calm place to track what you have read, what you thought of it,
 and what you want to read next.
 
-![The Works view: every work under the ships you follow, with your own reading status, rating and notes on each row](docs/images/works-dark.png)
-
 ## Why it exists
 
 Following a ship on AO3 means going back to the same tag page, again and again, and re-reading it
