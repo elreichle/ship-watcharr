@@ -33,3 +33,4 @@ A journal `next:` is for *this* handoff; a lesson is what would have saved a pas
 - A guard that reads one table and writes another in a later statement races the controller clearing both; put the condition in the UPDATE's own WHERE (`ExecuteUpdateAsync`).
 - A correlated `EXISTS` inside a `SelectMany`'s collection selector needs SQL APPLY (SQLite has none): filter the flattened rows instead.
 - A finish check reruns lint and counts: work landed outside the loop after the last journal can add a warning the journal's "known" figure does not cover.
+- `settings.json` is layered into configuration at boot without reload: a key the app also reads from the file on demand gets shadowed after a restart, so the two sources look identical — keep such keys out of the layer (`PersistedSettingsLayer`).
