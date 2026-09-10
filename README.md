@@ -39,7 +39,6 @@ you can sort, filter and annotate. Your reading history stays yours, on your mac
 - **Your colours.** Nine built-in palettes, each with a light and a dark half, and drop-in
   support for Obsidian community themes.
 
-![A custom Obsidian theme pasted into Appearance restyles the whole app](docs/images/works-custom-theme.png)
 
 ## A good neighbour to the archive
 
