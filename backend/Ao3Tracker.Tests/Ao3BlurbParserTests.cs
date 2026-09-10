@@ -461,6 +461,22 @@ public class Ao3BlurbParserTests
         Assert.True(work.IsRestricted);
     }
 
+    [Fact]
+    public void Does_not_report_an_open_work_as_restricted()
+    {
+        var work = Assert.Single(Ao3BlurbParser.ParseListing(Page(Blurb())).Works);
+        Assert.False(work.IsRestricted);
+    }
+
+    [Fact]
+    public void Does_not_mistake_the_hidden_by_admin_lock_for_a_restricted_one()
+    {
+        // The same heading can carry AO3's red lock, which says an admin hid the work. It is a
+        // different fact, and says nothing about whether the page was served to a session.
+        var work = Assert.Single(Ao3BlurbParser.ParseListing(Page(Blurb(hiddenByAdmin: true))).Works);
+        Assert.False(work.IsRestricted);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -555,13 +571,15 @@ public class Ao3BlurbParserTests
         string byline = """<a rel="author" href="/users/someuser/pseuds/somepseud">somepseud</a>""",
         string? updatedAtComment = "1703529000",
         string datetime = "25 Dec 2023",
-        bool restricted = false) => $"""
+        bool restricted = false,
+        bool hiddenByAdmin = false) => $"""
         <li id="work_12345678" class="work blurb group">
           <div class="header module">
             <h4 class="heading">
               {(linkedTitle ? $"""<a href="/works/12345678">{title}</a>""" : title)}
-              {(restricted ? """<img class="symbol non-image" title="Restricted" src="/lock.png">""" : "")}
               by {byline}
+              {(restricted ? """<img alt="(Restricted)" title="Restricted" src="/images/lockblue.png" width="15" height="15" />""" : "")}
+              {(hiddenByAdmin ? """<img alt="(Hidden by Admin)" title="Hidden by Administrator" src="/images/lockred.png" width="15" height="15" />""" : "")}
             </h4>
             <ul class="required-tags">
               <li><span class="rating-teen rating" title="Teen And Up Audiences"></span></li>

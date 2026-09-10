@@ -98,9 +98,9 @@ internal static class Ao3ListingFixtures
             <li id="work_{id}" class="work blurb group">
               <div class="header module">
                 <h4 class="heading">
-                  {(restricted ? """<img class="symbol" title="Restricted" alt="Restricted" />""" : "")}
                   <a href="/works/{id}">Work {id}</a>
                   by <a rel="author" href="/users/someuser/pseuds/somepseud">somepseud (someuser)</a>
+                  {(restricted ? """<img alt="(Restricted)" title="Restricted" src="/images/lockblue.png" width="15" height="15" />""" : "")}
                 </h4>
                 <ul class="required-tags">
                   <li><span class="rating-teen rating" title="Teen And Up Audiences"></span></li>

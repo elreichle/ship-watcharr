@@ -231,13 +231,21 @@ public static class Ao3BlurbParser
     }
 
     /// <summary>
-    /// Registered-users-only works carry a lock symbol in the heading. They are invisible to a
-    /// logged-out scrape entirely, so seeing one at all means this run was authenticated — which is
-    /// what <see cref="Ship.LastKnownTotalWasAuthenticated"/> exists to remember.
+    /// Registered-users-only works carry a lock in the heading. They are invisible to a logged-out
+    /// scrape entirely, so seeing one at all means this run was authenticated — which is what
+    /// <see cref="Ship.LastKnownTotalWasAuthenticated"/> exists to remember.
     /// </summary>
+    /// <remarks>
+    /// The lock is a bare image: AO3's blurb template (otwarchive
+    /// <c>app/views/works/_work_module.html.erb</c>, read 2026-09-10) renders
+    /// <c>image_tag("lockblue.png", size: "15x15", alt: "(Restricted)", title: "Restricted")</c> with
+    /// no class at all. The selector this replaced also required <c>class="symbol"</c>, which only the
+    /// hand-written test markup ever carried, so not one of production's 228,073 works was ever
+    /// flagged. Matched on the title, which is what tells it apart from the red lock beside it on a
+    /// work an admin has hidden (<c>lockred.png</c>, titled "Hidden by Administrator").
+    /// </remarks>
     private static bool IsRestricted(IElement blurb) =>
-        blurb.QuerySelector("h4.heading img.symbol[title='Restricted']") is not null
-        || blurb.QuerySelector("h4.heading .restricted") is not null;
+        blurb.QuerySelector("h4.heading img[title='Restricted']") is not null;
 
     /// <summary>
     /// Creators in byline order, and whether the work is anonymous — null when the byline could not
