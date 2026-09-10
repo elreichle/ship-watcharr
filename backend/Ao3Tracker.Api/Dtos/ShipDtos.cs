@@ -60,7 +60,8 @@ public record WatchedShipDto(
     int BackfillStalledRuns,
     int? FullSweepNextPage,
     DateTime? LastFullSweepStartedAt,
-    DateTime? LastFullSweepCompletedAt);
+    DateTime? LastFullSweepCompletedAt,
+    DateTime? WholeListingReadLoggedInAt);
 
 /// <summary>
 /// The ships list, wrapped so it can carry one instance-wide fact alongside them.

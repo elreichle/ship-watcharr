@@ -96,6 +96,27 @@ function describeSweep(ship: WatchedShip): string | null {
   );
 }
 
+/**
+ * Whether this ship's library can be trusted to hold the works AO3 shows only to registered users.
+ *
+ * AO3 leaves those works out of a listing it serves to a logged-out request, and the pass for new
+ * works only ever reads the newest end of the listing, so a walk that read a page logged out leaves
+ * a gap nothing else fills. Null while the first walk is still under way: saying "not yet" about a
+ * walk that is happening adds nothing to the status line above it.
+ */
+function describeCoverage(ship: WatchedShip): string | null {
+  if (ship.wholeListingReadLoggedInAt !== null) {
+    return `Every page last read logged in on ${formatDateTime(ship.wholeListingReadLoggedInAt)}.`;
+  }
+
+  if (ship.backfillState === 'NotStarted' || ship.backfillState === 'InProgress') return null;
+
+  return (
+    'Not yet read in full while logged in, so works only registered users can see may be missing ' +
+    'until a full re-read.'
+  );
+}
+
 function describeStatus(ship: WatchedShip, verificationEnabled: boolean): Status {
   if (ship.verificationState === 'NotFoundOnAo3') {
     // Not "add it again": following the same name resolves to this same denied ship, which leaves
@@ -324,6 +345,7 @@ export function ShipsPage() {
               {ships.map((ship) => {
                 const status = describeStatus(ship, verificationEnabled);
                 const sweep = describeSweep(ship);
+                const coverage = describeCoverage(ship);
                 return (
                   <tr key={ship.shipId}>
                     <td className="ship-tag">
@@ -341,6 +363,7 @@ export function ShipsPage() {
                       <span className={status.tone}>{status.label}</span>
                       {status.detail && <span className="ship-status-detail">{status.detail}</span>}
                       {sweep !== null && <span className="ship-status-detail">{sweep}</span>}
+                      {coverage !== null && <span className="ship-status-detail">{coverage}</span>}
                       {/* Admin-only, because a restart spends requests on behalf of everyone
                           watching the tag — and because it is the only thing in the product that
                           moves a ship out of Failed. */}

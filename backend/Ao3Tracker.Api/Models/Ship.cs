@@ -184,6 +184,47 @@ public class Ship
     /// </summary>
     public int? FullSweepNextPage { get; set; }
 
+    // --- Whether the library has seen what only a logged-in reader sees ---
+
+    /// <summary>
+    /// When a walk of this ship's whole listing last finished having read every page while logged
+    /// in, or null if none has.
+    ///
+    /// The one date that says the library holds the tag's restricted works. AO3 leaves those out of
+    /// a listing served without a session altogether (see Ao3RestrictedWorkVisibilityTests), and the
+    /// incremental pass only ever reads the newest end of the listing, so a work a logged-out walk
+    /// missed stays missing until some later walk reads its page logged in. Nothing else on the ship
+    /// can answer that: <see cref="LastKnownTotalWasAuthenticated"/> is about one heading, and
+    /// <see cref="BackfillCompletedAt"/> says nothing about the session its pages were read with.
+    ///
+    /// Written by three things and nothing else: a backfill reaching its last page with
+    /// <see cref="BackfillReadAnonymously"/> still false, a full sweep that concludes, and a sweep
+    /// that stops on page 1 because a logged-in count matches the library. A sweep can only get
+    /// that far having read no page logged out, because one that does is abandoned on the spot.
+    /// Never cleared: a later walk that reads logged out does not un-read what an earlier one saw.
+    ///
+    /// Null on every ship whose walks predate this column, which is the honest reading rather than a
+    /// gap: nothing recorded their session, and on the first production instance most of them ran
+    /// before it had an AO3 login at all, or lost it half an hour into each run.
+    /// </summary>
+    public DateTime? WholeListingReadLoggedInAt { get; set; }
+
+    /// <summary>
+    /// Whether any page of the backfill under way, or the last one to finish, was read without a
+    /// session. What stops a backfill from claiming <see cref="WholeListingReadLoggedInAt"/>.
+    ///
+    /// Latched across the backfill's runs rather than read off the last one, because a backfill is
+    /// many runs and one logged-out page anywhere in them is a page whose restricted works were not
+    /// seen. The sweep answers the same problem by abandoning itself instead; a backfill cannot,
+    /// since it is the only way its back catalogue is ever read, so it walks on and gives up only
+    /// the claim.
+    ///
+    /// Cleared when a backfill begins, and not by an admin's restart, which continues the same walk
+    /// and so keeps what that walk read. The migration that added it sets it true on existing ships,
+    /// whose backfills recorded nothing about their session.
+    /// </summary>
+    public bool BackfillReadAnonymously { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public ICollection<WatchedShip> Watchers { get; set; } = new List<WatchedShip>();

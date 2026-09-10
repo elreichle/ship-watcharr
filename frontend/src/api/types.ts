@@ -75,6 +75,12 @@ export interface WatchedShip {
   lastFullSweepStartedAt: string | null;
   /** When a sweep last reached the end of the listing. Null until one has. */
   lastFullSweepCompletedAt: string | null;
+  /**
+   * When a walk of the whole listing last finished with every page read logged in, which is what
+   * says the library holds the works AO3 shows only to registered users. Null until one has,
+   * including every ship whose walks happened before this was recorded.
+   */
+  wholeListingReadLoggedInAt: string | null;
 }
 
 /** What an admin's restart left on a ship whose backfill this instance had given up on. */

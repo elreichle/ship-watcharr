@@ -608,6 +608,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                     b.Property<int?>("BackfillNextPage")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("BackfillReadAnonymously")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int?>("BackfillResumePage")
                         .HasColumnType("INTEGER");
 
@@ -680,6 +683,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
 
                     b.Property<byte>("VerificationState")
                         .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("WholeListingReadLoggedInAt")
+                        .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 

@@ -1327,6 +1327,10 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             // rewinds a ship to NotStarted) would otherwise inherit a count it did not earn and give
             // up on its first stalled run rather than its twelfth.
             ship.BackfillStalledRuns = 0;
+
+            // The same again: a walk that is beginning has read no page at all, logged in or not.
+            // See Ship.BackfillReadAnonymously.
+            ship.BackfillReadAnonymously = false;
         }
     }
 
@@ -1416,6 +1420,10 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             // it was the count on that page, not the walk, that said nothing had left.
             ship.LastFullSweepCompletedAt = now;
             ship.FullSweepNextPage = null;
+
+            // A count read logged in that matches the library means the library holds the tag's
+            // restricted works too — which is the claim, reached without walking for it.
+            ship.WholeListingReadLoggedInAt = now;
             return;
         }
 
@@ -1573,6 +1581,7 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
 
         ship.LastFullSweepCompletedAt = now;
         ship.FullSweepNextPage = null;
+        ship.WholeListingReadLoggedInAt = now;
 
         var left = await _db.ShipWorks
             .Where(sw => sw.ShipId == ship.Id && sw.MissingSinceAt == null && sw.LastSeenAt < startedAt)
@@ -1687,6 +1696,9 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
             ship.BackfillCompletedAt = now;
             ship.BackfillStalledRuns = 0;
 
+            // Only a walk that never read a page logged out has seen the tag's restricted works.
+            if (!ship.BackfillReadAnonymously) ship.WholeListingReadLoggedInAt = now;
+
             _logger.LogInformation(
                 "Backfill of ship {ShipId} ({Tag}) completed at page {Page}",
                 ship.Id, ship.CanonicalTagName, ship.BackfillNextPage);
@@ -1768,8 +1780,13 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
         if (context.Mode == ScrapeRunMode.Incremental) ship.LastIncrementalRunAt = now;
 
         if (context.Mode == ScrapeRunMode.Backfill)
+        {
+            // Before the progress is recorded, because reaching the last page is what reads it.
+            if (readAPageAnonymously) ship.BackfillReadAnonymously = true;
+
             RecordBackfillProgress(
                 ship, stopReason, startPage, askedStaleCursor, pagesServed, pagesNotFound, now);
+        }
 
         if (context.Mode == ScrapeRunMode.FullSweep)
             await RecordSweepProgressAsync(
