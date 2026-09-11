@@ -668,7 +668,8 @@
     transform: rotate(90deg);
   }
 
-  .jobs-runs-row > td {
+  .jobs-runs-row > td,
+  .ship-details-row > td {
     padding: var(--size-4-2) var(--size-4-3) var(--size-4-4);
     background-color: var(--background-secondary);
   }
@@ -680,6 +681,10 @@
 
   .ships-table td {
     white-space: nowrap;
+  }
+
+  .ships-table .ship-details-row > td {
+    white-space: normal;
   }
 
   /* From the point a table fits the column it stops being a scrolling block and becomes a real
@@ -1141,14 +1146,33 @@
     margin-bottom: var(--size-4-2);
   }
 
-  .ship-tag {
+  /* Wraps, so a long tag costs its row a line rather than pushing Unfollow out of the pane at a
+     laptop's width; wide enough that an ordinary pairing stays on one. Scoped to the table so it
+     outranks the table's no-wrap cells, which it silently lost to before. */
+  .ships-table .ship-tag {
+    min-width: 14rem;
     color: var(--text-normal);
     font-family: var(--font-monospace);
     font-size: var(--font-ui-smaller);
     white-space: normal;
   }
 
-  /* Secondary lines under a cell's main value: why a tag was renamed, why a check is stuck. */
+  /* The tag is the row's expander, so it takes the cell's type rather than a button's. */
+  .ship-tag .expander {
+    font-family: inherit;
+    font-size: inherit;
+    text-align: left;
+  }
+
+  /* A tag with nothing to open, and the renamed line under any tag, start where the tag text beside
+     a chevron does. */
+  .ship-tag-name,
+  .ship-tag .ship-renamed {
+    display: block;
+    padding-left: calc(var(--icon-xs) + var(--size-2-2));
+  }
+
+  /* Secondary lines under a cell's main value: why a tag was renamed, what a ship is re-reading. */
   .ship-renamed,
   .ship-status-detail {
     display: block;
@@ -1160,19 +1184,48 @@
     white-space: normal;
   }
 
-  /* Sits inside a status cell, under the detail line explaining what it is for. Wraps rather than
-     stretching the column: the table is already wide. Shared by both of a row's admin actions —
-     the control, then the sentence saying what pressing it will and will not do. */
+  /* The row's own short line under a status. Kept to one line: the sentence it stands for is in the
+     opened row. */
+  .ship-note {
+    white-space: nowrap;
+  }
+
+  /* A ship's opened row: why its status reads the way it does, where its re-reads stand, and the
+     repairs an admin can make. Held to a reading width, and to the window on a phone, where the
+     table scrolls sideways under it. */
+  .ship-details {
+    display: flex;
+    flex-direction: column;
+    gap: var(--size-4-2);
+    max-width: min(60ch, 100vw - 4rem);
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+  }
+
+  .ship-details p {
+    margin: 0;
+  }
+
+  /* One admin repair: the control, then the sentence saying what pressing it will and will not do,
+     beside it where there is room. Bottom-aligned so a button lines up with the input next to it
+     rather than with that input's label. */
   .ship-action {
     display: flex;
+    flex-direction: row;
     flex-wrap: wrap;
     align-items: flex-end;
-    gap: var(--size-4-2);
-    max-width: 28rem;
-    margin-top: var(--size-4-2);
+    gap: var(--size-4-2) var(--size-4-3);
+    margin-top: var(--size-2-2);
+  }
+
+  .ship-action .ship-status-detail {
+    flex: 1 1 16rem;
+    align-self: center;
+    margin: 0;
   }
 
   .ship-action label {
+    width: auto;
     display: flex;
     flex-direction: column;
     gap: var(--size-2-2);

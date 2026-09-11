@@ -1,8 +1,9 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { Fragment, useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import type { WatchedShip } from '../api/types';
 import { EmptyState } from '../components/EmptyState';
+import { Icon } from '../components/Icon';
 import { SkeletonRows } from '../components/Skeleton';
 import { formatDateTime, formatDateTimeOrDash } from '../format';
 
@@ -126,7 +127,7 @@ function describeSweep(ship: WatchedShip): string | null {
  * AO3 leaves those works out of a listing it serves to a logged-out request, and the pass for new
  * works only ever reads the newest end of the listing, so a walk that read a page logged out leaves
  * a gap nothing else fills. Null while the first walk is still under way: saying "not yet" about a
- * walk that is happening adds nothing to the status line above it.
+ * walk that is happening adds nothing to a status that already says it is happening.
  */
 function describeCoverage(ship: WatchedShip): string | null {
   if (ship.wholeListingReadLoggedInAt !== null) {
@@ -139,6 +140,23 @@ function describeCoverage(ship: WatchedShip): string | null {
     'Not yet read in full while logged in, so works only registered users can see may be missing ' +
     'until a full re-read.'
   );
+}
+
+/**
+ * The one thing about a ship worth seeing without opening its row, or null.
+ *
+ * A re-read in flight or queued comes first: it is what explains a ship collecting no new works,
+ * and it is also the fix for the gap the coverage line would otherwise report. A ship that is going
+ * nowhere gets nothing here — its status already says so, louder.
+ */
+function summarizeRow(ship: WatchedShip, status: Status): string | null {
+  if (status.tone === 'error') return null;
+  if (ship.fullSweepNextPage !== null) return `Re-reading, page ${ship.fullSweepNextPage}`;
+  if (ship.fullSweepRequestedAt !== null) return 'Re-read queued';
+  if (ship.wholeListingReadLoggedInAt === null && describeCoverage(ship) !== null) {
+    return 'Not fully read logged in';
+  }
+  return null;
 }
 
 function describeStatus(ship: WatchedShip, verificationEnabled: boolean): Status {
@@ -218,6 +236,16 @@ export function ShipsPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [removing, setRemoving] = useState<number | null>(null);
+  // Several at once, unlike Schedules: nothing is fetched on opening, and an admin working through
+  // a few written-off ships wants to compare them.
+  const [openShipIds, setOpenShipIds] = useState<ReadonlySet<number>>(new Set());
+
+  const toggleOpen = (shipId: number) =>
+    setOpenShipIds((current) => {
+      const next = new Set(current);
+      if (!next.delete(shipId)) next.add(shipId);
+      return next;
+    });
 
   const load = () =>
     api.getWatchedShips().then((response) => {
@@ -370,59 +398,108 @@ export function ShipsPage() {
                 const status = describeStatus(ship, verificationEnabled);
                 const sweep = describeSweep(ship);
                 const coverage = describeCoverage(ship);
+                const note = summarizeRow(ship, status);
+                // Admin-only, because a restart spends requests on behalf of everyone watching the
+                // tag — and because it is the only thing in the product that moves a ship out of
+                // Failed.
+                const restart = user?.isAdmin === true && canRestartBackfill(ship);
+                // Admin-only for the same reason: the re-read walks every page of the listing on
+                // behalf of everyone who follows the tag.
+                const queueSweep = user?.isAdmin === true && canQueueSweep(ship);
+                // Admin-only for the same two reasons, and the only thing in the product that moves
+                // a ship out of NotFoundOnAo3.
+                const recheck =
+                  user?.isAdmin === true && ship.verificationState === 'NotFoundOnAo3';
+                const hasDetails =
+                  status.detail !== undefined ||
+                  sweep !== null ||
+                  coverage !== null ||
+                  restart ||
+                  queueSweep ||
+                  recheck;
+                const open = hasDetails && openShipIds.has(ship.shipId);
                 return (
-                  <tr key={ship.shipId}>
-                    <td className="ship-tag">
-                      {ship.tagName}
-                      {/* Only set when AO3 disagreed with what was typed. Saying so is the whole
-                          point — otherwise the tag someone entered silently becomes another one. */}
-                      {ship.requestedTagName && (
-                        <span className="ship-renamed">
-                          You followed “{ship.requestedTagName}”; AO3 files it under this tag.
-                        </span>
-                      )}
-                    </td>
-                    <td className="numeric">{ship.workCount.toLocaleString()}</td>
-                    <td>
-                      <span className={status.tone}>{status.label}</span>
-                      {status.detail && <span className="ship-status-detail">{status.detail}</span>}
-                      {sweep !== null && <span className="ship-status-detail">{sweep}</span>}
-                      {coverage !== null && <span className="ship-status-detail">{coverage}</span>}
-                      {/* Admin-only, because a restart spends requests on behalf of everyone
-                          watching the tag — and because it is the only thing in the product that
-                          moves a ship out of Failed. */}
-                      {user?.isAdmin && canRestartBackfill(ship) && (
-                        <BackfillRestart ship={ship} onRestarted={() => void load().catch(() => {})} />
-                      )}
-                      {/* Admin-only for the same reason as the restart: the re-read walks every
-                          page of the listing on behalf of everyone who follows the tag. */}
-                      {user?.isAdmin && canQueueSweep(ship) && (
-                        <FullSweepQueue ship={ship} onQueued={() => void load().catch(() => {})} />
-                      )}
-                      {/* Admin-only for the same two reasons, and the only thing in the product
-                          that moves a ship out of NotFoundOnAo3. */}
-                      {user?.isAdmin && ship.verificationState === 'NotFoundOnAo3' && (
-                        <VerificationRecheck
-                          ship={ship}
-                          onRechecked={() => void load().catch(() => {})}
-                        />
-                      )}
-                    </td>
-                    <td>{formatDate(ship.lastScrapedAt)}</td>
-                    <td>{formatDate(ship.nextScrapeAt)}</td>
-                    {/* Minus the reader, so "0" reads as "only you" rather than needing subtraction. */}
-                    <td className="numeric">{ship.watcherCount - 1}</td>
-                    <td>
-                      <button
-                        type="button"
-                        className="link"
-                        disabled={removing === ship.shipId}
-                        onClick={() => void remove(ship)}
-                      >
-                        {removing === ship.shipId ? 'Removing…' : 'Unfollow'}
-                      </button>
-                    </td>
-                  </tr>
+                  // Keyed on the Fragment, not the <tr>: the fragment is the array element.
+                  <Fragment key={ship.shipId}>
+                    <tr>
+                      <td className="ship-tag">
+                        {/* Opens the sentences and repairs underneath. Every row used to carry
+                            all of them at once, which turned a few ships into a page of prose. */}
+                        {hasDetails ? (
+                          <button
+                            type="button"
+                            className="link expander"
+                            aria-expanded={open}
+                            onClick={() => toggleOpen(ship.shipId)}
+                          >
+                            <Icon name="chevron-right" size="xs" className="expander-icon" />
+                            {ship.tagName}
+                          </button>
+                        ) : (
+                          <span className="ship-tag-name">{ship.tagName}</span>
+                        )}
+                        {/* Only set when AO3 disagreed with what was typed. Saying so is the whole
+                            point — otherwise the tag someone entered silently becomes another one —
+                            so it stays in the row rather than behind the chevron. */}
+                        {ship.requestedTagName && (
+                          <span className="ship-renamed">
+                            You followed “{ship.requestedTagName}”; AO3 files it under this tag.
+                          </span>
+                        )}
+                      </td>
+                      <td className="numeric">{ship.workCount.toLocaleString()}</td>
+                      <td>
+                        <span className={status.tone}>{status.label}</span>
+                        {note !== null && (
+                          <span className="ship-status-detail ship-note">{note}</span>
+                        )}
+                      </td>
+                      <td>{formatDate(ship.lastScrapedAt)}</td>
+                      <td>{formatDate(ship.nextScrapeAt)}</td>
+                      {/* Minus the reader, so "0" reads as "only you" rather than needing
+                          subtraction. */}
+                      <td className="numeric">{ship.watcherCount - 1}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="link"
+                          disabled={removing === ship.shipId}
+                          onClick={() => void remove(ship)}
+                        >
+                          {removing === ship.shipId ? 'Removing…' : 'Unfollow'}
+                        </button>
+                      </td>
+                    </tr>
+                    {open && (
+                      <tr className="ship-details-row">
+                        <td colSpan={7}>
+                          <div className="ship-details">
+                            {status.detail && <p>{status.detail}</p>}
+                            {sweep !== null && <p>{sweep}</p>}
+                            {coverage !== null && <p>{coverage}</p>}
+                            {restart && (
+                              <BackfillRestart
+                                ship={ship}
+                                onRestarted={() => void load().catch(() => {})}
+                              />
+                            )}
+                            {queueSweep && (
+                              <FullSweepQueue
+                                ship={ship}
+                                onQueued={() => void load().catch(() => {})}
+                              />
+                            )}
+                            {recheck && (
+                              <VerificationRecheck
+                                ship={ship}
+                                onRechecked={() => void load().catch(() => {})}
+                              />
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -507,7 +584,7 @@ function BackfillRestart({ ship, onRestarted }: { ship: WatchedShip; onRestarted
  *
  * One button, like the recheck below: there is nothing about a full re-read for an admin to choose.
  * Like the restart above, it waits for the ship's next check rather than jumping the queue, and the
- * note under it says so, so nothing happening straight away does not look like a broken button.
+ * note beside it says so, so nothing happening straight away does not look like a broken button.
  */
 function FullSweepQueue({ ship, onQueued }: { ship: WatchedShip; onQueued: () => void }) {
   const [queuing, setQueuing] = useState(false);
