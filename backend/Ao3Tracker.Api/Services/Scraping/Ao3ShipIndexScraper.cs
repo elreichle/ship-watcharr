@@ -586,10 +586,19 @@ public sealed class Ao3ShipIndexScraper : IAo3Scraper
                 // backfill means Complete. Still logged: it is also what a markup change on a small
                 // tag looks like, and the response size tells "AO3 served us an error page" apart
                 // from "AO3 served us a listing we can no longer read".
-                _logger.LogWarning(
-                    "Page {Page} for ship {ShipId} ({Tag}) parsed to no works from {Length} characters "
-                    + "of HTML. Either the tag is empty or the listing markup has changed.",
-                    page, ship.Id, ship.CanonicalTagName, response.Content.Length);
+                //
+                // Not on a filtered request, where it is neither. A filtered page only reaches here
+                // with a heading counting no more than the run was served (PlausiblyTheEndOfTheListing),
+                // so AO3 has said in words that nothing matched the date — a quiet incremental pass,
+                // which every ship nobody is writing for has once a day. A markup change on a
+                // filtered page is refused above as a parse failure, and logged there.
+                if (!listingWasFiltered)
+                {
+                    _logger.LogWarning(
+                        "Page {Page} for ship {ShipId} ({Tag}) parsed to no works from {Length} characters "
+                        + "of HTML. Either the tag is empty or the listing markup has changed.",
+                        page, ship.Id, ship.CanonicalTagName, response.Content.Length);
+                }
 
                 stopReason = ScrapeStopReason.LastPage;
                 break;

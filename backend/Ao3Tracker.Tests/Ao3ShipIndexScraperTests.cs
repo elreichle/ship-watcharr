@@ -1513,6 +1513,40 @@ public class Ao3ShipIndexScraperTests : IDisposable
     }
 
     [Fact]
+    public async Task Does_not_warn_of_an_empty_tag_on_a_quiet_filtered_pass()
+    {
+        // The warning asks an operator whether the tag is empty or the markup changed, and on a
+        // filtered request neither is in question: the page only got this far because its heading
+        // counts no more than the run was served, so AO3 said in words that nothing matched the
+        // date. Production logged it daily for every ship nobody had written for since its
+        // watermark — Gail Peck/Holly Stewart, 504 works, among them.
+        _host.Http.Responds = Pages(new FakePage(1, Fixtures.Load(Fixtures.EmptyListing)));
+
+        var shipId = await FollowAsync();
+        await SetWatermarkAsync(shipId, Jan(5));
+
+        await _host.ScrapeAsync(shipId);
+
+        Assert.DoesNotContain(
+            _logs.Records, r => r.Template.Contains("Either the tag is empty"));
+    }
+
+    [Fact]
+    public async Task Still_warns_of_an_empty_tag_when_an_unfiltered_listing_has_no_works()
+    {
+        // The side the warning is for. An unfiltered heading counts the tag, so zero works there
+        // is either a tag that really is empty or a small one whose markup the parser lost.
+        _host.Http.Responds = Pages(new FakePage(1, Fixtures.Load(Fixtures.EmptyListing)));
+        var shipId = await FollowAsync();
+
+        await _host.ScrapeAsync(shipId, ScrapeRunMode.Backfill);
+
+        Assert.Contains(
+            _logs.Records,
+            r => r.Level == LogLevel.Warning && r.Template.Contains("Either the tag is empty"));
+    }
+
+    [Fact]
     public async Task Refuses_a_filtered_first_page_whose_heading_counts_more_than_the_run_was_served()
     {
         // The same contradiction as the page 2 case below, one page earlier, where `page == 1`
