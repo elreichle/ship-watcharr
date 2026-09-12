@@ -60,8 +60,13 @@ honest with it. This is not a setting you can turn off. It is how the app works.
   AO3 names, and a busy or failing archive is retried with exponential backoff, never hammered.
 - **It checks less when there is less to see.** Each ship is checked every six hours by default.
   A ship that has gone quiet is checked half as often, then a quarter, up to once a day, and
-  snaps back the moment something new appears. A monthly full pass, the only one that can
-  conclude a work has left a tag, stops on page one when the counts already agree.
+  snaps back the moment something new appears. Each ship's whole listing is read once while
+  logged in, which is what finds the works AO3 shows only to registered users. After that, once a
+  month, it re-reads only the works revised in the last three months, and the whole listing is
+  read again only when an admin queues it. The cost is stated plainly: kudos, hits and bookmarks
+  on older works nobody has revised stay as they were at the last whole read, and an older work
+  leaving a tag goes unnoticed until the next one. Either walk stops on page one when AO3's count
+  already matches the library.
 
 One AO3 login per instance, entered by an admin and encrypted at rest. Because the library is
 shared by everyone on the instance, there is exactly one set of requests per ship, however many
@@ -109,7 +114,7 @@ stored AO3 login is encrypted with the keys inside it.
 | **Favorites** | Everything you have starred, in one list. |
 | **Notifications** | New works under your ships since you last looked. Mark one read, or all at once. |
 | **Filters** | Named, reusable criteria, with a live count of how many works each one matches. |
-| **Ships** | Follow and unfollow tags, see when each ship was last checked and when it is next due, and whether its whole listing has been read while logged in. An admin can queue a full re-read of a ship from here. |
+| **Ships** | Follow and unfollow tags, see when each ship was last checked and when it is next due, whether its whole listing has been read while logged in, and when its recent works were last re-read. An admin can queue a full re-read of a ship from here. |
 | **Downloads** | Files you have asked for, and the in-app reader for EPUBs. |
 | **Statistics** | A ship's corpus against your own reading. |
 | **Schedules** | A read-only view of the checking schedule and each run's outcome. |

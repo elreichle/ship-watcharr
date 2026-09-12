@@ -70,10 +70,20 @@ polite, and it is not optional:
 - Stretches a quiet ship's interval: after two checks in a row found nothing, the wait doubles per
   further quiet check up to 4× (a day, at the default 6 h), and snaps back the moment a check
   finds anything.
-- Stops a monthly full pass on page 1 when the tag's own work count matches what the library
-  holds under the ship. The full pass is the only one allowed to conclude a work has *left* a tag.
-- Runs a full pass for one ship ahead of the schedule only when an admin queues it from the Ships
-  page, and then at that ship's next check rather than straight away.
+- Walks a ship's whole listing on a schedule only until one walk has read every page logged in
+  (`Ship.WholeListingReadLoggedInAt`). Until then, attempts come 30 days after the last one's start
+  (or the backfill's completion), plus a per-ship offset of up to 30 more, so ships do not all
+  take theirs at once.
+- Re-reads a covered ship's works revised in the last 90 days once a month: 30 days after its
+  latest walk of any kind, plus a per-ship offset of up to a week. Kudos, hits and bookmarks on
+  older unrevised works, and an older work leaving the tag, wait for the next whole walk. That
+  staleness is accepted in exchange for not re-walking every listing every month or two.
+- Walks a covered ship's whole listing again only when an admin queues it from the Ships page, and
+  then at that ship's next check rather than straight away.
+- Stops a whole walk or a re-read on page 1, read logged in, when AO3's count matches what the
+  library holds under the ship (for the re-read, the works it last saw revised inside the window).
+  Only these two may conclude a work has *left* a tag, and the re-read only for works whose stored
+  `Work.RevisedOn` lies inside its window.
 - Re-reads a work's own page after a revision no more than once a week.
 - Accepts compressed responses.
 - Aborts a run after `MaxConsecutiveFailures` (default 3), and caps each run at
@@ -140,15 +150,21 @@ duplicate rows or duplicate requests.
 Global (from AO3):
 
 - `Works`: one row per AO3 work id, used directly as the primary key. Full blurb metadata plus
-  `FirstSeenAt` / `LastSeenAt` / `LastScrapedAt`.
+  `FirstSeenAt` / `LastSeenAt` / `LastScrapedAt`. `RevisedOn` is the day the blurb shows, the
+  revision date AO3's `date_from` filters by; `UpdatedAt` runs days ahead of it, so anything
+  compared against an AO3 date window reads `RevisedOn`.
 - `Tags` / `WorkTags`: fandoms, relationships, characters, freeforms, warnings.
 - `Ao3Pseuds` / `WorkAuthors`: creators, in byline order.
 - `Ao3Series` / `WorkSeries`: series membership and part number.
 - `Ships`: a followed relationship tag, and where all sync state lives: incremental watermark,
-  backfill cursor, full-pass timestamps, and when the whole listing was last read logged in.
+  backfill cursor, the full sweep's cursor, timestamps and admin request (`FullSweepNextPage`,
+  `LastFullSweep*`, `FullSweepRequestedAt`), the monthly re-read's window start, cursor and
+  timestamps (`RecentSweepFrom`, `RecentSweepNextPage`, `LastRecentSweep*`), and when the whole
+  listing was last read logged in.
 - `ShipWorks`: "this work appeared in this ship's listing". Separate from tags because AO3 tag
   synonyms mean a work returned by the canonical tag may not carry it in its own blurb.
-  `MissingSinceAt` is when a full pass first walked the whole listing without seeing it.
+  `MissingSinceAt` is when a whole walk, or a re-read whose window holds the work's `RevisedOn`,
+  first reached its end without seeing it.
 - `Ao3InstanceCredentials`: the one AO3 login, single row by check constraint.
   `EncryptedPassword` and `EncryptedSessionCookie` are Data-Protection-encrypted.
 - `WorkDownloadFiles`: downloaded files on disk, keyed by (work, format, work version).
