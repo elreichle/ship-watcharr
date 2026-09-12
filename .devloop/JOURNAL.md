@@ -402,3 +402,10 @@ Append-only. One entry per iteration, newest last.
 - ran: `dotnet test` → 1202 passed; `npm run build` → clean; `npm run lint` → 2 known warnings
 - commit: 40dd132
 - next: T90. Scraper docs still say "monthly" — BACKLOG (maybe T93's).
+
+## 2026-09-12 — T90 Works store the revision date AO3 sorts and filters by — done
+- did: Parser reads `p.datetime` into `Ao3WorkBlurb.RevisedOn` on every blurb; `Work.RevisedOn` column (both providers) written only when present; date-filtered capture tests now use the field. Review: no findings.
+- files: `Ao3BlurbParser.cs`, `Ao3WorkBlurb.cs`, `Work.cs`, `WorkIngestor.cs`, `*_WorkRevisedOn.cs`, `Ao3BlurbParserTests.cs`, `Ao3DateFilteredListingTests.cs`, `Ao3ListingFixtures.cs`, `WorkIngestorTimestampTests.cs`
+- ran: `dotnet test` → 1207 passed; `npm run build` → clean; `npm run lint` → 2 known warnings
+- commit: 2769059
+- next: T91. `RevisedOn` is null on every existing row until a pass re-reads it — compare ±1 day.

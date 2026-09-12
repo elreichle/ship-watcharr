@@ -2177,7 +2177,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   for a covered ship — that is T92's; README and docs are T93's.
 
 ## T90 — Works store the revision date AO3 sorts and filters by
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: `Ao3WorkBlurb.RevisedOn` and a nullable `Work.RevisedOn` (both migrations): the blurb's
