@@ -162,8 +162,9 @@ public class Ship
     /// was not seen by the sweep, and a sweep that reached the end of the listing is entitled to
     /// say so. Kept across the several runs one sweep takes, so it dates the sweep and not the run.
     ///
-    /// It is also what spaces sweeps out: the next one is due an interval after this, whether the
-    /// last one finished or was abandoned — see <c>ScrapeWorker.FullSweepIsDue</c>. Measuring from
+    /// Until <see cref="WholeListingReadLoggedInAt"/> is set it is also what spaces scheduled sweeps
+    /// out: the next one is due an interval after this, whether the last one finished or was
+    /// abandoned — see <c>ScrapeWorker.FullSweepIsDue</c>. After that none is scheduled. Measuring from
     /// the start rather than from <see cref="LastFullSweepCompletedAt"/> is what stops a sweep that
     /// gets nowhere from being retried on every tick.
     /// </summary>
@@ -188,11 +189,12 @@ public class Ship
     /// When an admin asked for a full sweep ahead of the schedule, or null when nobody has or the
     /// sweep asked for has begun.
     ///
-    /// Makes the ship due a sweep at its next check whatever the interval says
-    /// (<c>ScrapeWorker.FullSweepIsDue</c>), and is cleared by that sweep starting
-    /// (<c>Ao3ShipIndexScraper.BeginSweep</c>), so one request is one walk. It exists for
-    /// <see cref="WholeListingReadLoggedInAt"/>: a ship whose listing was read logged out would
-    /// otherwise wait up to two sweep intervals for the scheduled sweep to fill the gap.
+    /// Makes the ship due a sweep at its next check whatever the interval or
+    /// <see cref="WholeListingReadLoggedInAt"/> says (<c>ScrapeWorker.FullSweepIsDue</c>), and is
+    /// cleared by that sweep starting (<c>Ao3ShipIndexScraper.BeginSweep</c>), so one request is one
+    /// walk. A ship whose listing was read logged out would otherwise wait up to two sweep intervals
+    /// for the scheduled sweep to fill the gap, and on a ship already read logged in it is the only
+    /// thing that walks the whole listing again.
     ///
     /// Its own column rather than a write to <see cref="LastFullSweepStartedAt"/> or
     /// <see cref="FullSweepNextPage"/>, because both already mean something a request is not. The

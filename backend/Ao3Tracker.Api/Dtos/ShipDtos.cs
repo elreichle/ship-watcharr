@@ -33,8 +33,10 @@ namespace Ao3Tracker.Api.Dtos;
 /// when no sweep is in flight — which is the whole of "is this ship being swept". A sweep displaces
 /// the ship's incremental pass for as many ticks as it takes, so without this a ship can spend days
 /// collecting no new works with nothing on this page saying why.</param>
-/// <param name="LastFullSweepStartedAt">When the most recent sweep began walking page 1. Also what
-/// the next sweep is spaced from, finished or not — see <c>ScrapeWorker.FullSweepIsDue</c>. Left
+/// <param name="LastFullSweepStartedAt">When the most recent sweep began walking page 1. On a ship
+/// whose whole listing has not yet been read logged in, also what the next scheduled sweep is spaced
+/// from, finished or not; a ship that has been is scheduled none, and sweeps only when an admin
+/// queues one — see <c>ScrapeWorker.FullSweepIsDue</c>. Left
 /// standing by an abandoned sweep, which is how one can be read here: a start with no completion
 /// after it and nothing in flight.</param>
 /// <param name="LastFullSweepCompletedAt">When a sweep last walked the listing to its end and was

@@ -42,19 +42,19 @@ public class ScrapeWorker : BackgroundService
     internal const int MaxQuietStretch = 4;
 
     /// <summary>
-    /// How long a ship goes between full sweeps of its listing.
+    /// How long a ship whose whole listing has never been read logged in waits, after its last walk
+    /// of that listing, before the worker schedules a sweep. A ship that has been read logged in is
+    /// never scheduled one: see <see cref="FullSweepIsDue"/>.
     ///
     /// A sweep is the most expensive thing this application does to one tag: one request per page of
     /// the whole listing, so a 4,000-work tag is 200 requests against an incremental pass's one, and
     /// at the shared 5–8 second gate it occupies this instance's only outbound channel for the best
-    /// part of half an hour. Thirty days puts that at roughly twice a month's incremental traffic
-    /// for that ship rather than dozens of times it.
+    /// part of half an hour. Across the first production instance's 54 ships that was ~12,000 pages
+    /// a cycle, more than every incremental pass combined, which is why a sweep is now scheduled only
+    /// until it has done the one thing no other pass can: read every page with a session.
     ///
-    /// The thing it fixes bears the same interval. A work whose author removed the relationship tag
-    /// is not urgent — nothing else in the library is wrong, the work is simply still listed under a
-    /// ship it has left — and the only cost of noticing a fortnight late is a work count a fortnight
-    /// stale. Nothing else in this application concludes absence, so this interval is also the
-    /// worst case for noticing it.
+    /// The interval still spaces those attempts. A sweep that is abandoned, or that reads a page
+    /// logged out, leaves the ship uncovered, and without the gap it would be retried every tick.
     /// </summary>
     internal static readonly TimeSpan FullSweepInterval = TimeSpan.FromDays(30);
 
@@ -320,8 +320,16 @@ public class ScrapeWorker : BackgroundService
     /// to walk gets no incremental pass while it walks — its new works are picked up when the sweep
     /// ends, later than usual but not lost, since the watermark has not moved.
     ///
-    /// Otherwise it is the interval, measured from the last sweep's *start*. From the start rather
-    /// than its completion because a sweep that got nowhere is abandoned rather than completed (see
+    /// Otherwise the worker schedules one only for a ship whose whole listing has never been read
+    /// logged in (<see cref="Ship.WholeListingReadLoggedInAt"/>). That walk is what puts the tag's
+    /// restricted works in the library, and nothing else will; once it has happened, re-walking on a
+    /// schedule would only refresh old works' kudos and hits and notice old works leaving the tag,
+    /// which was judged not worth a whole listing's requests a month (DECISIONS 2026-09-12). After
+    /// that only an admin's request walks the whole listing.
+    ///
+    /// For a ship still owed that walk it is the interval, measured from the last sweep's *start*.
+    /// From the start rather than its completion because a sweep that got nowhere is abandoned rather
+    /// than completed (see
     /// <c>Ao3ShipIndexScraper.RecordSweepProgressAsync</c>), and measuring from a completion it never
     /// reached would make the next tick due it again — a ship whose listing refuses a page would then
     /// spend every tick on a sweep that cannot finish, and never run an incremental pass again.
@@ -346,6 +354,8 @@ public class ScrapeWorker : BackgroundService
         // spacing: it is one walk, and starting that walk is what clears it.
         if (ship.FullSweepRequestedAt is not null) return true;
 
+        if (ship.WholeListingReadLoggedInAt is not null) return false;
+
         var lastWholeListing =
             ship.LastFullSweepStartedAt ?? ship.BackfillCompletedAt ?? ship.CreatedAt;
 
@@ -353,19 +363,22 @@ public class ScrapeWorker : BackgroundService
     }
 
     /// <summary>
-    /// A fixed per-ship offset on the sweep interval, so that ships do not all sweep at once.
+    /// A fixed per-ship offset on the sweep interval, so that ships do not all take their first
+    /// logged-in walk at once.
     ///
-    /// The case this exists for is the first tick after the sweep shipped: every ship already
-    /// followed has a backfill that completed, or a follow date, well over an interval ago, so
-    /// without an offset every one of them is due on the same poll — and since a sweep in flight
+    /// The case this exists for is a tick on which many uncovered ships come due together — the
+    /// first after an upgrade, when every ship already followed has a backfill that completed, or a
+    /// follow date, well over an interval ago. Without an offset every one of them is due on the same
+    /// poll — and since a sweep in flight
     /// beats the incremental pass, the instance would stop collecting new works on every ship at
     /// once until the whole backlog of full-listing walks drained, one after another behind the
     /// shared gate. It is <see cref="NextRunAfter"/>'s problem one level up, and the same answer.
     ///
     /// Derived from the ship id rather than drawn at random, because this is read on every poll and
     /// must give the same answer each time: a random offset would re-roll the due date every minute
-    /// and average out to no spread at all. It makes a ship's sweeps one interval plus up to one
-    /// more apart — 30 to 60 days as configured — which the thing being detected can afford.
+    /// and average out to no spread at all. It makes an uncovered ship's attempts one interval plus
+    /// up to one more apart — 30 to 60 days as configured. A covered ship is never scheduled, so the
+    /// offset never applies to it.
     /// </summary>
     private static TimeSpan StaggerOf(int shipId) =>
         FullSweepInterval * ((shipId % FullSweepStaggerSlots) / (double)FullSweepStaggerSlots);

@@ -402,6 +402,54 @@ public class Ao3ShipIndexFullSweepTests : IDisposable
     }
 
     [Fact]
+    public async Task The_worker_schedules_no_sweep_of_a_ship_whose_whole_listing_was_read_logged_in()
+    {
+        // The same gap as the case above, which is due. Once a walk has read every page logged in,
+        // the library holds the tag's restricted works, and re-walking it on a schedule would only
+        // refresh old works' counts — not worth a whole listing's requests (DECISIONS 2026-09-12).
+        var modes = await ModesTheWorkerChoseAsync((ship, now) =>
+        {
+            ship.BackfillState = ShipBackfillState.Complete;
+            ship.BackfillCompletedAt = now - (ScrapeWorker.FullSweepInterval * 2) - TimeSpan.FromDays(1);
+            ship.WholeListingReadLoggedInAt = ship.BackfillCompletedAt;
+        });
+
+        Assert.Equal([ScrapeRunMode.Incremental], modes);
+    }
+
+    [Fact]
+    public async Task The_worker_still_sweeps_a_ship_read_logged_in_when_an_admin_queues_one()
+    {
+        var modes = await ModesTheWorkerChoseAsync((ship, now) =>
+        {
+            ship.BackfillState = ShipBackfillState.Complete;
+            ship.BackfillCompletedAt = now - TimeSpan.FromDays(365);
+            ship.LastFullSweepStartedAt = now - TimeSpan.FromDays(1);
+            ship.WholeListingReadLoggedInAt = now - TimeSpan.FromDays(1);
+            ship.FullSweepRequestedAt = now;
+        });
+
+        Assert.Equal([ScrapeRunMode.FullSweep], modes);
+    }
+
+    [Fact]
+    public async Task The_worker_still_resumes_a_sweep_in_flight_on_a_ship_read_logged_in()
+    {
+        // An admin-queued sweep of a covered ship takes several runs like any other, and its request
+        // was cleared when it began — the cursor is all that says it is owed the rest of its walk.
+        var modes = await ModesTheWorkerChoseAsync((ship, now) =>
+        {
+            ship.BackfillState = ShipBackfillState.Complete;
+            ship.BackfillCompletedAt = now - TimeSpan.FromDays(365);
+            ship.LastFullSweepStartedAt = now;
+            ship.WholeListingReadLoggedInAt = now - TimeSpan.FromDays(365);
+            ship.FullSweepNextPage = 7;
+        });
+
+        Assert.Equal([ScrapeRunMode.FullSweep], modes);
+    }
+
+    [Fact]
     public async Task The_worker_reads_the_newest_end_of_a_ship_swept_recently_enough()
     {
         var modes = await ModesTheWorkerChoseAsync((ship, now) =>
