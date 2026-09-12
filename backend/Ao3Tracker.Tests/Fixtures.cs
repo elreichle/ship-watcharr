@@ -33,6 +33,23 @@ internal static class Fixtures
     /// <summary>The logged-in half of the pair above. Identity and CSRF token redacted.</summary>
     public const string AuthenticatedListing = "ao3-authenticated-listing.html";
 
+    /// <summary>
+    /// Page 1 of <c>/tags/Clarke Griffin*s*Lexa/works</c> sorted by <c>created_at</c> ("Date Posted")
+    /// and narrowed by <c>work_search[date_from]=2026-06-13</c>, captured **logged out** on
+    /// 2026-09-12. One of three captures of the same result set; see
+    /// <c>Ao3DateFilteredListingTests</c>. CSRF token redacted.
+    /// </summary>
+    public const string FilteredByPostedFirstPage = "ao3-filtered-by-posted-listing-p1.html";
+
+    /// <summary>The last page (9) of the same walk as <see cref="FilteredByPostedFirstPage"/>.</summary>
+    public const string FilteredByPostedLastPage = "ao3-filtered-by-posted-listing-last.html";
+
+    /// <summary>
+    /// Page 1 of the same tag and the same <c>date_from</c>, sorted by <c>revised_at</c> ("Date
+    /// Updated") instead, captured a minute before the last page above.
+    /// </summary>
+    public const string FilteredByUpdatedFirstPage = "ao3-filtered-by-updated-listing-p1.html";
+
     public static string Load(string name)
     {
         var path = Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
