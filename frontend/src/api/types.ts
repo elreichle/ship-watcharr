@@ -86,6 +86,20 @@ export interface WatchedShip {
    * starts it, and starting it clears this.
    */
   fullSweepRequestedAt: string | null;
+  /**
+   * The first day of the monthly re-read under way, or of the last one: it asks AO3 only for works
+   * updated since then. Null before a ship has had one.
+   */
+  recentSweepFrom: string | null;
+  /**
+   * The listing page the re-read under way asks for next, or null when none is in flight. Like a
+   * sweep, a re-read displaces the pass for new works until it reaches the end of its window.
+   */
+  recentSweepNextPage: number | null;
+  /** When the re-read under way, or the last one, began. */
+  lastRecentSweepStartedAt: string | null;
+  /** When a re-read last reached the end of its window. Null until one has. */
+  lastRecentSweepCompletedAt: string | null;
 }
 
 /** What an admin's restart left on a ship whose backfill this instance had given up on. */

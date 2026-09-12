@@ -5,7 +5,7 @@ import type { WatchedShip } from '../api/types';
 import { EmptyState } from '../components/EmptyState';
 import { Icon } from '../components/Icon';
 import { SkeletonRows } from '../components/Skeleton';
-import { formatDateTime, formatDateTimeOrDash } from '../format';
+import { formatDate as formatDay, formatDateTime, formatDateTimeOrDash } from '../format';
 
 const BACKFILL_LABELS: Record<WatchedShip['backfillState'], string> = {
   NotStarted: 'Not started',
@@ -80,14 +80,14 @@ function canQueueSweep(ship: WatchedShip): boolean {
 }
 
 /**
- * The sweep, in one line — or null for a ship that has never had one.
+ * The full sweep and the monthly re-read of recent works, in one line — or null for a ship that has
+ * had neither.
  *
  * Beside the status rather than inside it, because the two are independent: a ship whose back
  * catalogue was given up on can be mid-sweep, and a single status slot would have to drop one of
- * those to say the other. The sweep is also the only thing in the product that can leave a ship
- * collecting no new works for days at a time — a sweep in flight beats the incremental pass on
- * every tick until the walk reaches the end of the listing — and until now nothing outside the run
- * history said so.
+ * those to say the other. Either walk in flight beats the incremental pass on every tick until it
+ * reaches the end of what it asked for, which can leave a ship collecting no new works for days —
+ * and nothing outside the run history would otherwise say so.
  */
 function describeSweep(ship: WatchedShip): string | null {
   if (ship.fullSweepNextPage !== null) {
@@ -104,6 +104,23 @@ function describeSweep(ship: WatchedShip): string | null {
     );
   }
 
+  // A full sweep beginning puts a re-read in flight away, so the two never walk at once.
+  if (ship.recentSweepNextPage !== null) {
+    const since =
+      ship.recentSweepFrom !== null ? `since ${formatUtcDay(ship.recentSweepFrom)}` : 'recently';
+    return (
+      `Re-reading works updated ${since} to find any that have left the tag — next up is page ` +
+      `${ship.recentSweepNextPage}. Its pass for new works waits until this finishes.`
+    );
+  }
+
+  const history = [describeLastFullSweep(ship), describeLastRecentSweep(ship)].filter(
+    (line) => line !== null,
+  );
+  return history.length > 0 ? history.join(' ') : null;
+}
+
+function describeLastFullSweep(ship: WatchedShip): string | null {
   const started = ship.lastFullSweepStartedAt;
   if (started === null) return null;
 
@@ -115,10 +132,44 @@ function describeSweep(ship: WatchedShip): string | null {
     return `Listing last re-read in full on ${formatDateTime(completed)}.`;
   }
 
+  // A ship whose every page has been read logged in is scheduled no sweep at all, so the interval
+  // sentence below would promise it one that never comes.
+  if (ship.wholeListingReadLoggedInAt !== null) {
+    return (
+      `A full re-read of the listing started ${formatDateTime(started)} and did not finish; ` +
+      'none is scheduled for a ship already read in full, so another runs only if an admin queues one.'
+    );
+  }
+
   return (
     `A full re-read of the listing started ${formatDateTime(started)} and did not finish; ` +
     'the next one is due an interval after that, not after this ship next runs.'
   );
+}
+
+function describeLastRecentSweep(ship: WatchedShip): string | null {
+  const started = ship.lastRecentSweepStartedAt;
+  if (started === null) return null;
+
+  const completed = ship.lastRecentSweepCompletedAt;
+  if (completed !== null && new Date(completed) >= new Date(started)) {
+    return `Recent works last re-read on ${formatDateTime(completed)}.`;
+  }
+
+  // The next re-read is spaced from the latest walk of any kind, which is never earlier than this one.
+  return (
+    `A re-read of recently updated works started ${formatDateTime(started)} and did not finish; ` +
+    'the next is due no sooner than a month after that.'
+  );
+}
+
+/**
+ * A UTC midnight as the day it names. Through the browser's zone it would read as the day before
+ * anywhere west of Greenwich.
+ */
+function formatUtcDay(value: string): string {
+  const day = new Date(value);
+  return formatDay(new Date(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate()));
 }
 
 /**
@@ -153,6 +204,9 @@ function summarizeRow(ship: WatchedShip, status: Status): string | null {
   if (status.tone === 'error') return null;
   if (ship.fullSweepNextPage !== null) return `Re-reading, page ${ship.fullSweepNextPage}`;
   if (ship.fullSweepRequestedAt !== null) return 'Re-read queued';
+  if (ship.recentSweepNextPage !== null) {
+    return `Re-reading recent works, page ${ship.recentSweepNextPage}`;
+  }
   if (ship.wholeListingReadLoggedInAt === null && describeCoverage(ship) !== null) {
     return 'Not fully read logged in';
   }

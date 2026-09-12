@@ -393,6 +393,49 @@ public class ShipsControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task Reports_the_re_read_of_recent_works_a_ship_is_in_the_middle_of()
+    {
+        // A re-read in flight displaces the incremental pass the way a sweep does, and its window
+        // is what the page names — "works updated since" the day it was fixed at.
+        var emma = _host.SeedUser();
+        var shipId = Created(await _host.Ships(emma).WatchShip(new("Clarke Griffin/Lexa"), default)).ShipId;
+        var from = new DateTime(2026, 6, 3, 0, 0, 0, DateTimeKind.Utc);
+        var startedAt = new DateTime(2026, 9, 1, 9, 0, 0, DateTimeKind.Utc);
+        var lastCompletedAt = new DateTime(2026, 8, 2, 9, 0, 0, DateTimeKind.Utc);
+
+        await using (var db = _host.NewContext())
+        {
+            var ship = await db.Ships.SingleAsync(s => s.Id == shipId);
+            ship.RecentSweepFrom = from;
+            ship.RecentSweepNextPage = 3;
+            ship.LastRecentSweepStartedAt = startedAt;
+            ship.LastRecentSweepCompletedAt = lastCompletedAt;
+            await db.SaveChangesAsync();
+        }
+
+        var listed = List(await _host.Ships(emma).GetWatchedShips(default)).Single();
+
+        Assert.Equal(from, listed.RecentSweepFrom);
+        Assert.Equal(3, listed.RecentSweepNextPage);
+        Assert.Equal(startedAt, listed.LastRecentSweepStartedAt);
+        Assert.Equal(lastCompletedAt, listed.LastRecentSweepCompletedAt);
+    }
+
+    [Fact]
+    public async Task Reports_no_re_read_for_a_ship_that_has_never_had_one()
+    {
+        var emma = _host.SeedUser();
+        Created(await _host.Ships(emma).WatchShip(new("Clarke Griffin/Lexa"), default));
+
+        var listed = List(await _host.Ships(emma).GetWatchedShips(default)).Single();
+
+        Assert.Null(listed.RecentSweepFrom);
+        Assert.Null(listed.RecentSweepNextPage);
+        Assert.Null(listed.LastRecentSweepStartedAt);
+        Assert.Null(listed.LastRecentSweepCompletedAt);
+    }
+
+    [Fact]
     public async Task Reports_that_no_scraper_can_run_the_schedule()
     {
         // Honest about this build: jobs are scheduled, but nothing is registered under

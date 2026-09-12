@@ -7,6 +7,18 @@ import { Icon } from '../components/Icon';
 import { SkeletonRows } from '../components/Skeleton';
 import { formatDateTimeOrDash as formatDate } from '../format';
 
+/**
+ * Each pass under the name the Ships page gives it. The enum names are the worker's own, and
+ * "RecentSweep" beside "FullSweep" says nothing about which reads what. An unknown mode shows as sent.
+ */
+const MODE_LABELS: Partial<Record<string, string>> = {
+  Incremental: 'New works',
+  Backfill: 'Back catalogue',
+  FullSweep: 'Full re-read',
+  Detail: 'Work details',
+  RecentSweep: 'Recent works re-read',
+};
+
 function JobRuns({ jobId }: { jobId: number }) {
   const [runs, setRuns] = useState<ScrapeRun[] | null>(null);
 
@@ -37,7 +49,7 @@ function JobRuns({ jobId }: { jobId: number }) {
         {runs.map((run) => (
           <tr key={run.id}>
             <td>{formatDate(run.startedAt)}</td>
-            <td>{run.mode}</td>
+            <td>{MODE_LABELS[run.mode] ?? run.mode}</td>
             <td>{run.status}</td>
             <td className="numeric">{run.pagesFetched}</td>
             <td className="numeric">{run.requestsMade}</td>

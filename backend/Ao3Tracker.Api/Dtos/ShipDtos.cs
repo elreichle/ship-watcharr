@@ -42,6 +42,15 @@ namespace Ao3Tracker.Api.Dtos;
 /// <param name="LastFullSweepCompletedAt">When a sweep last walked the listing to its end and was
 /// entitled to conclude what had left the tag. Null until one has, and never written by a sweep
 /// that concluded nothing.</param>
+/// <param name="RecentSweepFrom">The first day of the monthly re-read under way, or of the last one:
+/// it asks AO3 only for works updated since then. Null before a ship has had one.</param>
+/// <param name="RecentSweepNextPage">The listing page the re-read under way will ask for next, or null
+/// when none is in flight. Like a sweep, a re-read displaces the incremental pass until it reaches the
+/// end of its window.</param>
+/// <param name="LastRecentSweepStartedAt">When the re-read under way, or the last one, began. A start
+/// with no completion after it and nothing in flight is a re-read that was abandoned.</param>
+/// <param name="LastRecentSweepCompletedAt">When a re-read last reached the end of its window. Null
+/// until one has.</param>
 public record WatchedShipDto(
     int ShipId,
     string TagName,
@@ -64,7 +73,11 @@ public record WatchedShipDto(
     DateTime? LastFullSweepStartedAt,
     DateTime? LastFullSweepCompletedAt,
     DateTime? WholeListingReadLoggedInAt,
-    DateTime? FullSweepRequestedAt);
+    DateTime? FullSweepRequestedAt,
+    DateTime? RecentSweepFrom,
+    int? RecentSweepNextPage,
+    DateTime? LastRecentSweepStartedAt,
+    DateTime? LastRecentSweepCompletedAt);
 
 /// <summary>
 /// The ships list, wrapped so it can carry one instance-wide fact alongside them.

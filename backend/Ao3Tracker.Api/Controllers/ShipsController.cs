@@ -89,6 +89,10 @@ public class ShipsController : ControllerBase
                 w.Ship.LastFullSweepCompletedAt,
                 w.Ship.WholeListingReadLoggedInAt,
                 w.Ship.FullSweepRequestedAt,
+                w.Ship.RecentSweepFrom,
+                w.Ship.RecentSweepNextPage,
+                w.Ship.LastRecentSweepStartedAt,
+                w.Ship.LastRecentSweepCompletedAt,
                 w.Ship.VerificationState,
                 w.Ship.VerificationError,
 
@@ -130,7 +134,11 @@ public class ShipsController : ControllerBase
             r.LastFullSweepStartedAt,
             r.LastFullSweepCompletedAt,
             r.WholeListingReadLoggedInAt,
-            r.FullSweepRequestedAt))];
+            r.FullSweepRequestedAt,
+            r.RecentSweepFrom,
+            r.RecentSweepNextPage,
+            r.LastRecentSweepStartedAt,
+            r.LastRecentSweepCompletedAt))];
     }
 
     [HttpPost]
