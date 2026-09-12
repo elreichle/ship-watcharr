@@ -2220,7 +2220,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   `Ao3ShipIndexFullSweepTests`. Ships page is T92, docs T93.
 
 ## T92 — The Ships page says when a ship's recent works were last re-read
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: T91
 - delivers: The four `RecentSweep*` fields through `WatchedShipDto`/`ShipsController` and

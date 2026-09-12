@@ -416,3 +416,10 @@ Append-only. One entry per iteration, newest last.
 - ran: `dotnet test` → 1230 passed; `npm run build` → clean; `npm run lint` → 2 known warnings
 - commit: 17d66e2
 - next: T92. Review's revision-date-moves-back finding is in BACKLOG, unverified.
+
+## 2026-09-11 — T92 The Ships page says when a ship's recent works were last re-read — done
+- did: Four `RecentSweep*` fields reach the DTO and type; Ships page names a re-read in flight (UTC day), done, or abandoned; covered ship's abandoned sweep no longer promises a scheduled one; Schedules labels modes. Review: no findings.
+- files: `ShipsController.cs`, `ShipDtos.cs`, `ShipsControllerTests.cs`, `frontend/src/{api/types.ts,pages/ShipsPage.tsx,pages/SchedulesPage.tsx}`
+- ran: `~ShipsController` → 32; `dotnet test` → 1232 (one rate-gate timing flake on first run, BACKLOG); build clean; lint → 2 known; live: 3 hand-set ships + a mode-4 run rendered in LA tz
+- commit: 21415e1
+- next: T93.
