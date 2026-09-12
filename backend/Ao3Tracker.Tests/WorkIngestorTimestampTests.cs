@@ -120,6 +120,37 @@ public class WorkIngestorTimestampTests : IDisposable
         Assert.Equal(stamped, (await WorkAsync()).UpdatedAtObservedAt);
     }
 
+    // ---- the day AO3 shows ---------------------------------------------------------------------
+
+    [Fact]
+    public async Task Stores_the_day_a_blurb_shows_and_moves_it_with_the_next_revision()
+    {
+        // RevisedOn is what a window AO3 drew gets compared against, so it follows the work — and it
+        // is the visible day, never UpdatedAt's, which here sits eight days ahead of it.
+        var shipId = await FollowAsync();
+
+        await _host.IngestAsync(shipId, Page(1, [Blurb(1, updatedAt: Jan(11), revisedOn: new(2023, 1, 3))]).Html);
+        Assert.Equal(new DateTime(2023, 1, 3, 0, 0, 0, DateTimeKind.Utc), (await WorkAsync()).RevisedOn);
+
+        await _host.IngestAsync(shipId, Page(1, [Blurb(1, updatedAt: Jan(20), revisedOn: new(2023, 1, 12))]).Html);
+        Assert.Equal(new DateTime(2023, 1, 12, 0, 0, 0, DateTimeKind.Utc), (await WorkAsync()).RevisedOn);
+    }
+
+    [Fact]
+    public async Task An_unreadable_day_neither_invents_a_revision_day_nor_clears_a_stored_one()
+    {
+        var shipId = await FollowAsync();
+
+        // First seen undated: null — not year 1, and not a day borrowed from another clock.
+        await _host.IngestAsync(shipId, Page(1, [Blurb(1, undated: true)]).Html);
+        Assert.Null((await WorkAsync()).RevisedOn);
+
+        await _host.IngestAsync(shipId, Page(1, [Blurb(1, revisedOn: new(2023, 1, 9))]).Html);
+        await _host.IngestAsync(shipId, Page(1, [Blurb(1, undated: true)]).Html);
+
+        Assert.Equal(new DateTime(2023, 1, 9, 0, 0, 0, DateTimeKind.Utc), (await WorkAsync()).RevisedOn);
+    }
+
     private async Task<Api.Models.Work> WorkAsync()
     {
         await using var db = _host.NewContext();

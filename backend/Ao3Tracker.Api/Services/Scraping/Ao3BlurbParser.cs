@@ -25,7 +25,7 @@ public static class Ao3BlurbParser
 
     /// <summary>
     /// AO3's visible date, e.g. "25 Dec 2023". Day-granular, which is why it is only the fallback
-    /// for <see cref="Work.UpdatedAt"/>.
+    /// for <see cref="Work.UpdatedAt"/> — and the whole of <see cref="Work.RevisedOn"/>.
     /// </summary>
     private static readonly string[] VisibleDateFormats = ["d MMM yyyy", "dd MMM yyyy"];
 
@@ -85,7 +85,8 @@ public static class Ao3BlurbParser
         }
 
         var (chapters, plannedChapters) = ParseChapters(blurb);
-        var (updatedAt, isApproximate) = ParseUpdatedAt(blurb, ref warnings);
+        var revisedOn = ParseVisibleDate(blurb);
+        var (updatedAt, isApproximate) = ParseUpdatedAt(blurb, revisedOn, ref warnings);
         var (authors, isAnonymous) = ParseByline(heading, ref warnings);
 
         return new Ao3WorkBlurb(
@@ -112,6 +113,7 @@ public static class Ao3BlurbParser
             LanguageName: blurb.QuerySelector("dd.language")?.TextContent.Trim().NullIfEmpty(),
             UpdatedAt: updatedAt,
             UpdatedAtIsApproximate: isApproximate,
+            RevisedOn: revisedOn,
 
             IsAnonymous: isAnonymous,
 
@@ -189,18 +191,11 @@ public static class Ao3BlurbParser
     /// date can only say "some time that day". The flag records which one a row actually got, so a
     /// later comparison knows how much precision it is working with.
     /// </summary>
-    private static (DateTime UpdatedAt, bool IsApproximate) ParseUpdatedAt(IElement blurb, ref int warnings)
+    private static (DateTime UpdatedAt, bool IsApproximate) ParseUpdatedAt(
+        IElement blurb, DateTime? visibleDate, ref int warnings)
     {
         if (TryParseEpochComment(blurb) is { } exact) return (exact, false);
-
-        var visible = blurb.QuerySelector("p.datetime")?.TextContent.Trim();
-        if (!string.IsNullOrEmpty(visible)
-            && DateTime.TryParseExact(
-                visible, VisibleDateFormats, CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed))
-        {
-            return (parsed, true);
-        }
+        if (visibleDate is { } day) return (day, true);
 
         // Neither form was readable. DateTime.MinValue rather than "now": the watermark and the
         // backfill's monotonicity check both compare against this, and a work stamped with the
@@ -208,6 +203,24 @@ public static class Ao3BlurbParser
         // incremental pass at it.
         warnings++;
         return (DateTime.MinValue, true);
+    }
+
+    /// <summary>
+    /// The day <c>p.datetime</c> shows, at UTC midnight, or null when it holds nothing readable.
+    /// Read on its own rather than only when the <c>updated_at</c> comment is missing, because the two
+    /// are different clocks and <see cref="Ao3WorkBlurb.RevisedOn"/> needs this one: it is the date
+    /// AO3's listing sorts and filters by, and the comment has been captured days ahead of it.
+    /// </summary>
+    private static DateTime? ParseVisibleDate(IElement blurb)
+    {
+        var visible = blurb.QuerySelector("p.datetime")?.TextContent.Trim();
+
+        return !string.IsNullOrEmpty(visible)
+            && DateTime.TryParseExact(
+                visible, VisibleDateFormats, CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed)
+            ? parsed
+            : null;
     }
 
     /// <summary>

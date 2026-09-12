@@ -339,6 +339,37 @@ public class Ao3BlurbParserTests
         Assert.Equal(1, page.ParseWarnings);
     }
 
+    [Fact]
+    public void Reads_the_visible_day_beside_the_exact_timestamp_not_only_instead_of_it()
+    {
+        // Two clocks, both kept: UpdatedAt takes the comment, RevisedOn the day AO3 shows — the one its
+        // listing sorts and filters by. Read only as a fallback, it would be null on every whole blurb.
+        var work = Assert.Single(Ao3BlurbParser.ParseListing(Page(Blurb(datetime: "5 Sep 2026"))).Works);
+
+        Assert.Equal(new DateTime(2023, 12, 25, 18, 30, 0, DateTimeKind.Utc), work.UpdatedAt);
+        Assert.Equal(new DateTime(2026, 9, 5, 0, 0, 0, DateTimeKind.Utc), work.RevisedOn);
+        Assert.Equal(DateTimeKind.Utc, work.RevisedOn!.Value.Kind);
+    }
+
+    [Fact]
+    public void Reads_the_visible_day_when_there_is_no_exact_timestamp()
+    {
+        var work = Assert.Single(Ao3BlurbParser.ParseListing(Page(Blurb(updatedAtComment: null))).Works);
+
+        Assert.Equal(new DateTime(2023, 12, 25, 0, 0, 0, DateTimeKind.Utc), work.RevisedOn);
+    }
+
+    [Fact]
+    public void Leaves_an_unreadable_visible_day_null_without_costing_the_exact_timestamp()
+    {
+        // Null, and not the comment's day: that is the clock this field exists to be kept apart from.
+        var work = Assert.Single(Ao3BlurbParser.ParseListing(Page(Blurb(datetime: "not a date"))).Works);
+
+        Assert.Null(work.RevisedOn);
+        Assert.Equal(new DateTime(2023, 12, 25, 18, 30, 0, DateTimeKind.Utc), work.UpdatedAt);
+        Assert.False(work.UpdatedAtIsApproximate);
+    }
+
     // ---- page-level facts ---------------------------------------------------------------------------
 
     [Fact]

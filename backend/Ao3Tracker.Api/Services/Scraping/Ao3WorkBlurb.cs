@@ -34,6 +34,12 @@ public sealed record Ao3BlurbSeries(long Id, string Title, int? Part);
 /// The creators this blurb named. Empty whenever <see cref="IsAnonymous"/> is not false, and only
 /// authoritative when it is: an empty list beside a null flag means nothing was read.
 /// </param>
+/// <param name="RevisedOn">
+/// The day the blurb's visible date shows, at UTC midnight, and null when it could not be read —
+/// whether or not <see cref="UpdatedAt"/> was. A different clock from that one: this is the date AO3
+/// orders a listing by revision and applies <c>date_from</c> to, and the <c>updated_at</c> comment
+/// has been captured running days ahead of it. See <see cref="Work.RevisedOn"/>.
+/// </param>
 public sealed record Ao3WorkBlurb(
     long WorkId,
     string Title,
@@ -54,6 +60,7 @@ public sealed record Ao3WorkBlurb(
     string? LanguageName,
     DateTime UpdatedAt,
     bool UpdatedAtIsApproximate,
+    DateTime? RevisedOn,
     bool? IsAnonymous,
     bool IsRestricted,
     IReadOnlyList<Ao3BlurbTag> Tags,

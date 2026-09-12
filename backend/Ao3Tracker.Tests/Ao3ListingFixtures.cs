@@ -80,7 +80,8 @@ internal static class Ao3ListingFixtures
     /// <summary>
     /// One blurb. <paramref name="undated"/> renders the shape AO3 has served on occasion and the
     /// parser reports as DateTime.MinValue: no <c>updated_at</c> comment, and a visible date in
-    /// none of the formats it knows.
+    /// none of the formats it knows. <paramref name="revisedOn"/> is the day that visible date shows
+    /// otherwise, independent of <paramref name="updatedAt"/> as it is on AO3.
     /// </summary>
     internal static string Blurb(
         long id,
@@ -88,8 +89,11 @@ internal static class Ao3ListingFixtures
         int kudos = 10,
         string[]? freeforms = null,
         bool undated = false,
-        bool restricted = false)
+        bool restricted = false,
+        DateOnly? revisedOn = null)
     {
+        var visibleDate = (revisedOn ?? new DateOnly(2023, 1, 1))
+            .ToString("d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture);
         var epoch = new DateTimeOffset(updatedAt ?? Jan(1)).ToUnixTimeSeconds();
         var tags = string.Join('\n', (freeforms ?? ["Fluff"])
             .Select(f => $"""<li class="freeforms"><a class="tag" href="/tags/{f}/works">{f}</a></li>"""));
@@ -109,7 +113,7 @@ internal static class Ao3ListingFixtures
                   <li><span class="complete-yes iswip" title="Complete Work"></span></li>
                 </ul>
                 {(undated ? "" : $"<!-- updated_at={epoch} -->")}
-                <p class="datetime">{(undated ? "some time ago" : "1 Jan 2023")}</p>
+                <p class="datetime">{(undated ? "some time ago" : visibleDate)}</p>
               </div>
               <ul class="tags commas">
                 <li class="relationships"><a class="tag" href="/tags/lexa/works">{Lexa}</a></li>

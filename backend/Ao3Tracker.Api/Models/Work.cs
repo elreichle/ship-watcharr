@@ -98,6 +98,19 @@ public class Work
     public DateTime? UpdatedAtObservedAt { get; set; }
 
     /// <summary>
+    /// The day the blurb's visible date shows, at UTC midnight: the revision date AO3 itself sorts a
+    /// listing by and applies <c>date_from</c> to. <see cref="UpdatedAt"/> is not that clock — the
+    /// <c>updated_at</c> comment it holds has been captured running up to eight days ahead — so
+    /// anything comparing a work against a window AO3 drew reads this column instead.
+    ///
+    /// Null until a pass reads a blurb with a legible date, and never backfilled from
+    /// <see cref="UpdatedAt"/>, for the same reason. An unreadable date leaves it alone. Which zone
+    /// AO3 renders the day in is unverified (a logged-in page may use the account's), so compare it
+    /// with a day's slack either side.
+    /// </summary>
+    public DateTime? RevisedOn { get; set; }
+
+    /// <summary>
     /// Null until fetched. AO3 search blurbs do not carry the published date at all — only a work's
     /// own page has it — so no listing pass can populate this. <c>Ao3WorkDetailScraper</c> fills it
     /// in the background, one request per work, and until it has the detail page says so rather

@@ -923,6 +923,9 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                     b.Property<int>("Rating")
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTime?>("RevisedOn")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("SummaryHtml")
                         .HasColumnType("TEXT");
 

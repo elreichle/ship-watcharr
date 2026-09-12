@@ -242,6 +242,10 @@ public sealed class WorkIngestor : IWorkIngestor
             work.UpdatedAtIsApproximate = true;
         }
 
+        // On its own guard, since a blurb can carry either date without the other, and for the same
+        // reason as the one above: a day this pass could not read says nothing about the work.
+        if (blurb.RevisedOn is { } revisedOn) work.RevisedOn = revisedOn;
+
         // Null is "this blurb's byline could not be read", which is not a claim about the work's
         // authorship at all — see Ao3BlurbParser.ParseByline. Leaving the column alone is the only
         // honest reading: a heading AO3 has reshaped must cost a parse warning, not the credits of

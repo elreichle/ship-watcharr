@@ -1,5 +1,3 @@
-using System.Globalization;
-using AngleSharp.Html.Parser;
 using Ao3Tracker.Api.Services.Scraping;
 
 namespace Ao3Tracker.Tests;
@@ -23,24 +21,20 @@ namespace Ao3Tracker.Tests;
 /// <para><b>Conclusions.</b> The bound narrows by revision under either sort: both orders count the
 /// same 172 works, and the posting-date walk ends on works posted years before the window. The
 /// posting-date order is newest work id first and pages cleanly. And the date a re-read can compare
-/// against the window is the blurb's <i>visible</i> date, not the <c>updated_at</c> comment
-/// <see cref="Ao3BlurbParser"/> prefers for <c>Work.UpdatedAt</c>: only the visible date follows the
-/// listing's revision order, and <c>updated_at</c> runs days ahead of it on some works. On the
-/// production library at the time, 358 unrestricted works under this ship had an <c>UpdatedAt</c>
-/// inside the window AO3 counted 172 in — so a re-read deciding absence from that column would
-/// have recorded about half of them as having left the tag.</para>
+/// against the window is the blurb's <i>visible</i> date — <see cref="Ao3WorkBlurb.RevisedOn"/> — not
+/// the <c>updated_at</c> comment <see cref="Ao3BlurbParser"/> prefers for <c>Work.UpdatedAt</c>: only
+/// the visible date follows the listing's revision order, and <c>updated_at</c> runs days ahead of it
+/// on some works. On the production library at the time, 358 unrestricted works under this ship had
+/// an <c>UpdatedAt</c> inside the window AO3 counted 172 in — so a re-read deciding absence from that
+/// column would have recorded about half of them as having left the tag.</para>
 /// </summary>
 public class Ao3DateFilteredListingTests
 {
     private static readonly DateOnly WindowStart = new(2026, 6, 13);
 
-    private static readonly string PostedFirstHtml = Fixtures.Load(Fixtures.FilteredByPostedFirstPage);
-    private static readonly string PostedLastHtml = Fixtures.Load(Fixtures.FilteredByPostedLastPage);
-    private static readonly string UpdatedFirstHtml = Fixtures.Load(Fixtures.FilteredByUpdatedFirstPage);
-
-    private static readonly Ao3ListingPage PostedFirst = Ao3BlurbParser.ParseListing(PostedFirstHtml);
-    private static readonly Ao3ListingPage PostedLast = Ao3BlurbParser.ParseListing(PostedLastHtml);
-    private static readonly Ao3ListingPage UpdatedFirst = Ao3BlurbParser.ParseListing(UpdatedFirstHtml);
+    private static readonly Ao3ListingPage PostedFirst = Parse(Fixtures.FilteredByPostedFirstPage);
+    private static readonly Ao3ListingPage PostedLast = Parse(Fixtures.FilteredByPostedLastPage);
+    private static readonly Ao3ListingPage UpdatedFirst = Parse(Fixtures.FilteredByUpdatedFirstPage);
 
     [Fact]
     public void Both_sorts_count_the_same_result_set()
@@ -61,7 +55,7 @@ public class Ao3DateFilteredListingTests
         Assert.Contains(PostedLast.Works, w => w.WorkId == 7_995_769);
 
         Assert.All(
-            VisibleDates(PostedFirstHtml).Concat(VisibleDates(PostedLastHtml)).Concat(VisibleDates(UpdatedFirstHtml)),
+            RevisedDays(PostedFirst).Concat(RevisedDays(PostedLast)).Concat(RevisedDays(UpdatedFirst)),
             date => Assert.True(date >= WindowStart, $"{date} is before the window"));
     }
 
@@ -87,7 +81,7 @@ public class Ao3DateFilteredListingTests
     public void The_visible_date_follows_the_revision_order_and_updated_at_does_not()
     {
         // Sorted by revised_at, the visible dates never rise down the page...
-        var visible = VisibleDates(UpdatedFirstHtml);
+        var visible = RevisedDays(UpdatedFirst);
         Assert.Equal(visible.OrderByDescending(d => d), visible);
 
         // ...and the updated_at readings the parser stores do.
@@ -101,27 +95,20 @@ public class Ao3DateFilteredListingTests
         // Work 91921281: revised 3 September by its visible date, updated_at the 11th. A window
         // compared against updated_at holds this work eight days longer than AO3's bound does.
         var work = PostedFirst.Works.Single(w => w.WorkId == 91_921_281);
-        var shown = VisibleDateOf(PostedFirstHtml, 91_921_281);
 
-        Assert.Equal(new DateOnly(2026, 9, 3), shown);
+        Assert.Equal(new DateTime(2026, 9, 3, 0, 0, 0, DateTimeKind.Utc), work.RevisedOn);
         Assert.Equal(new DateOnly(2026, 9, 11), DateOnly.FromDateTime(work.UpdatedAt));
     }
 
-    private static List<DateOnly> VisibleDates(string html) =>
-        Blurbs(html).Select(b => b.Visible).ToList();
-
-    private static DateOnly VisibleDateOf(string html, long workId) =>
-        Blurbs(html).Single(b => b.WorkId == workId).Visible;
+    private static Ao3ListingPage Parse(string fixture) => Ao3BlurbParser.ParseListing(Fixtures.Load(fixture));
 
     /// <summary>
-    /// Each blurb's id and visible date, read straight off the markup: the parser does not keep the
-    /// visible date once it has the <c>updated_at</c> comment, which is the gap these tests are about.
+    /// Every work's <see cref="Ao3WorkBlurb.RevisedOn"/>, in page order — and the proof, on AO3's own
+    /// markup, that the parser reads one off every blurb whether or not the comment is there too.
     /// </summary>
-    private static IEnumerable<(long WorkId, DateOnly Visible)> Blurbs(string html) =>
-        new HtmlParser().ParseDocument(html)
-            .QuerySelectorAll("ol.work.index.group > li[id^='work_']")
-            .Select(li => (
-                long.Parse(li.Id!["work_".Length..], CultureInfo.InvariantCulture),
-                DateOnly.ParseExact(
-                    li.QuerySelector("p.datetime")!.TextContent.Trim(), "d MMM yyyy", CultureInfo.InvariantCulture)));
+    private static List<DateOnly> RevisedDays(Ao3ListingPage page)
+    {
+        Assert.All(page.Works, w => Assert.NotNull(w.RevisedOn));
+        return page.Works.Select(w => DateOnly.FromDateTime(w.RevisedOn!.Value)).ToList();
+    }
 }
