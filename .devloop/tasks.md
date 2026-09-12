@@ -2236,7 +2236,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   `SCRATCH` set for `.claude/polish/cdp.mjs`; never :5110.
 
 ## T93 — README and development notes describe the new schedule
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: T92
 - delivers: Every sentence promising a monthly full pass corrected: the README's "checks less when

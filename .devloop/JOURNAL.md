@@ -423,3 +423,10 @@ Append-only. One entry per iteration, newest last.
 - ran: `~ShipsController` → 32; `dotnet test` → 1232 (one rate-gate timing flake on first run, BACKLOG); build clean; lint → 2 known; live: 3 hand-set ships + a mode-4 run rendered in LA tz
 - commit: 21415e1
 - next: T93.
+
+## 2026-09-11 — T93 README and development notes describe the new schedule — done
+- did: README's "checks less" paragraph and Ships row, and DEVELOPMENT's archive bullets and `Works`/`Ships`/`ShipWorks` lines now describe one logged-in whole read, the monthly 90-day re-read, admin-only re-walks and the accepted staleness; each claim checked against `FullSweepIsDue`/`RecentSweepIsDue`/`ListingAgreesWithTheLibraryAsync`. No review: docs only.
+- files: `README.md`, `docs/DEVELOPMENT.md`
+- ran: `dotnet test` → 1232 passed; `npm run build` → clean; `npm run lint` → 2 known warnings
+- commit: ef14021
+- next: every task is done — the next pass runs step 7 (finish check against spec.md's definition of done). A stale "monthly" code comment is in BACKLOG.
