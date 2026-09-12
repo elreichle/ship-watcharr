@@ -99,7 +99,7 @@ public record WatchedShipsDto(
     bool Ao3LoginConfigured);
 
 /// <summary>
-/// A tag to start watching, exactly as AO3 renders it — <c>Clarke Griffin/Lexa</c>.
+/// A tag to start watching, exactly as AO3 renders it — <c>Donkey/Shrek (Shrek)</c>.
 /// </summary>
 /// <remarks>
 /// Deliberately does not require a <c>/</c>. It reads like a safe check for "is this really a

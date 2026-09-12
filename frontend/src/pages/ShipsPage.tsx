@@ -362,7 +362,7 @@ export function ShipsPage() {
       <p className="hint">
         Follow a relationship tag and this instance checks it for everyone who follows it — once,
         not once per person. Enter the tag exactly as AO3 writes it, e.g.{' '}
-        <code>Clarke Griffin/Lexa</code> for a romantic pairing or <code>Sam Winchester &amp; Dean
+        <code>Karen/Sheldon J. Plankton</code> for a romantic pairing or <code>Sam Winchester &amp; Dean
         Winchester</code> for a platonic one.
       </p>
 
@@ -375,7 +375,7 @@ export function ShipsPage() {
             spellCheck={false}
             value={tagName}
             onChange={(e) => setTagName(e.target.value)}
-            placeholder="Clarke Griffin/Lexa"
+            placeholder="Buzz Lightyear/Woody Pride"
             maxLength={200}
           />
         </label>

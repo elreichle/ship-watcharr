@@ -6,6 +6,8 @@ Name the relationship tags you care about. Ship Watcharr keeps an eye on them, t
 new work lands, and gives you one calm place to track what you have read, what you thought of it,
 and what you want to read next.
 
+![The Works view: every work under the ships you follow, with your own reading status, rating and notes on each row](docs/images/works-dark.png)
+
 ## Why it exists
 
 Following a ship on AO3 means going back to the same tag page, again and again, and re-reading it
@@ -39,6 +41,7 @@ you can sort, filter and annotate. Your reading history stays yours, on your mac
 - **Your colours.** Nine built-in palettes, each with a light and a dark half, and drop-in
   support for Obsidian community themes.
 
+![A custom Obsidian theme pasted into Appearance restyles the whole app](docs/images/works-custom-theme.png)
 
 ## A good neighbour to the archive
 
@@ -97,7 +100,7 @@ Open `http://localhost:8080` (or whatever `APP_PORT` you set).
    and password the instance should sign in with. It is stored encrypted and never shown again.
    Until it is saved, followed ships wait rather than run, and the Ships page tells you why.
 4. **Follow a ship.** Go to **Ships**, type a relationship tag exactly as AO3 spells it, such as
-   `Clarke Griffin/Lexa`, and follow it. The tag is confirmed against the archive a moment
+   `Kermit the Frog/Miss Piggy`, and follow it. The tag is confirmed against the archive a moment
    later, synonyms are folded into their canonical tag, and the first check starts right away.
 5. **Invite people.** Send them the address. Each person registers their own account and follows
    their own ships. Anything already in the library is theirs to browse immediately.
@@ -136,6 +139,7 @@ community theme's `theme.css` into the same page and the app takes on its palett
 Themes live in your browser only, never on the server. If one ever leaves the interface
 unusable, open any page with `?safemode` and clear it.
 
+![Filters in the light half of the default palette](docs/images/filters-light.png)
 
 ## PostgreSQL, if you want it
 

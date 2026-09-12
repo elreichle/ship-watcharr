@@ -13,7 +13,7 @@ public class Ship
 {
     public int Id { get; set; }
 
-    /// <summary>The exact AO3 relationship tag, e.g. "Clarke Griffin/Lexa".</summary>
+    /// <summary>The exact AO3 relationship tag, e.g. "Kermit the Frog/Miss Piggy".</summary>
     public string CanonicalTagName { get; set; } = null!;
 
     /// <summary>Uppercase invariant form. See <see cref="Tag.NameNormalized"/> for why this exists.</summary>

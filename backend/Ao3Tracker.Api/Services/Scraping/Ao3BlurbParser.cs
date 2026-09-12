@@ -520,7 +520,7 @@ public static class Ao3BlurbParser
         if (string.IsNullOrWhiteSpace(heading)) return null;
 
         // The first match, because the count comes before the tag: the heading is
-        // "1 - 20 of 4,317 Works in Clarke Griffin/Lexa", a range whose total is the number beside
+        // "1 - 20 of 4,317 Works in Buzz Lightyear/Woody Pride", a range whose total is the number beside
         // the word, and everything after "in" is a name someone else chose.
         var match = WorkCountInHeading.Match(heading);
 
