@@ -77,6 +77,9 @@ public static class ScrapeStopReason
     /// is recorded as completed; nothing is marked missing. See
     /// <c>Ao3ShipIndexScraper.ListingAgreesWithTheLibraryAsync</c> for what the comparison does and
     /// does not rule out.
+    ///
+    /// The monthly re-read stops the same way when its date-filtered count matches the works the
+    /// library last saw revised inside the same window.
     /// </summary>
     public const string Reconciled = "reconciled";
 

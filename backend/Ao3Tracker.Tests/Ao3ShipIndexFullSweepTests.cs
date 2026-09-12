@@ -407,6 +407,7 @@ public class Ao3ShipIndexFullSweepTests : IDisposable
         // The same gap as the case above, which is due. Once a walk has read every page logged in,
         // the library holds the tag's restricted works, and re-walking it on a schedule would only
         // refresh old works' counts — not worth a whole listing's requests (DECISIONS 2026-09-12).
+        // What the gap owes it instead is the re-read of recently revised works (T91).
         var modes = await ModesTheWorkerChoseAsync((ship, now) =>
         {
             ship.BackfillState = ShipBackfillState.Complete;
@@ -414,7 +415,7 @@ public class Ao3ShipIndexFullSweepTests : IDisposable
             ship.WholeListingReadLoggedInAt = ship.BackfillCompletedAt;
         });
 
-        Assert.Equal([ScrapeRunMode.Incremental], modes);
+        Assert.Equal([ScrapeRunMode.RecentSweep], modes);
     }
 
     [Fact]

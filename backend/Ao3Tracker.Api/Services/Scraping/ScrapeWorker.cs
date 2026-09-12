@@ -384,6 +384,46 @@ public class ScrapeWorker : BackgroundService
         FullSweepInterval * ((shipId % FullSweepStaggerSlots) / (double)FullSweepStaggerSlots);
 
     /// <summary>
+    /// How long a ship whose whole listing has been read logged in waits, after its latest walk, before
+    /// the worker re-reads the works AO3 lists as revised recently. See <see cref="RecentSweepIsDue"/>.
+    /// </summary>
+    internal static readonly TimeSpan RecentSweepInterval = TimeSpan.FromDays(30);
+
+    /// <summary>
+    /// The widest per-ship offset on <see cref="RecentSweepInterval"/>. A week rather than the sweep's
+    /// whole interval, because this is meant to come round monthly and ships already reach it spread
+    /// out — each one's first logged-in walk was staggered by <see cref="StaggerOf"/>.
+    /// </summary>
+    internal static readonly TimeSpan RecentSweepStagger = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// Whether this tick is one a fully read ship spends re-reading the works AO3 lists as revised in
+    /// the last 90 days (<c>Ao3ShipIndexScraper.RecentSweepWindow</c>).
+    ///
+    /// A re-read under way always wins, for the reason a sweep under way does: its walked pages are
+    /// worth nothing until it reaches the end of its window. Otherwise only a ship with
+    /// <see cref="Ship.WholeListingReadLoggedInAt"/> set is owed one — an uncovered ship is owed a full
+    /// sweep, which reads everything this would — and it is due an interval after the latest walk the
+    /// ship has had: its last re-read's start, its last full sweep's start, or its backfill's
+    /// completion. Starts rather than completions for the reason <see cref="FullSweepIsDue"/> gives.
+    ///
+    /// Asked only once <see cref="FullSweepIsDue"/> has said no, so a sweep in flight or queued by an
+    /// admin comes first; the sweep beginning puts a re-read in flight away.
+    /// </summary>
+    internal static bool RecentSweepIsDue(Ship ship, DateTime now)
+    {
+        if (ship.RecentSweepNextPage is not null) return true;
+
+        if (ship.WholeListingReadLoggedInAt is not { } covered) return false;
+
+        var lastWalk = new[] { ship.LastRecentSweepStartedAt, ship.LastFullSweepStartedAt, ship.BackfillCompletedAt }
+            .Max() ?? covered;
+
+        return now - lastWalk >= RecentSweepInterval
+            + (RecentSweepStagger * ((ship.Id % FullSweepStaggerSlots) / (double)FullSweepStaggerSlots));
+    }
+
+    /// <summary>
     /// Schedules a run at <c>now + interval</c>, spread at random by ±<see cref="ScheduleJitterFactor"/>.
     ///
     /// The fallback spread, for the waits that are not about the other ships: a run deferred past
@@ -507,12 +547,15 @@ public class ScrapeWorker : BackgroundService
         }
 
         // A ship still working through its back catalogue keeps backfilling; everything else takes
-        // the cheap newest-first pass, or the sweep when one is owed.
+        // the cheap newest-first pass, or a walk when one is owed — the whole listing ahead of its
+        // recently revised part, since a sweep reads everything a re-read would.
         var mode = job.Ship.BackfillState is ShipBackfillState.NotStarted or ShipBackfillState.InProgress
             ? ScrapeRunMode.Backfill
             : FullSweepIsDue(job.Ship, UtcNow)
                 ? ScrapeRunMode.FullSweep
-                : ScrapeRunMode.Incremental;
+                : RecentSweepIsDue(job.Ship, UtcNow)
+                    ? ScrapeRunMode.RecentSweep
+                    : ScrapeRunMode.Incremental;
 
         if (!scraper.Supports(mode))
         {

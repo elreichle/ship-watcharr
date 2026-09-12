@@ -104,6 +104,41 @@ public class NotificationTests : IDisposable
     }
 
     [Fact]
+    public async Task A_re_read_tells_a_watcher_about_a_work_posted_since_the_last_incremental_pass()
+    {
+        // The re-read's page 1 is the newest posted, so a work posted since the last incremental pass
+        // is on it. Linked silently there, the next incremental pass would find it already held and
+        // nobody would ever hear of it — so the re-read announces what that pass would have, and the
+        // pass after it says nothing more.
+        var emma = _host.SeedUser();
+        var shipId = await AShipHoldingAsync(emma, 1);
+
+        _host.Http.Responds = LoggedInPages(Page(1, [Blurb(2, Jan(5)), Blurb(1)], total: 2));
+        await _host.ScrapeAsync(shipId, ScrapeRunMode.RecentSweep);
+
+        Assert.Equal(2, Assert.Single(await NotificationsOfAsync(emma)).WorkId);
+
+        await ScrapeAsync(Page(1, [Blurb(2, Jan(5)), Blurb(1)]));
+
+        Assert.Single(await NotificationsOfAsync(emma));
+    }
+
+    [Fact]
+    public async Task A_re_read_says_nothing_about_a_work_no_newer_than_the_watermark()
+    {
+        // Not an arrival: a work the incremental pass would not have announced either, found by the
+        // re-read because the library was missing it.
+        var emma = _host.SeedUser();
+        var shipId = await AShipHoldingAsync(emma, 1);
+
+        _host.Http.Responds = LoggedInPages(Page(1, [Blurb(1), Blurb(3, Jan(1))], total: 2));
+        await _host.ScrapeAsync(shipId, ScrapeRunMode.RecentSweep);
+
+        Assert.Equal(2, await LinkCountAsync(shipId));
+        Assert.Empty(await NotificationsOfAsync(emma));
+    }
+
+    [Fact]
     public async Task Tells_every_watcher_of_the_ship_separately()
     {
         var emma = _host.SeedUser("emma");

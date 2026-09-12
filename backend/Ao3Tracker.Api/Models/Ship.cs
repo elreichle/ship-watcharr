@@ -203,6 +203,37 @@ public class Ship
     /// </summary>
     public DateTime? FullSweepRequestedAt { get; set; }
 
+    // --- The monthly re-read of recently revised works ---
+
+    /// <summary>
+    /// The first day of the re-read under way, or of the last one: the UTC day 90 days before it
+    /// began, sent to AO3 as <c>work_search[date_from]</c> on every page of it. Fixed when a re-read
+    /// begins and kept across its runs, so all its pages ask for one result set — and the line it
+    /// concludes along, since only a work whose <see cref="Work.RevisedOn"/> lies after it was ever
+    /// going to be shown to the walk.
+    /// </summary>
+    public DateTime? RecentSweepFrom { get; set; }
+
+    /// <summary>
+    /// Next listing page the re-read under way will walk, or null when none is in flight. Its own
+    /// column for the reason <see cref="FullSweepNextPage"/> is. A full sweep beginning clears it: the
+    /// sweep reads everything the re-read was reading.
+    /// </summary>
+    public int? RecentSweepNextPage { get; set; }
+
+    /// <summary>
+    /// When the re-read under way, or the last one, began: the cutoff it concludes against, as
+    /// <see cref="LastFullSweepStartedAt"/> is the sweep's, and one of the dates the next re-read is
+    /// spaced from — see <c>ScrapeWorker.RecentSweepIsDue</c>.
+    /// </summary>
+    public DateTime? LastRecentSweepStartedAt { get; set; }
+
+    /// <summary>
+    /// When a re-read last reached the end of its window, or stopped on a page-1 count that matched
+    /// the library.
+    /// </summary>
+    public DateTime? LastRecentSweepCompletedAt { get; set; }
+
     // --- Whether the library has seen what only a logged-in reader sees ---
 
     /// <summary>

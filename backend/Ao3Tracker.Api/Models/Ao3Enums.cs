@@ -124,11 +124,17 @@ public enum ScrapeRunMode : byte
     /// <summary>Resumable walk into the tag's back catalogue, bounded by the per-run budget.</summary>
     Backfill = 1,
 
-    /// <summary>Full re-walk. The only pass allowed to conclude a work has left the tag.</summary>
+    /// <summary>Full re-walk. The only pass allowed to conclude any work has left the tag.</summary>
     FullSweep = 2,
 
     /// <summary>Per-work detail page fetch (published date, deletion checks).</summary>
     Detail = 3,
+
+    /// <summary>
+    /// Monthly re-read of a fully read ship's works revised in the last 90 days, in posting order.
+    /// May conclude a work has left the tag only if its stored revision date lies in that window.
+    /// </summary>
+    RecentSweep = 4,
 }
 
 /// <summary>

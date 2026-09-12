@@ -663,8 +663,20 @@ namespace Ao3Tracker.Api.Data.Migrations.Sqlite
                     b.Property<DateTime?>("LastKnownTotalWorksAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("LastRecentSweepCompletedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastRecentSweepStartedAt")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime?>("NextVerificationAttemptAt")
                         .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("RecentSweepFrom")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("RecentSweepNextPage")
+                        .HasColumnType("INTEGER");
 
                     b.Property<int?>("TagId")
                         .HasColumnType("INTEGER");
