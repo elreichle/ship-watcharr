@@ -2159,7 +2159,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   harmless.
 
 ## T89 — Scheduled full sweeps stop once a ship's whole listing has been read logged in
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: none
 - delivers: `ScrapeWorker.FullSweepIsDue` fires its interval arm only while

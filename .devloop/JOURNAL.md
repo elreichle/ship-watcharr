@@ -395,3 +395,10 @@ Append-only. One entry per iteration, newest last.
 - ran: `dotnet test --filter Ao3DateFilteredListingTests` → 5 passed
 - commit: 5506610
 - next: T89.
+
+## 2026-09-11 — T89 Scheduled full sweeps stop once a ship's whole listing has been read logged in — done
+- did: `FullSweepIsDue` returns false for a covered ship unless a sweep is in flight or queued; three worker tests pin it; docs no longer promise a monthly sweep. Review skipped: one-line logic change, rest docs/tests.
+- files: `ScrapeWorker.cs`, `Ship.cs`, `ShipDtos.cs`, `Ao3ShipIndexFullSweepTests.cs`
+- ran: `dotnet test` → 1202 passed; `npm run build` → clean; `npm run lint` → 2 known warnings
+- commit: 40dd132
+- next: T90. Scraper docs still say "monthly" — BACKLOG (maybe T93's).
