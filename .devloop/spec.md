@@ -117,10 +117,14 @@ fetch goes through `IRateLimitedHttpClient` like every other outbound request, n
 `HttpClient`, and is driven by a `BackgroundService` alongside `ScrapeWorker`. A request for a
 version already on disk completes without any AO3 request at all.
 
-**A full sweep is the only pass permitted to conclude a work has left a tag.** The incremental
-pass stops at the watermark and the backfill walks backwards, so neither ever observes the whole
-index; concluding absence from either would delete works merely because the pass stopped early. A
-sweep marks its start, walks every page, and only then acts on what it did not see.
+**Only a walk that reaches the end of what it asked for may conclude a work has left a tag.** The
+incremental pass stops at the watermark and the backfill walks backwards, so neither ever observes
+the whole index; concluding absence from either would delete works merely because the pass stopped
+early. A full sweep marks its start, walks every page, and only then acts on what it did not see.
+It is scheduled only until a ship's whole listing has been read logged in; after that, only an
+admin queues one. A monthly re-read (T91) walks the works AO3 lists as revised in the last 90 days
+and may conclude absence only for works whose stored revision date — `Work.RevisedOn`, the blurb's
+visible date, never `UpdatedAt` — lies inside that window.
 
 **Notifications are in-app only.** No SMTP, no push. `WatchedShip.NotificationsEnabled` is the
 existing switch. Produced where new works are ingested, per watcher, and read through an
@@ -205,20 +209,21 @@ Note: `/usr/bin/dotnet` is runtime-only. Non-interactive shells must prefix `PAT
 
 ## Loop policy
 
-- branch: `devloop/dashboard-completion` (cut from `ao3-ship-index-scraper`, itself 2 ahead of `main`)
+- branch: `main` — the repo was recreated on 2026-09-10 and no other branch exists.
 - commit per task: yes — one commit per verified-green task.
-- pushing: allowed. The branch tracks `origin/devloop/dashboard-completion`, and an iteration may
-  push it once its task and journal commits are in. Fast-forward only — never `--force`, never to
-  `main`, and still never open a PR.
+- pushing: **not from the loop.** `main` is production: howl pulls it daily at 04:30 and rebuilds,
+  so Emma reviews and pushes. Never `--force`, never open a PR.
 - off-limits paths:
-  - `backend/Ao3Tracker.Api/appdata/` — the dev instance on :5110 holds that SQLite database
-    open. Never read, write, delete, or point a test at it.
+  - `backend/Ao3Tracker.Api/appdata/` — the dev instance's SQLite database. Never read, write,
+    delete, or point a test at it.
   - `.scratch/` — machine-local, gitignored, may hold credentials.
   - `frontend/dist/`, `**/bin/`, `**/obj/` — build output.
 - Running the app for a live check: never on the defaults. Use a free port *and* a scratch data
   directory — `ASPNETCORE_URLS=http://localhost:<free port> Storage__DataDirectory=<scratch dir>`,
   plus `--no-launch-profile` under `dotnet run` (otherwise `launchSettings.json` wins). The dev
-  instance is a systemd user service: `systemctl --user {status,restart} ship-watcharr`, and it
-  runs a built DLL, so it does not pick up changes without `dotnet build` + restart.
-- No network from the loop's shell. `curl` to the internet times out. Anything needing live AO3
-  markup is a fixture task and stays `blocked` until a human supplies the file.
+  instance (`systemctl --user … ship-watcharr`, :5110) has been stopped and disabled since
+  2026-09-05; do not start it — it would check AO3 alongside production.
+- Network works from the loop's shell (since 2026-08-29). Anonymous AO3 captures for fixtures are
+  allowed: a handful of requests at least 5 s apart, with a `User-Agent` naming the software and the
+  repo, never an email. Anything needing a logged-in session stays `blocked` for a human. Tests still
+  never send a request to the real archive.

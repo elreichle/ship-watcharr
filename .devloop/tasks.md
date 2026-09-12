@@ -2157,3 +2157,93 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   with a comment saying why. `useCallback` on `updateQuery` keyed on `setSearchParams` makes the
   dependency honest; the effect's early return on `draft === search` keeps a URL-driven re-run
   harmless.
+
+## T89 — Scheduled full sweeps stop once a ship's whole listing has been read logged in
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: `ScrapeWorker.FullSweepIsDue` fires its interval arm only while
+  `Ship.WholeListingReadLoggedInAt` is null. A sweep in flight (`FullSweepNextPage`) or queued by an
+  admin (`FullSweepRequestedAt`) is still due on any ship. Every ship still gets one scheduled
+  logged-in walk; after that only the Ships page's button walks a whole listing.
+- verification: `cd backend && PATH="$HOME/.dotnet:$PATH" dotnet test` (focus:
+  `--filter "FullyQualifiedName~FullSweep|FullyQualifiedName~ScrapeWorker|FullyQualifiedName~WholeListingCoverage"`)
+- notes: Why, and the numbers: DECISIONS.md 2026-09-12. Tests that make a sweep due by date alone
+  (`Ao3ShipIndexFullSweepTests.cs` ~390–535, `Ao3ShipIndexScraperTests.cs` ~2690) must leave coverage
+  null to stay due; add the covered-and-past-the-interval case (not due) beside the queued and
+  in-flight ones (due). Rewrite the docs that promise a monthly sweep: `FullSweepInterval`,
+  `FullSweepIsDue`, `StaggerOf` (it now spreads each ship's *first* logged-in walk) and `ShipDtos.cs`'s
+  `LastFullSweepStartedAt`. The Ships page's "the next one is due an interval after that" goes wrong
+  for a covered ship — that is T92's; README and docs are T93's.
+
+## T90 — Works store the revision date AO3 sorts and filters by
+- status: todo
+- attempts: 0
+- blocked-by: none
+- delivers: `Ao3WorkBlurb.RevisedOn` and a nullable `Work.RevisedOn` (both migrations): the blurb's
+  visible `p.datetime` day as a UTC-midnight `DateTime`, parsed whether or not the `updated_at`
+  comment is present, and written by `WorkIngestor` whenever a blurb carries one — an unreadable
+  date never clears a stored one.
+- verification: `cd backend && PATH="$HOME/.dotnet:$PATH" dotnet test` (focus:
+  `--filter "FullyQualifiedName~Ao3DateFilteredListing|FullyQualifiedName~Ao3BlurbParser|FullyQualifiedName~WorkIngestor"`)
+- notes: Evidence is commit 5506610 (`Ao3DateFilteredListingTests` and its three fixtures): only the
+  visible date follows `revised_at`; `updated_at`, which `Work.UpdatedAt` holds, ran up to 8 days
+  ahead, and production had 358 Clarke/Lexa works "inside" a window AO3 counted 172 in. Move those
+  tests onto the parser's new field instead of reading `p.datetime` by hand. Existing rows stay null
+  until a pass re-reads them; do **not** backfill from `UpdatedAt`, the wrong clock. The visible day
+  is rendered in a zone nothing has verified (a logged-in page may use the account's preference), so
+  treat it as ±1 day wherever it is compared — T91 does. `UpdatedAt` and the incremental pass stay
+  as they are (BACKLOG.md).
+
+## T91 — A monthly re-read of each fully read ship's recently revised works
+- status: todo
+- attempts: 0
+- blocked-by: T89, T90
+- delivers: `ScrapeRunMode.RecentSweep = 4`, and on `Ship` (both migrations) `RecentSweepFrom`,
+  `RecentSweepNextPage`, `LastRecentSweepStartedAt`, `LastRecentSweepCompletedAt`. A ship with
+  `WholeListingReadLoggedInAt` set is re-read 30 days (plus a per-ship offset) after the latest of its
+  last re-read start, last full sweep start and backfill completion: every work AO3 lists as revised
+  in the 90 days before the pass began, walked by posting date, concluding which have left the tag.
+- verification: `cd backend && PATH="$HOME/.dotnet:$PATH" dotnet test` (focus:
+  `--filter FullyQualifiedName~RecentSweep`, plus T89's filters)
+- notes: Mode order in `ScrapeWorker`: backfill → full sweep (in flight, queued or due) → re-read in
+  flight → re-read due → incremental. A full sweep beginning clears `RecentSweepNextPage`. Requests
+  send `sort_column=created_at` and `date_from=RecentSweepFrom` (fixed at the pass's start) — widen
+  `DateFromBound` so `listingWasFiltered`, `RecordTotal` and `PlausiblyTheEndOfTheListing` see it.
+  Cursor via `CursorOf`/`SetCursor`; ingest every blurb with `announce: false`; never propose a
+  watermark, a total or `WholeListingReadLoggedInAt`. Progress mirrors `RecordSweepProgressAsync`: a
+  page read logged out abandons, no progress abandons, a run AO3 told nothing stays in flight. An
+  authenticated page 1 may stop `Reconciled` when the filtered heading equals the ship's links (not
+  missing, work not deleted) with `RevisedOn >= RecentSweepFrom`. `LastPage` marks `MissingSinceAt`
+  on links not missing, `LastSeenAt` before the pass start, `RevisedOn` not null and
+  `>= RecentSweepFrom + 1 day`. Never compare `UpdatedAt` (T90). Model tests on
+  `Ao3ShipIndexFullSweepTests`. Ships page is T92, docs T93.
+
+## T92 — The Ships page says when a ship's recent works were last re-read
+- status: todo
+- attempts: 0
+- blocked-by: T91
+- delivers: The four `RecentSweep*` fields through `WatchedShipDto`/`ShipsController` and
+  `frontend/src/api/types.ts`; `describeSweep` saying "Re-reading works updated since …, page N" and
+  "Recent works last re-read on …"; `summarizeRow` giving an in-flight re-read a short label; the
+  abandoned-full-sweep sentence no longer promising a scheduled sweep to a ship read in full; the
+  Schedules page naming the new mode legibly.
+- verification: `cd frontend && npm run build && npm run lint` (2 known warnings);
+  `cd backend && PATH="$HOME/.dotnet:$PATH" dotnet test --filter FullyQualifiedName~ShipsController`;
+  a live check against a throwaway instance with those fields set by hand.
+- notes: T86's shape, one feature over. UI text says "re-read"/"check", never "scraping". The queue
+  button is unchanged: it still queues a full sweep. Live checks: free port, scratch data directory,
+  `SCRATCH` set for `.claude/polish/cdp.mjs`; never :5110.
+
+## T93 — README and development notes describe the new schedule
+- status: todo
+- attempts: 0
+- blocked-by: T92
+- delivers: Every sentence promising a monthly full pass corrected: the README's "checks less when
+  there is less to see" paragraph and Ships row; `docs/DEVELOPMENT.md`'s archive bullets on the sweep
+  and the queue, and its `Ships`/`Works` data-model lines (`RevisedOn`, the re-read columns).
+- verification: grep both files for "monthly", "full pass" and "sweep" and check each remaining claim
+  against `ScrapeWorker`; `npm run build` only if a link moves.
+- notes: The README avoids the word "scraping". State the cost plainly: one logged-in full read per
+  ship, a monthly re-read of works revised in the last three months, a full re-read only when an
+  admin queues one — older works' stats refresh only then (accepted, DECISIONS.md 2026-09-12).

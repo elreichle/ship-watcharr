@@ -386,3 +386,12 @@ Append-only. One entry per iteration, newest last.
 - ran: `dotnet test` → 1146; `npm run build` clean; `npm run lint` → 2 known; compose cycle green.
 - commit: e73cd8d
 - next: the list is finished; one display oddity from the compose check is in BACKLOG.md.
+
+## 2026-09-12 — Phase 1 (outside the loop): date-filtered listing captures — done
+- did: Captured three logged-out Clarke/Lexa pages with `date_from` under both sorts and pinned what
+  they show: the filter survives `created_at`, and only the visible date follows `revised_at`.
+  Planned T89–T93 from it (DECISIONS.md 2026-09-12).
+- files: `Ao3DateFilteredListingTests.cs`, `Fixtures.cs`, three `Fixtures/ao3-filtered-*.html`
+- ran: `dotnet test --filter Ao3DateFilteredListingTests` → 5 passed
+- commit: 5506610
+- next: T89.

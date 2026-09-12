@@ -500,3 +500,28 @@ have dropped one to say the other.
 The loop policy names `devloop/dashboard-completion`, but the repo was recreated on 2026-09-10 and
 only `main` exists now, with the post-loop work already on it. Task commits go on `main` and are
 not pushed; a separate branch for one lint fix was rejected as ceremony with no reader.
+
+## 2026-09-12 — T89–T93: full sweeps until a ship is covered, then a monthly 90-day re-read
+
+**Why the monthly full sweep goes.** Production on 2026-09-11: 54 ships, ~238k works, ~12,000
+listing pages per cycle (~21 h at the gate), so a sweep every 30–60 days cost 6,000–12,000 requests
+a month against ~4,500 for every incremental pass combined — mostly re-reading works nobody had
+touched. Emma asked for less load on AO3. Each ship still gets one logged-in whole-listing walk (none
+had one: every backfill predates the login or the session fix); after that, whole walks are
+admin-queued only.
+
+**Accepted cost, explicitly by Emma:** kudos, hits and bookmarks on old unrevised works go stale, and
+an old work leaving a tag goes unnoticed, until someone queues a full re-read. Do not re-add a
+scheduled whole walk for freshness.
+
+**A date window, not a page count.** Pages then scale with how busy a tag is; a fixed count
+over-reads quiet tags and under-reads busy ones. 90 days, monthly: ~500 pages instance-wide.
+
+**Posting-date order and `RevisedOn`, both from captures (5506610).** `date_from` keeps filtering by
+revision under `created_at`, which the walk needs for the reason the sweep uses it. But `updated_at`
+— `Work.UpdatedAt` — runs days ahead of AO3's revision date: 358 works "in window" by it against
+AO3's 172. So the window's count check and conclusion read the visible date, stored as
+`Work.RevisedOn` (T90).
+
+**Loop policy.** Commits land on `main` and are not pushed: `main` is what howl deploys, so Emma
+reviews and pushes. Anonymous AO3 captures from the loop's shell are allowed again; spec.md matches.
