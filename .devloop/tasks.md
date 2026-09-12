@@ -2196,7 +2196,7 @@ prints the pick, its body and the last journal entry. Do not add commentary here
   as they are (BACKLOG.md).
 
 ## T91 — A monthly re-read of each fully read ship's recently revised works
-- status: todo
+- status: done
 - attempts: 0
 - blocked-by: T89, T90
 - delivers: `ScrapeRunMode.RecentSweep = 4`, and on `Ship` (both migrations) `RecentSweepFrom`,

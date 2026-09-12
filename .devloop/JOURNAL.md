@@ -409,3 +409,10 @@ Append-only. One entry per iteration, newest last.
 - ran: `dotnet test` → 1207 passed; `npm run build` → clean; `npm run lint` → 2 known warnings
 - commit: 2769059
 - next: T91. `RevisedOn` is null on every existing row until a pass re-reads it — compare ±1 day.
+
+## 2026-09-12 — T91 A monthly re-read of each fully read ship's recently revised works — done
+- did: `RecentSweep` walks `created_at` with `date_from` fixed at start (now−90d), concludes absence only on `RevisedOn` ≥ from+1d; due 30d + ≤7d stagger after a covered ship's latest walk. Review fix: re-read announces works newer than the watermark.
+- files: `Ao3ShipIndexScraper.cs`, `ScrapeWorker.cs`, `Ship.cs`, `Ao3Enums.cs`, `ScrapeBudget.cs`, `*_ShipRecentSweep.cs`, `Ao3ShipIndexRecentSweepTests.cs`, `Ao3ShipIndexFullSweepTests.cs`, `NotificationTests.cs`
+- ran: `dotnet test` → 1230 passed; `npm run build` → clean; `npm run lint` → 2 known warnings
+- commit: 17d66e2
+- next: T92. Review's revision-date-moves-back finding is in BACKLOG, unverified.

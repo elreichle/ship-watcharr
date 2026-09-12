@@ -525,3 +525,8 @@ AO3's 172. So the window's count check and conclusion read the visible date, sto
 
 **Loop policy.** Commits land on `main` and are not pushed: `main` is what howl deploys, so Emma
 reviews and pushes. Anonymous AO3 captures from the loop's shell are allowed again; spec.md matches.
+
+## 2026-09-12 — T91: the re-read announces works newer than the watermark
+T91's notes said ingest with `announce: false`. Review of beeeed8 (reproduced in `NotificationTests`): a work posted since the last incremental pass sits on the re-read's posting-order page 1, gets linked silently, and the next incremental pass finds it already held — never announced. Now works with `UpdatedAt` > watermark are ingested announcing, the rest silently.
+Rejected: a silent re-read (one lost notification per covered ship per month). The full sweep's same gap is in BACKLOG.
+Stagger is ≤7 days rather than the sweep's whole interval, so the re-read stays roughly monthly.
