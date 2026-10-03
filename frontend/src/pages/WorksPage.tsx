@@ -70,6 +70,29 @@ function writeSortPreference(preference: SortPreference) {
   }
 }
 
+const SHIP_PREFERENCE_KEY = 'shipwatcharr.works.ship';
+
+/** The ship the reader last picked by hand, or null for "all ships". Same distrust as the sort. */
+function readShipPreference(): number | null {
+  try {
+    const raw = window.localStorage.getItem(SHIP_PREFERENCE_KEY);
+    if (raw === null) return null;
+    const parsed = Number(raw);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeShipPreference(shipId: number | null) {
+  try {
+    if (shipId === null) window.localStorage.removeItem(SHIP_PREFERENCE_KEY);
+    else window.localStorage.setItem(SHIP_PREFERENCE_KEY, String(shipId));
+  } catch {
+    // As for the sort: a refused write only costs the reader picking the ship again next time.
+  }
+}
+
 interface WorksPageProps {
   /**
    * The Favorites tab: the same list, narrowed to the works this reader has marked. Everything
@@ -102,6 +125,9 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
   // null means "we could not find out", which is not the same as "you follow none" — saying the
   // latter when the request failed sends someone off to re-add ships they already have.
   const [ships, setShips] = useState<WatchedShip[] | null>(null);
+  // Separate from `ships` because null there covers both "still asking" and "asking failed", and
+  // the remembered ship below has to wait out the first but give up on the second.
+  const [shipsSettled, setShipsSettled] = useState(false);
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -109,6 +135,9 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
   // change made through the dropdowns is what a later "Everything you follow" pick falls back to,
   // not whatever the page loaded with.
   const [sortPreference, setSortPreference] = useState<SortPreference>(readSortPreference);
+  // The ship picked here, remembered the same way. The server 404s a ship the reader no longer
+  // follows, so the preference is only used once the followed list has confirmed it.
+  const [shipPreference, setShipPreference] = useState<number | null>(readShipPreference);
   // Why a failed write to one card's state is not the page's `error`: the list itself loaded fine,
   // and blanking the works to say so would lose the very card the reader was editing.
   const [stateErrors, setStateErrors] = useState<Record<number, string>>({});
@@ -148,7 +177,6 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
   const sortParam = searchParams.get('sort');
   const ascendingParam = searchParams.get('ascending');
   const shipIdParam = searchParams.get('shipId');
-  const shipId = shipIdParam === null ? null : Number(shipIdParam);
   // Only ever the trimmed, non-empty text: "q=" and no q at all are the same search, and treating
   // them alike is what keeps the effect below from reloading the page for a cleared box.
   const search = searchParams.get('q')?.trim() || null;
@@ -185,6 +213,18 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
         : sortPreference.ascending;
   const shownAscending = ascending ?? activeFilter?.ascending ?? false;
 
+  // The ship follows the sort's rule: the URL first, then the remembered pick, which a saved filter
+  // named in the URL suppresses — an explicit ship would outrank the one the filter was saved with.
+  const shipPreferenceUsable =
+    shipIdParam === null && !filterPickedInUrl && shipPreference !== null;
+  const rememberedShipFollowed =
+    shipPreferenceUsable && (ships?.some((ship) => ship.shipId === shipPreference) ?? false);
+  const shipId =
+    shipIdParam !== null ? Number(shipIdParam) : rememberedShipFollowed ? shipPreference : null;
+  // Loading without the remembered ship and then again with it would flash the wrong works, so the
+  // list waits for the followed ships whenever there is a remembered one to check.
+  const waitingForShips = shipPreferenceUsable && !shipsSettled;
+
   /** Every by-hand sort choice is remembered, one field at a time, for the next visit. */
   const rememberSort = (changes: Partial<SortPreference>) => {
     const next = { ...sortPreference, ...changes };
@@ -195,7 +235,19 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
   useEffect(() => {
     // Both are conveniences, not the page — if either can't load, the works list below still stands
     // on its own and reports its own failure.
-    api.getWatchedShips().then((response) => setShips(response.ships)).catch(() => setShips(null));
+    api
+      .getWatchedShips()
+      .then((response) => {
+        setShips(response.ships);
+        // A ship unfollowed since it was picked is forgotten, so it stops being checked for.
+        const remembered = readShipPreference();
+        if (remembered !== null && !response.ships.some((ship) => ship.shipId === remembered)) {
+          writeShipPreference(null);
+          setShipPreference(null);
+        }
+      })
+      .catch(() => setShips(null))
+      .finally(() => setShipsSettled(true));
     api.getSavedFilters().then(setSavedFilters).catch(() => setSavedFilters([]));
   }, []);
 
@@ -219,6 +271,7 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
   }, [searchDraft, search, updateQuery]);
 
   useEffect(() => {
+    if (waitingForShips) return;
     let current = true;
 
     // A different page of works is a different set of cards: an open note editor and a failed write
@@ -258,7 +311,18 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
     return () => {
       current = false;
     };
-  }, [page, pageSize, shipId, sort, ascending, savedFilterId, useDefaultFilter, favorites, search]);
+  }, [
+    page,
+    pageSize,
+    shipId,
+    sort,
+    ascending,
+    savedFilterId,
+    useDefaultFilter,
+    favorites,
+    search,
+    waitingForShips,
+  ]);
 
   /** Writes one card's state into the loaded page, leaving every other card's copy alone. */
   const applyState = (workId: number, state: WorkState) => {
@@ -413,7 +477,12 @@ export function WorksPage({ favorites = false }: WorksPageProps) {
           Ship
           <select
             value={shipId ?? ''}
-            onChange={(e) => updateQuery({ shipId: e.target.value === '' ? null : e.target.value })}
+            onChange={(e) => {
+              const picked = e.target.value === '' ? null : Number(e.target.value);
+              writeShipPreference(picked);
+              setShipPreference(picked);
+              updateQuery({ shipId: picked === null ? null : String(picked) });
+            }}
           >
             <option value="">All ships you follow</option>
             {ships?.map((ship) => (
