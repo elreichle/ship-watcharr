@@ -1,4 +1,5 @@
 using System.Net;
+using Ao3Tracker.Api.Commands;
 using Ao3Tracker.Api.Data;
 using Ao3Tracker.Api.Models;
 using Ao3Tracker.Api.Services.Credentials;
@@ -12,6 +13,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// `reset-password <username>` runs once against this instance's database and exits; see
+// ResetPasswordCommand. Quiet logging, so the password it prints is not buried under SQL.
+var isResetPassword = args is [ResetPasswordCommand.Name, ..];
+// A filter rather than SetMinimumLevel, which appsettings' LogLevel:Default would override.
+if (isResetPassword) builder.Logging.AddFilter(level => level >= LogLevel.Warning);
 
 // ---- Resolve where this instance keeps its local state (SQLite db, Data Protection
 // keys, admin-editable settings.json) before anything else needs it ----
@@ -268,6 +275,15 @@ if (!EF.IsDesignTime)
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.Migrate();
+}
+
+// After the migration and before app.Run(), so no worker starts and nothing listens on a port.
+if (isResetPassword)
+{
+    using var scope = app.Services.CreateScope();
+    Environment.ExitCode = await ResetPasswordCommand.RunAsync(
+        args[1..], scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>(), Console.Out);
+    return;
 }
 
 if (app.Environment.IsDevelopment())

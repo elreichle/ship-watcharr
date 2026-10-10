@@ -52,6 +52,13 @@ public class AuthController : ControllerBase
             return Unauthorized(new { message = "Invalid username or password." });
 
         var result = await _signInManager.PasswordSignInAsync(user, request.Password, isPersistent: true, lockoutOnFailure: true);
+
+        // Said plainly, because while locked even the right password fails, and "invalid" would
+        // send someone hunting for a password they already had. This does tell a stranger the
+        // username exists, but only one who has already spent five guesses on it.
+        if (result.IsLockedOut)
+            return Unauthorized(new { message = await LockedOutMessageAsync(user) });
+
         if (!result.Succeeded)
             return Unauthorized(new { message = "Invalid username or password." });
 
@@ -74,5 +81,13 @@ public class AuthController : ControllerBase
         if (user is null) return Unauthorized();
 
         return Ok(new CurrentUserDto(user.Id, user.UserName!, user.Email, user.IsAdmin));
+    }
+
+    private async Task<string> LockedOutMessageAsync(ApplicationUser user)
+    {
+        var end = await _userManager.GetLockoutEndDateAsync(user);
+        var minutes = end is null ? 1 : Math.Max(1, (int)Math.Ceiling((end.Value - DateTimeOffset.UtcNow).TotalMinutes));
+        return $"Too many failed sign-ins, so this account is locked for {minutes} more minute{(minutes == 1 ? "" : "s")}. "
+            + "Until then even the right password will not work.";
     }
 }

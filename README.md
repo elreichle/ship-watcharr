@@ -109,6 +109,22 @@ Everything the instance needs to keep lives in one Docker volume, `app-data`: th
 encryption keys, the instance id and the admin settings. Back it up, and do not delete it. The
 stored AO3 login is encrypted with the keys inside it.
 
+### Forgotten password
+
+There is no email reset. Whoever runs the server can reset any account from the folder that holds
+`docker-compose.yml`:
+
+```
+docker compose exec app dotnet Ao3Tracker.Api.dll reset-password <username>
+```
+
+It prints a new random password, clears any lockout and signs that account out everywhere else.
+Sign in with it, then change it under **Settings → Account**. If you have forgotten the username
+too, leave it out and the command lists every account.
+
+Five wrong passwords in a row lock an account for five minutes. While it is locked, even the right
+password is turned away, and the sign-in page says so. Wait it out, or reset it as above.
+
 ## Around the app
 
 | Where | What it is for |
