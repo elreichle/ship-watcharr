@@ -113,6 +113,17 @@ public class Ao3HttpClientOptions
     public TimeSpan DownloadTimeout { get; set; } = TimeSpan.FromMinutes(5);
 
     /// <summary>
+    /// How long a download waits for AO3 to start answering — the response headers — before giving
+    /// up on that attempt. Every other request waits 30 seconds.
+    ///
+    /// Longer because of what an outage looked like in production: AO3 taking 15–30 seconds to
+    /// answer ordinary pages, so a download cut off at 30 failed when it was about to succeed. The
+    /// wait happens inside the gate, so it holds every other request for as long as it lasts, which
+    /// is affordable for a download a reader asked for and is not for every page of a ship walk.
+    /// </summary>
+    public TimeSpan DownloadResponseTimeout { get; set; } = TimeSpan.FromSeconds(60);
+
+    /// <summary>
     /// Product token identifying the software, not the operator. Constant and public on purpose:
     /// it is what lets AO3 recognise this tool's traffic as a known, well-behaved client.
     /// </summary>

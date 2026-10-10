@@ -219,11 +219,21 @@ public sealed class DownloadFetcher : IDownloadFetcher
                 await using var file = File.Create(partialPath);
                 result = await DownloadFileAsync(fileUrl, file, budget, ct);
             }
+            catch (OperationCanceledException ex) when (!ct.IsCancellationRequested && ex.InnerException is TimeoutException)
+            {
+                // HttpClient's own timeout, which is how it reports waiting too long for the response
+                // headers: AO3 never answered, so no byte of the file was ever sent. That is the
+                // archive unreachable rather than its answer about this work, so it goes to the
+                // worker, which re-queues it as it does a work page that timed out — failing it here
+                // settled the request on the first slow minute of an outage.
+                throw;
+            }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
-                // Not a shutdown — nobody asked this to stop, so it is the download's own deadline
-                // or the transport's timeout. Recorded as a failure with a message a reader can act
-                // on rather than left as the bare "operation was canceled" the worker would write.
+                // Not a shutdown, and not the transport's timeout above — so the download's own
+                // deadline, which only starts once the headers are in: the file started and stopped.
+                // Recorded with a message a reader can act on rather than left as the bare
+                // "operation was canceled" the worker would write.
                 return await FailAsync(
                     download, "AO3 stopped sending the file before it was complete.", ct);
             }

@@ -169,6 +169,7 @@ public class RateLimitedRetryTests : IDisposable
             new Ao3RateGate(options, TimeProvider.System, NullLogger<Ao3RateGate>.Instance),
             new HttpClient(_archive),
             new Ao3LoginHttpClient(new HttpClient(new StubArchive())),
+            new Ao3DownloadHttpClient(new HttpClient(_archive, disposeHandler: false)),
             new MemoryCache(new MemoryCacheOptions()),
             options,
             userAgents,

@@ -738,6 +738,56 @@ public class DownloadWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task Re_queues_a_request_whose_file_AO3_never_started_answering_for()
+    {
+        // Seen in production during an outage: the wait for the file's response headers timed out,
+        // and the request failed on the spot as "AO3 stopped sending the file" — when AO3 had never
+        // started. No answer at all is the archive unreachable, so it gets the re-queue a work page
+        // that timed out already got, and the next poll finishes it.
+        var emma = await ReaderWithAWorkAsync();
+        _host.Http.Responds = _ => WorkPage(EpubUrl);
+        _host.Http.RespondsToDownload = _ => throw HeaderTimeout();
+        await QueueAsync(emma);
+
+        await DrainAsync();
+
+        var waiting = await DownloadAsync();
+        Assert.Equal(DownloadStatus.Pending, waiting.Status);
+        Assert.Null(waiting.ErrorMessage);
+        Assert.Empty(FilesUnder(DownloadPaths.Root));
+
+        _host.Http.RespondsToDownload = _ => (HttpStatusCode.OK, "EPUB bytes"u8.ToArray());
+        await DrainAsync();
+
+        Assert.Equal(DownloadStatus.Complete, (await DownloadAsync()).Status);
+    }
+
+    [Fact]
+    public async Task Says_AO3_did_not_answer_once_every_attempt_has_timed_out()
+    {
+        // HttpClient's own wording names a setting ("the configured HttpClient.Timeout of 30
+        // seconds"), which is no use to a reader. What they need is that AO3 was not answering and
+        // that asking later is the fix.
+        var emma = await ReaderWithAWorkAsync();
+        _host.Http.Responds = _ => WorkPage(EpubUrl);
+        _host.Http.RespondsToDownload = _ => throw HeaderTimeout();
+        await QueueAsync(emma);
+
+        var worker = _host.NewDownloadWorker();
+        for (var poll = 0; poll < 3; poll++) await worker.DrainQueueAsync(default);
+
+        var download = await DownloadAsync();
+        Assert.Equal(DownloadStatus.Failed, download.Status);
+        Assert.Contains("AO3 did not answer", download.ErrorMessage);
+        Assert.DoesNotContain("HttpClient", download.ErrorMessage);
+    }
+
+    /// <summary>What HttpClient throws when its Timeout elapses before the response headers arrive.</summary>
+    private static TaskCanceledException HeaderTimeout() => new(
+        "The request was canceled due to the configured HttpClient.Timeout of 60 seconds elapsing.",
+        new TimeoutException("The operation was canceled."));
+
+    [Fact]
     public async Task Does_not_ask_again_for_something_it_has_already_failed()
     {
         // A work AO3 has taken down would otherwise be requested on every poll for ever, which is

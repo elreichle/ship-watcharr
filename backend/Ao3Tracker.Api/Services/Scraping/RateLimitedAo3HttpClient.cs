@@ -25,6 +25,20 @@ public sealed class Ao3LoginHttpClient
 }
 
 /// <summary>
+/// The transport for a download's requests — the work's file and any hop it redirects through.
+/// Separate only so it can wait longer for AO3 to start answering (see
+/// <see cref="Ao3HttpClientOptions.DownloadResponseTimeout"/>): same gate, same User-Agent, same
+/// manual redirect walk, because <see cref="RateLimitedAo3HttpClient"/> sends through it exactly as
+/// it sends a page.
+/// </summary>
+public sealed class Ao3DownloadHttpClient
+{
+    public Ao3DownloadHttpClient(HttpClient client) => Client = client;
+
+    public HttpClient Client { get; }
+}
+
+/// <summary>
 /// Single choke point for all outbound scraping traffic. Every request goes through the one
 /// <see cref="Ao3RateGate"/>, so that no matter how many scrapers/users run concurrently, requests
 /// to AO3 never go out faster than <see cref="Ao3HttpClientOptions.MinDelayBetweenRequests"/>
@@ -40,6 +54,7 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
     private readonly Ao3RateGate _gate;
     private readonly HttpClient _httpClient;
     private readonly Ao3LoginHttpClient _loginClient;
+    private readonly Ao3DownloadHttpClient _downloadClient;
     private readonly IMemoryCache _cache;
     private readonly Ao3HttpClientOptions _options;
     private readonly Ao3UserAgentProvider _userAgents;
@@ -51,6 +66,7 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
         Ao3RateGate gate,
         HttpClient httpClient,
         Ao3LoginHttpClient loginClient,
+        Ao3DownloadHttpClient downloadClient,
         IMemoryCache cache,
         IOptions<Ao3HttpClientOptions> options,
         Ao3UserAgentProvider userAgents,
@@ -61,6 +77,7 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
         _gate = gate;
         _httpClient = httpClient;
         _loginClient = loginClient;
+        _downloadClient = downloadClient;
         _cache = cache;
         _options = options.Value;
         _userAgents = userAgents;
@@ -185,7 +202,7 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
         // carries no greeting and no login form, so Ao3LoginPage would read Unknown on every
         // download and change nothing — asking would only mean parsing an EPUB as HTML.
         return await SendAsync(
-            _httpClient,
+            _downloadClient.Client,
             () => new HttpRequestMessage(HttpMethod.Get, url),
             session?.SessionCookie,
             (response, token) =>

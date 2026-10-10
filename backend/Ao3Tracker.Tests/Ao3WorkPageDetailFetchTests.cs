@@ -373,6 +373,33 @@ public class Ao3WorkPageDetailFetchTests : IDisposable
         Assert.NotNull((await db.Works.SingleAsync(w => w.Id == 4)).DetailFetchedAt);
     }
 
+    [Theory]
+    [InlineData(525)]
+    [InlineData(503)]
+    [InlineData(429)]
+    public async Task An_archive_outage_never_writes_a_work_off(int status)
+    {
+        // Seen in production: a day of Cloudflare 525s wrote works off until the next restart, though
+        // nothing was wrong with them. A 5xx or 429 is the archive failing, so it is charged to the
+        // breaker like a timeout — and the work is still asked for once AO3 answers again.
+        var shipId = await FollowAsync();
+        await IngestAsync(shipId, 1);
+
+        _host.Http.Responds = url => new ScrapeHttpResponse(
+            "", (HttpStatusCode)status, FromCache: false, FinalUrl: url);
+
+        for (var pass = 0; pass < WorkDetailAttempts.MaxAttempts + 1; pass++)
+        {
+            var failed = await _host.FetchWorkDetailsAsync();
+            Assert.Equal(1, failed.WorksSelected);
+        }
+
+        ServeTheCapturedWorkPage();
+        var recovered = await _host.FetchWorkDetailsAsync();
+
+        Assert.Equal(1, recovered.WorksWritten);
+    }
+
     [Fact]
     public async Task A_tag_the_work_page_no_longer_carries_is_dropped()
     {

@@ -176,10 +176,23 @@ public sealed class Ao3WorkDetailScraper : IAo3WorkDetailScraper
                 continue;
             }
 
+            if (response.StatusCode == HttpStatusCode.TooManyRequests || (int)response.StatusCode >= 500)
+            {
+                // The archive failing, not this work: a 5xx or a 429 is what every page gets while
+                // AO3 is down or throttling, as the timeout above is. So it is handled the same way —
+                // charged to the breaker, never to the work. Counting it as unreadable wrote works
+                // off for the life of the process over an outage that had nothing to do with them.
+                _logger.LogWarning(
+                    "Fetching the work page for {WorkId} failed: AO3 returned {StatusCode}",
+                    workId, (int)response.StatusCode);
+
+                continue;
+            }
+
             if (response.StatusCode != HttpStatusCode.OK)
             {
-                // Already retried where retrying helps: RateLimitedAo3HttpClient handles 429 and 5xx
-                // with backoff, so a status arriving here is one AO3 has refused several times over.
+                // Anything else — a 403, say — is AO3's answer about this work in particular, and
+                // three of those in a row is what writing it off is for.
                 warnings++;
                 RecordUnreadable(
                     workId, url, $"AO3 returned {(int)response.StatusCode}");

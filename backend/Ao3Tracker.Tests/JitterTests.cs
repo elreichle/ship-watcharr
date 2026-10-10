@@ -18,6 +18,7 @@ public class JitterTests
         new(new Ao3RateGate(Options.Create(options), TimeProvider.System, NullLogger<Ao3RateGate>.Instance),
             new HttpClient(),
             new Ao3LoginHttpClient(new HttpClient()),
+            new Ao3DownloadHttpClient(new HttpClient()),
             new MemoryCache(new MemoryCacheOptions()),
             Options.Create(options),
             userAgents: null!,   // not reached: these tests exercise delay maths only

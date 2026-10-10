@@ -247,6 +247,7 @@ public class Ao3RateGateTests : IDisposable
             gate,
             new HttpClient(_archive),
             new Ao3LoginHttpClient(new HttpClient(new StubArchive())),
+            new Ao3DownloadHttpClient(new HttpClient(_archive, disposeHandler: false)),
             new MemoryCache(new MemoryCacheOptions()),
             options,
             userAgents,

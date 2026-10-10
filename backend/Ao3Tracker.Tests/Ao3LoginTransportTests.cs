@@ -400,6 +400,7 @@ public class Ao3LoginTransportTests : IDisposable
             new Ao3RateGate(options, TimeProvider.System, NullLogger<Ao3RateGate>.Instance),
             new HttpClient(_archive),
             new Ao3LoginHttpClient(new HttpClient(_loginArchive)),
+            new Ao3DownloadHttpClient(new HttpClient(_archive, disposeHandler: false)),
             new MemoryCache(new MemoryCacheOptions()),
             options,
             userAgents,

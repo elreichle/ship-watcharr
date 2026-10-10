@@ -9,6 +9,7 @@ using Ao3Tracker.Api.Services.Storage;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -153,6 +154,18 @@ builder.Services
     // Compression on: a listing page is a few hundred kilobytes of HTML that gzips to a fraction
     // of that, and AO3 offers it (Vary: Accept-Encoding). It changes nothing about how many
     // requests go out or how far apart — only what each one costs the archive to serve.
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        UseCookies = false,
+        AllowAutoRedirect = false,
+        AutomaticDecompression = DecompressionMethods.All,
+    });
+
+// A download's transport: everything above, but a longer wait for AO3 to start answering — see
+// Ao3HttpClientOptions.DownloadResponseTimeout. Same handler settings, for the same reasons.
+builder.Services
+    .AddHttpClient<Ao3DownloadHttpClient>((services, client) =>
+        client.Timeout = services.GetRequiredService<IOptions<Ao3HttpClientOptions>>().Value.DownloadResponseTimeout)
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
     {
         UseCookies = false,

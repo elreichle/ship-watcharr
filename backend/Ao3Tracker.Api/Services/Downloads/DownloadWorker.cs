@@ -420,7 +420,12 @@ public class DownloadWorker : BackgroundService
                 return;
 
             download.Status = DownloadStatus.Failed;
-            download.ErrorMessage = $"The fetch did not complete: {cause.Message}";
+            // A timeout is the one cause a reader is likely to meet, and HttpClient's wording for it
+            // names a setting rather than what happened.
+            download.ErrorMessage = cause is OperationCanceledException { InnerException: TimeoutException }
+                ? $"AO3 did not answer, {MaxAttemptsPerRequest} tries in a row. It is probably slow "
+                  + "or down; asking again later should work."
+                : $"The fetch did not complete: {cause.Message}";
             download.CompletedAt = DateTime.UtcNow;
 
             await db.SaveChangesAsync(ct);
