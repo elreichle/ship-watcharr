@@ -7,13 +7,14 @@ namespace Ao3Tracker.Api.Services.Scraping;
 /// in one place so the worker that enforces it and the admin screen that explains it cannot drift
 /// apart.
 ///
-/// Two independent gates, and both must pass:
+/// Three independent gates, and all must pass:
 ///
 ///   1. An honest User-Agent can be built — which needs an operator contact. See
 ///      <see cref="Ao3UserAgentProvider"/>.
 ///   2. An AO3 login is stored for the deployment. See <see cref="Models.Ao3InstanceCredential"/>.
+///   3. An admin has not paused requests to AO3. See <see cref="Ao3RateGate.Pause"/>.
 ///
-/// Both are evaluated on every call, never short-circuited: a half-configured instance should be
+/// All are evaluated on every call, never short-circuited: a half-configured instance should be
 /// told everything it is missing at once rather than one thing per fix. Nothing here is cached —
 /// the gate is re-read every poll, so saving a contact or a login starts scraping on the next tick
 /// rather than at the next restart.
@@ -31,17 +32,29 @@ public sealed class ScrapingGate
 
     private readonly Ao3UserAgentProvider _userAgents;
     private readonly IAo3InstanceCredentialStore _credentials;
+    private readonly Ao3RateGate _rateGate;
 
-    public ScrapingGate(Ao3UserAgentProvider userAgents, IAo3InstanceCredentialStore credentials)
+    public ScrapingGate(
+        Ao3UserAgentProvider userAgents, IAo3InstanceCredentialStore credentials, Ao3RateGate rateGate)
     {
         _userAgents = userAgents;
         _credentials = credentials;
+        _rateGate = rateGate;
     }
+
+    /// <summary>
+    /// Said as a choice someone made, not a fault: the library and everything already downloaded
+    /// stay readable, and nothing is lost by waiting.
+    /// </summary>
+    internal const string PausedMessage =
+        "Requests to AO3 are paused by an admin. Nothing is fetched or downloaded until they are "
+        + "resumed at System → AO3; the library and downloaded works can still be read.";
 
     public async Task<ScrapingGateState> EvaluateAsync(CancellationToken ct = default)
     {
         var (identityOk, userAgent, identityError) = await _userAgents.TryGetUserAgentAsync(ct);
         var hasLogin = await _credentials.HasCredentialAsync(ct);
+        var pausedSince = _rateGate.PausedSince;
 
         // Kept as its own value as well as being folded into the list: the admin screen has a
         // section about the User-Agent and nothing else, and printing every blocker there says
@@ -53,6 +66,7 @@ public sealed class ScrapingGate
         var blockers = new List<string>();
         if (identityProblem is not null) blockers.Add(identityProblem);
         if (!hasLogin) blockers.Add(NoAo3LoginMessage);
+        if (pausedSince is not null) blockers.Add(PausedMessage);
 
         return new ScrapingGateState(
             CanScrape: blockers.Count == 0,
@@ -60,6 +74,7 @@ public sealed class ScrapingGate
             IdentityConfigured: identityOk,
             Ao3LoginConfigured: hasLogin,
             IdentityProblem: identityProblem,
+            PausedSince: pausedSince,
             Blockers: blockers);
     }
 }
@@ -73,6 +88,7 @@ public sealed class ScrapingGate
 /// its own, for the one caller that is explaining the User-Agent rather than listing every reason
 /// scraping is held.
 /// </param>
+/// <param name="PausedSince">When an admin paused requests to AO3, or null when they are not paused.</param>
 /// <param name="Blockers">One reason per failing gate, in the order above. Empty when scraping may run.</param>
 public sealed record ScrapingGateState(
     bool CanScrape,
@@ -80,6 +96,7 @@ public sealed record ScrapingGateState(
     bool IdentityConfigured,
     bool Ao3LoginConfigured,
     string? IdentityProblem,
+    DateTimeOffset? PausedSince,
     IReadOnlyList<string> Blockers)
 {
     /// <summary>Every blocker as one block of text, or null when there are none.</summary>

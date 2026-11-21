@@ -59,6 +59,33 @@ public class PersistedSettingsStore : IPersistedSettingsStore
         }, ct);
     }
 
+    // Its own top-level section rather than a key under Ao3HttpClient, which is bound to
+    // Ao3HttpClientOptions at startup: this is state the admin toggles, not configuration.
+    private const string PauseSection = "Ao3Requests";
+    private const string PausedSinceKey = "PausedSince";
+
+    public async Task<DateTimeOffset?> ReadAo3PausedSinceAsync(CancellationToken ct = default)
+    {
+        var root = await ReadAsync(ct);
+        var value = root?[PauseSection]?[PausedSinceKey]?.GetValue<string>();
+
+        // A value that does not parse reads as paused now rather than as not paused: the file says
+        // someone paused requests, and guessing otherwise would start sending them.
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        return DateTimeOffset.TryParse(value, out var since) ? since : DateTimeOffset.UtcNow;
+    }
+
+    public async Task SaveAo3PausedSinceAsync(DateTimeOffset? pausedSince, CancellationToken ct = default)
+    {
+        await UpdateAsync(root =>
+        {
+            if (pausedSince is { } since)
+                root[PauseSection] = new JsonObject { [PausedSinceKey] = since.ToUniversalTime().ToString("O") };
+            else
+                root.Remove(PauseSection);
+        }, ct);
+    }
+
     private async Task<JsonObject?> ReadAsync(CancellationToken ct)
     {
         if (!File.Exists(_paths.SettingsFilePath)) return null;

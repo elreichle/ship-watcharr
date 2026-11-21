@@ -142,6 +142,9 @@ builder.Services.AddScoped<ScrapingGate>();
 // see Ao3RateGate — and the scrape worker reads it to defer a job to when AO3 said.
 builder.Services.AddSingleton<Ao3RateGate>();
 
+// The admin's pause switch on that channel. Scoped because the settings store it saves to is.
+builder.Services.AddScoped<Ao3RequestPause>();
+
 builder.Services
     .AddHttpClient<IRateLimitedHttpClient, RateLimitedAo3HttpClient>(client =>
     {
@@ -275,6 +278,12 @@ if (!EF.IsDesignTime)
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.Migrate();
+}
+
+// Before app.Run(), so no worker can send a request before a saved pause is back in force.
+{
+    using var scope = app.Services.CreateScope();
+    await scope.ServiceProvider.GetRequiredService<Ao3RequestPause>().RestoreAsync();
 }
 
 // After the migration and before app.Run(), so no worker starts and nothing listens on a port.

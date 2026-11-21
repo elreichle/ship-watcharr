@@ -30,6 +30,7 @@ public class AdminScrapingController : ControllerBase
     private readonly IPersistedSettingsStore _settingsStore;
     private readonly IOperatorContactResolver _contacts;
     private readonly ScrapingGate _gate;
+    private readonly Ao3RequestPause _pause;
     private readonly InstanceIdentity _instance;
     private readonly Ao3HttpClientOptions _options;
     private readonly ILogger<AdminScrapingController> _logger;
@@ -39,6 +40,7 @@ public class AdminScrapingController : ControllerBase
         IPersistedSettingsStore settingsStore,
         IOperatorContactResolver contacts,
         ScrapingGate gate,
+        Ao3RequestPause pause,
         InstanceIdentity instance,
         IOptions<Ao3HttpClientOptions> options,
         ILogger<AdminScrapingController> logger)
@@ -47,6 +49,7 @@ public class AdminScrapingController : ControllerBase
         _settingsStore = settingsStore;
         _contacts = contacts;
         _gate = gate;
+        _pause = pause;
         _instance = instance;
         _options = options.Value;
         _logger = logger;
@@ -82,6 +85,26 @@ public class AdminScrapingController : ControllerBase
         return Ok(await BuildIdentityAsync(ct));
     }
 
+    /// <summary>
+    /// Pauses or resumes every request to AO3. Takes effect at once: a request already waiting for
+    /// its turn waits for the resume, and the workers start nothing new while paused.
+    /// </summary>
+    [HttpPut("pause")]
+    public async Task<ActionResult<ScrapingIdentityDto>> UpdatePause(UpdateAo3PauseRequest request, CancellationToken ct)
+    {
+        if (!await IsCurrentUserAdminAsync()) return Forbid();
+
+        if (request.Paused) await _pause.PauseAsync(ct);
+        else await _pause.ResumeAsync(ct);
+
+        _logger.LogInformation(
+            "Requests to AO3 {Action} by {UserId}",
+            request.Paused ? "paused" : "resumed",
+            _userManager.GetUserId(User));
+
+        return Ok(await BuildIdentityAsync(ct));
+    }
+
     private async Task<ScrapingIdentityDto> BuildIdentityAsync(CancellationToken ct)
     {
         var resolution = await _contacts.ResolveAsync(ct);
@@ -110,7 +133,8 @@ public class AdminScrapingController : ControllerBase
             InstanceId: _instance.Id,
             IdentityConfigured: gate.IdentityConfigured,
             Ao3LoginConfigured: gate.Ao3LoginConfigured,
-            IdentityProblem: gate.IdentityProblem);
+            IdentityProblem: gate.IdentityProblem,
+            PausedSince: gate.PausedSince);
     }
 
     private async Task<bool> IsCurrentUserAdminAsync()

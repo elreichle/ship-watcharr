@@ -169,5 +169,11 @@ public class OperatorContactResolverTests : IDisposable
             _contact = value;
             return Task.CompletedTask;
         }
+
+        public Task<DateTimeOffset?> ReadAo3PausedSinceAsync(CancellationToken ct = default) =>
+            Task.FromResult<DateTimeOffset?>(null);
+
+        public Task SaveAo3PausedSinceAsync(DateTimeOffset? pausedSince, CancellationToken ct = default) =>
+            Task.CompletedTask;
     }
 }

@@ -41,6 +41,11 @@ public sealed class Ao3RateGate
     private DateTimeOffset _heldUntil = DateTimeOffset.MinValue;
     private int _throttledInARow;
 
+    // Both set while an admin has paused requests to AO3, and both null otherwise. The source is
+    // completed on resume, which releases every request waiting on it.
+    private DateTimeOffset? _pausedSince;
+    private TaskCompletionSource? _resumed;
+
     public Ao3RateGate(IOptions<Ao3HttpClientOptions> options, TimeProvider time, ILogger<Ao3RateGate> logger)
     {
         _options = options.Value;
@@ -58,6 +63,56 @@ public sealed class Ao3RateGate
         {
             lock (_lock) return _heldUntil > _time.GetUtcNow() ? _heldUntil : null;
         }
+    }
+
+    /// <summary>When an admin paused requests to AO3, or null while they are not paused.</summary>
+    public DateTimeOffset? PausedSince
+    {
+        get
+        {
+            lock (_lock) return _pausedSince;
+        }
+    }
+
+    /// <summary>
+    /// Stops every request to AO3 from being sent until <see cref="Resume"/>. A request already
+    /// waiting for its turn, or arriving later, waits for the resume, then goes out with the usual
+    /// spacing. Nothing is failed or dropped. Pausing again while paused keeps the first date.
+    /// </summary>
+    /// <remarks>
+    /// The workers check <see cref="ScrapingGate"/> before starting anything and sit out a pause
+    /// without recording a run. This is the backstop for whatever was already in flight when the
+    /// pause began, and for any caller that does not check. Nothing leaves the process while
+    /// paused, whoever is asking.
+    /// </remarks>
+    public void Pause(DateTimeOffset since)
+    {
+        lock (_lock)
+        {
+            if (_pausedSince is not null) return;
+            _pausedSince = since;
+            _resumed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        _logger.LogWarning("Requests to AO3 are paused. Nothing will be sent to AO3 until they are resumed.");
+    }
+
+    /// <summary>Ends a pause and releases every request waiting on it. Does nothing when not paused.</summary>
+    public void Resume()
+    {
+        TaskCompletionSource? resumed;
+
+        lock (_lock)
+        {
+            resumed = _resumed;
+            _resumed = null;
+            _pausedSince = null;
+        }
+
+        if (resumed is null) return;
+
+        resumed.TrySetResult();
+        _logger.LogInformation("Requests to AO3 are resumed.");
     }
 
     /// <summary>
@@ -200,10 +255,22 @@ public sealed class Ao3RateGate
 
     /// <summary>
     /// Waits, with the channel held, until a send is allowed: <paramref name="spacing"/> after the
-    /// previous send, and never before the hold.
+    /// previous send, never before the hold, and never while requests are paused.
     /// </summary>
     public async Task WaitForSlotAsync(TimeSpan spacing, CancellationToken ct)
     {
+        // First, so the spacing and the hold below are measured from when the pause ended rather
+        // than from when this request started waiting.
+        while (true)
+        {
+            Task? resumed;
+            lock (_lock) resumed = _resumed?.Task;
+            if (resumed is null) break;
+
+            _logger.LogInformation("Holding this request: requests to AO3 are paused.");
+            await resumed.WaitAsync(ct);
+        }
+
         DateTimeOffset due, heldUntil;
 
         lock (_lock)

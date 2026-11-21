@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from '../api/client';
 import type { InstanceAo3Credential, ScrapingIdentity } from '../api/types';
 import { SkeletonRows } from '../components/Skeleton';
+import { formatDateTime } from '../format';
 
 const SOURCE_LABELS: Record<ScrapingIdentity['contactSource'], string> = {
   AdminSetting: 'set here, on this page',
@@ -24,6 +25,9 @@ export function Ao3SettingsPage() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginSaved, setLoginSaved] = useState<string | null>(null);
   const [savingLogin, setSavingLogin] = useState(false);
+
+  const [pauseError, setPauseError] = useState<string | null>(null);
+  const [savingPause, setSavingPause] = useState(false);
 
   const load = () =>
     api.getScrapingIdentity().then((next) => {
@@ -106,6 +110,20 @@ export function Ao3SettingsPage() {
     }
   };
 
+  const setPaused = async (paused: boolean) => {
+    setPauseError(null);
+    setSavingPause(true);
+    try {
+      setIdentity(await api.setAo3Paused(paused));
+    } catch (err) {
+      setPauseError(
+        err instanceof ApiError ? err.message : paused ? 'Failed to pause.' : 'Failed to resume.',
+      );
+    } finally {
+      setSavingPause(false);
+    }
+  };
+
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     void save(contact.trim() === '' ? null : contact.trim());
@@ -140,6 +158,46 @@ export function Ao3SettingsPage() {
           and nothing is fetched until one is saved below.
         </p>
       )}
+
+      <section>
+        <h2>Requests to AO3</h2>
+
+        {identity.pausedSince !== null ? (
+          <p className="callout callout-warning">
+            <strong>Paused</strong> since {formatDateTime(identity.pausedSince)}. Nothing is sent to
+            AO3: no checks for new works, no downloads, no sign-ins.
+          </p>
+        ) : (
+          <p className="hint">
+            Running. Pausing stops every request this instance makes to AO3, for when the archive is
+            struggling and asks clients to back off.
+          </p>
+        )}
+
+        <p className="hint">
+          While paused, everyone can still browse the library, rate and note works, read downloaded
+          copies and follow links to AO3, which open in their own browser. Ships and downloads wait
+          where they are and carry on when you resume. The pause survives restarts and updates.
+        </p>
+
+        {pauseError && (
+          <p className="error" role="alert">
+            {pauseError}
+          </p>
+        )}
+
+        <div className="button-row">
+          {identity.pausedSince !== null ? (
+            <button type="button" disabled={savingPause} onClick={() => void setPaused(false)}>
+              {savingPause ? 'Resuming…' : 'Resume requests'}
+            </button>
+          ) : (
+            <button type="button" disabled={savingPause} onClick={() => void setPaused(true)}>
+              {savingPause ? 'Pausing…' : 'Pause requests'}
+            </button>
+          )}
+        </div>
+      </section>
 
       <p className="hint">
         Every request this app makes to AO3 carries a User-Agent header identifying the

@@ -159,6 +159,7 @@ internal sealed class LibraryTestHost : IDisposable
 
         services.AddSingleton<IRateLimitedHttpClient>(Http);
         services.AddSingleton<Ao3RateGate>();
+        services.AddScoped<Ao3RequestPause>();
 
         // The real login stack over the fake transport, rather than a stub provider: whether a due
         // job runs now depends on an actual round trip through the actual login parser, so a stub
@@ -658,6 +659,7 @@ internal sealed class LibraryTestHost : IDisposable
             scope.ServiceProvider.GetRequiredService<IPersistedSettingsStore>(),
             scope.ServiceProvider.GetRequiredService<IOperatorContactResolver>(),
             scope.ServiceProvider.GetRequiredService<ScrapingGate>(),
+            scope.ServiceProvider.GetRequiredService<Ao3RequestPause>(),
             scope.ServiceProvider.GetRequiredService<InstanceIdentity>(),
             scope.ServiceProvider.GetRequiredService<IOptions<Ao3HttpClientOptions>>(),
             scope.ServiceProvider.GetRequiredService<ILogger<AdminScrapingController>>()),

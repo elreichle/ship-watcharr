@@ -139,6 +139,11 @@ export interface WatchedShipsResponse {
    * because every user can see the empty library.
    */
   ao3LoginConfigured: boolean;
+  /**
+   * When an admin paused requests to AO3, or null when they are not paused. Nothing new arrives
+   * while it is set, which is why every user is shown it.
+   */
+  ao3PausedSince: string | null;
 }
 
 /**
@@ -515,6 +520,8 @@ export interface ScrapingIdentity {
   ao3LoginConfigured: boolean;
   /** Why no honest User-Agent can be built, or null when one can. `problem`'s identity half alone. */
   identityProblem: string | null;
+  /** When an admin paused requests to AO3, or null when they are not paused. */
+  pausedSince: string | null;
 }
 
 export interface DatabaseStatus {

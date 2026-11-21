@@ -234,6 +234,28 @@ public class Ao3RateGateTests : IDisposable
     }
 
     [Fact]
+    public async Task A_request_made_while_paused_waits_for_the_resume_and_then_goes_out()
+    {
+        // The backstop behind the workers' own check: whatever was in flight when the pause began,
+        // or does not ask first, still sends nothing until the resume, and is not failed for it.
+        _archive.Answers = _ => Ok();
+        var (client, gate) = Client();
+
+        gate.Pause(DateTimeOffset.UtcNow);
+        var waiting = client.GetAsync(Url);
+
+        await Task.Delay(300);
+        Assert.False(waiting.IsCompleted);
+        Assert.Empty(_archive.Received);
+
+        gate.Resume();
+
+        var response = await waiting.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Single(_archive.Received);
+    }
+
+    [Fact]
     public async Task Waiters_are_served_by_priority_and_then_by_arrival()
     {
         var gate = NewGate();

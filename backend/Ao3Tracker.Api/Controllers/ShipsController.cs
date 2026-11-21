@@ -57,7 +57,7 @@ public class ShipsController : ControllerBase
         // an empty library with nothing on screen saying why.
         var gate = await _gate.EvaluateAsync(ct);
 
-        return Ok(new WatchedShipsDto(ships, gate.IdentityConfigured, gate.Ao3LoginConfigured));
+        return Ok(new WatchedShipsDto(ships, gate.IdentityConfigured, gate.Ao3LoginConfigured, gate.PausedSince));
     }
 
     /// <summary>

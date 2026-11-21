@@ -21,4 +21,10 @@ public interface IPersistedSettingsStore
 
     /// <summary>Saves the operator contact. Pass null or blank to clear it and fall back to the default.</summary>
     Task SaveOperatorContactAsync(string? operatorContact, CancellationToken ct = default);
+
+    /// <summary>When an admin paused requests to AO3, or null if they are not paused.</summary>
+    Task<DateTimeOffset?> ReadAo3PausedSinceAsync(CancellationToken ct = default);
+
+    /// <summary>Saves the pause so it survives a restart. Pass null to record that requests are resumed.</summary>
+    Task SaveAo3PausedSinceAsync(DateTimeOffset? pausedSince, CancellationToken ct = default);
 }

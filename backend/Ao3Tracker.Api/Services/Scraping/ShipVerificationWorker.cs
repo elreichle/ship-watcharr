@@ -83,6 +83,18 @@ public class ShipVerificationWorker : BackgroundService
             return;
         }
 
+        // Its request would only wait at the gate until the resume, holding this worker the whole
+        // time. Sitting the tick out leaves the ship's attempt count and backoff untouched instead.
+        if (scope.ServiceProvider.GetRequiredService<Ao3RateGate>().PausedSince is not null)
+        {
+            if (_scrapingEnabled != false)
+            {
+                _logger.LogWarning("Ship verification is paused: requests to AO3 are paused.");
+                _scrapingEnabled = false;
+            }
+            return;
+        }
+
         _scrapingEnabled = true;
 
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();

@@ -429,6 +429,12 @@ export const api = {
       body: JSON.stringify({ operatorContact }),
     }),
 
+  setAo3Paused: (paused: boolean) =>
+    request<ScrapingIdentity>('/admin/scraping/pause', {
+      method: 'PUT',
+      body: JSON.stringify({ paused }),
+    }),
+
   getDatabaseStatus: () => request<DatabaseStatus>('/admin/database'),
 
   updateDatabaseSettings: (provider: 'Sqlite' | 'Postgres', postgresConnectionString?: string) =>

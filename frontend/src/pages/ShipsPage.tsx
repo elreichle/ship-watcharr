@@ -286,6 +286,7 @@ export function ShipsPage() {
   // Assumed present until the server says otherwise, so a slow load never flashes a banner saying
   // scraping is broken at someone whose instance is fine.
   const [ao3LoginConfigured, setAo3LoginConfigured] = useState(true);
+  const [ao3PausedSince, setAo3PausedSince] = useState<string | null>(null);
   const [tagName, setTagName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -306,6 +307,7 @@ export function ShipsPage() {
       setShips(response.ships);
       setVerificationEnabled(response.verificationEnabled);
       setAo3LoginConfigured(response.ao3LoginConfigured);
+      setAo3PausedSince(response.ao3PausedSince);
     });
 
   useEffect(() => {
@@ -418,6 +420,17 @@ export function ShipsPage() {
               {user?.isAdmin
                 ? 'Add it under System → AO3.'
                 : 'Ask an admin of this instance to add one under System → AO3.'}
+            </p>
+          )}
+
+          {/* A choice an admin made, not a fault, so a warning rather than an error, and it
+              says what still works. */}
+          {ao3PausedSince !== null && (
+            <p className="callout callout-warning">
+              <strong>Requests to AO3 are paused</strong> since {formatDateTime(ao3PausedSince)}.
+              Nothing new is fetched or downloaded until they are resumed, but your library and
+              downloaded works are all still here to read.{' '}
+              {user?.isAdmin ? 'Resume them under System → AO3.' : 'An admin can resume them under System → AO3.'}
             </p>
           )}
 

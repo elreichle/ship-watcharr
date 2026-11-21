@@ -93,10 +93,15 @@ public record WatchedShipDto(
 /// non-admin whose library is empty is owed the reason, and this is the reason. Scraping is held
 /// while it is false — see <see cref="Services.Scraping.ScrapingGate"/>.
 /// </param>
+/// <param name="Ao3PausedSince">
+/// When an admin paused requests to AO3, or null when they are not paused. Readable by every user
+/// for the same reason as the login: it is why nothing new is arriving.
+/// </param>
 public record WatchedShipsDto(
     IReadOnlyList<WatchedShipDto> Ships,
     bool VerificationEnabled,
-    bool Ao3LoginConfigured);
+    bool Ao3LoginConfigured,
+    DateTimeOffset? Ao3PausedSince);
 
 /// <summary>
 /// A tag to start watching, exactly as AO3 renders it — <c>Donkey/Shrek (Shrek)</c>.

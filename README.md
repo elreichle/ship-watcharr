@@ -125,6 +125,14 @@ too, leave it out and the command lists every account.
 Five wrong passwords in a row lock an account for five minutes. While it is locked, even the right
 password is turned away, and the sign-in page says so. Wait it out, or reset it as above.
 
+### Pausing requests to AO3
+
+When AO3 is struggling and asking clients to back off, an admin can stop every request this
+instance makes to it under **System → AO3 → Pause requests**. The site stays up: the library,
+ratings, notes, downloaded works and links to AO3 all keep working. Ship checks and downloads wait
+where they are and carry on after **Resume requests**. The pause is saved in `app-data`, so it
+survives restarts and updates.
+
 ## Around the app
 
 | Where | What it is for |

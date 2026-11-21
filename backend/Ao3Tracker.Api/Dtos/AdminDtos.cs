@@ -38,6 +38,7 @@ public record UpdateDatabaseSettingsRequest(
 /// reason alone, so a screen explaining the User-Agent can say what is wrong with it without
 /// reprinting <paramref name="Problem"/>'s other blockers, which are about other things.
 /// </param>
+/// <param name="PausedSince">When an admin paused requests to AO3, or null when they are not paused.</param>
 public record ScrapingIdentityDto(
     string? UserAgent,
     string? OperatorContact,
@@ -50,7 +51,11 @@ public record ScrapingIdentityDto(
     string InstanceId,
     bool IdentityConfigured,
     bool Ao3LoginConfigured,
-    string? IdentityProblem);
+    string? IdentityProblem,
+    DateTimeOffset? PausedSince);
+
+/// <param name="Paused">True to pause every request to AO3, false to resume them.</param>
+public record UpdateAo3PauseRequest(bool Paused);
 
 public record UpdateScrapingIdentityRequest(
     /* Null or blank clears the override and reverts to the admin account's address. */
