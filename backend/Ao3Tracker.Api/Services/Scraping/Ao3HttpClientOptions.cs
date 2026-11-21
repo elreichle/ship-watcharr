@@ -66,6 +66,19 @@ public class Ao3HttpClientOptions
     public TimeSpan MaxThrottleHold { get; set; } = TimeSpan.FromHours(1);
 
     /// <summary>
+    /// How far a run of 429s in a row may stretch the hold past what AO3 asked for. Each 429 that
+    /// follows another with no answer in between doubles the hold (<see cref="Ao3RateGate.Hold"/>),
+    /// up to this; an ask that is itself longer is honoured as asked, up to
+    /// <see cref="MaxThrottleHold"/>.
+    ///
+    /// Thirty minutes because of what AO3 sent after its November 2026 outage: a 10-second
+    /// <c>Retry-After</c>, or none at all from Cloudflare, and another 429 for every request made
+    /// once it had passed. Taken verbatim, that kept this instance at about fifty refused requests an
+    /// hour for days. At the ceiling it is two.
+    /// </summary>
+    public TimeSpan ThrottleEscalationCeiling { get; set; } = TimeSpan.FromMinutes(30);
+
+    /// <summary>
     /// Fraction of the computed backoff added or subtracted at random on each retry (0.2 = ±20%).
     /// Prevents a struggling AO3 from receiving a perfectly synchronized retry volley from every
     /// client that failed at the same moment.

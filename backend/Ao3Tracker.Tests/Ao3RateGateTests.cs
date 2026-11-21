@@ -121,6 +121,119 @@ public class Ao3RateGateTests : IDisposable
     }
 
     [Fact]
+    public void Each_429_in_a_row_doubles_the_hold_up_to_the_ceiling()
+    {
+        // What AO3 sent after its November 2026 outage: ten seconds asked for, and another 429 for
+        // the request made once they had passed. Each is asked for after the last hold ran out, so
+        // the hold a 429 leaves is the whole of what it was given.
+        var time = new FakeClock();
+        var gate = NewGate(time, escalationCeiling: TimeSpan.FromMinutes(30));
+        var asked = TimeSpan.FromSeconds(10);
+
+        var holds = new List<TimeSpan>();
+        for (var i = 0; i < 10; i++)
+        {
+            gate.Hold(asked);
+            var held = gate.HeldUntil!.Value - time.GetUtcNow();
+            holds.Add(held);
+            time.Advance(held);
+        }
+
+        Assert.Equal(
+            new[] { 10, 20, 40, 80, 160, 320, 640, 1280, 1800, 1800 }.Select(s => TimeSpan.FromSeconds(s)),
+            holds);
+    }
+
+    [Fact]
+    public void An_answer_ends_the_run_of_429s()
+    {
+        var time = new FakeClock();
+        var gate = NewGate(time, escalationCeiling: TimeSpan.FromMinutes(30));
+        var asked = TimeSpan.FromSeconds(10);
+
+        gate.Hold(asked);
+        time.Advance(TimeSpan.FromMinutes(1));
+        gate.Hold(asked);
+        time.Advance(TimeSpan.FromMinutes(1));
+
+        gate.RecordAnswered();
+        gate.Hold(asked);
+
+        Assert.Equal(asked, gate.HeldUntil!.Value - time.GetUtcNow());
+    }
+
+    [Fact]
+    public void An_ask_past_the_ceiling_is_held_as_asked_and_still_capped()
+    {
+        // The ceiling bounds how far this instance stretches an ask, not how long AO3 may ask for.
+        var time = new FakeClock();
+        var gate = NewGate(time, escalationCeiling: TimeSpan.FromMinutes(30), maxThrottleHold: TimeSpan.FromHours(1));
+
+        gate.Hold(TimeSpan.FromMinutes(45));
+        Assert.Equal(TimeSpan.FromMinutes(45), gate.HeldUntil!.Value - time.GetUtcNow());
+
+        time.Advance(TimeSpan.FromMinutes(45));
+        gate.Hold(TimeSpan.FromHours(3));
+        Assert.Equal(TimeSpan.FromHours(1), gate.HeldUntil!.Value - time.GetUtcNow());
+    }
+
+    [Fact]
+    public async Task A_5xx_between_429s_does_not_end_the_run()
+    {
+        // A struggling archive has not stopped refusing this instance, so it is no reason to come
+        // back sooner. Only a real answer resets the count.
+        var ask = TimeSpan.FromMilliseconds(100);
+        _archive.Answers = _ => _archive.Received.Count switch
+        {
+            1 => Retryable(HttpStatusCode.TooManyRequests, ask),
+            2 => Retryable(HttpStatusCode.ServiceUnavailable, TimeSpan.Zero),
+            _ => Retryable(HttpStatusCode.TooManyRequests, ask),
+        };
+
+        var (client, gate) = Client(maxRetries: 0);
+
+        await client.GetAsync(Url);
+        await client.GetAsync(Url);
+        await client.GetAsync(Url);
+
+        var held = gate.HeldUntil!.Value - DateTimeOffset.UtcNow;
+        Assert.True(held > TimeSpan.FromMilliseconds(150), $"Held for {held}, which is the ask, not the ask doubled.");
+    }
+
+    [Fact]
+    public async Task An_OK_between_429s_ends_the_run()
+    {
+        var ask = TimeSpan.FromMilliseconds(400);
+        _archive.Answers = _ => _archive.Received.Count == 2
+            ? Ok()
+            : Retryable(HttpStatusCode.TooManyRequests, ask);
+
+        var (client, gate) = Client(maxRetries: 0);
+
+        await client.GetAsync(Url);
+        await client.GetAsync(OtherUrl);
+        await client.GetAsync(Url);
+
+        var held = gate.HeldUntil!.Value - DateTimeOffset.UtcNow;
+        Assert.True(held <= ask, $"Held for {held}, longer than the {ask} asked for after an answer.");
+    }
+
+    [Fact]
+    public async Task A_retry_gives_up_once_the_escalated_hold_passes_the_retry_ceiling()
+    {
+        // Each ask is within the ceiling on its own. The hold it escalates to is not, by the
+        // second, and a retry would sit in the gate for all of it — so the request stops there.
+        _archive.Answers = _ => Retryable(HttpStatusCode.TooManyRequests, TimeSpan.FromMilliseconds(200));
+
+        var (client, _) = Client(maxRetries: 3, maxRetryAfter: TimeSpan.FromMilliseconds(300));
+
+        var response = await client.GetAsync(Url).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
+        Assert.Equal(2, _archive.Received.Count);
+    }
+
+    [Fact]
     public async Task Waiters_are_served_by_priority_and_then_by_arrival()
     {
         var gate = NewGate();
@@ -213,6 +326,23 @@ public class Ao3RateGateTests : IDisposable
 
     private static Ao3RateGate NewGate() => new(
         Options.Create(new Ao3HttpClientOptions()), TimeProvider.System, NullLogger<Ao3RateGate>.Instance);
+
+    private static Ao3RateGate NewGate(
+        TimeProvider time, TimeSpan escalationCeiling, TimeSpan? maxThrottleHold = null) => new(
+        Options.Create(new Ao3HttpClientOptions
+        {
+            ThrottleEscalationCeiling = escalationCeiling,
+            MaxThrottleHold = maxThrottleHold ?? TimeSpan.FromHours(1),
+        }),
+        time,
+        NullLogger<Ao3RateGate>.Instance);
+
+    private sealed class FakeClock : TimeProvider
+    {
+        private DateTimeOffset _now = new(2026, 11, 21, 0, 0, 0, TimeSpan.Zero);
+        public override DateTimeOffset GetUtcNow() => _now;
+        public void Advance(TimeSpan by) => _now += by;
+    }
 
     private (RateLimitedAo3HttpClient Client, Ao3RateGate Gate) Client(
         int maxRetries = 3,

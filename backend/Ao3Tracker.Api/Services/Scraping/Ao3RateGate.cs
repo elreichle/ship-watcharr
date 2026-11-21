@@ -39,6 +39,7 @@ public sealed class Ao3RateGate
 
     private DateTimeOffset _lastSentAt = DateTimeOffset.MinValue;
     private DateTimeOffset _heldUntil = DateTimeOffset.MinValue;
+    private int _throttledInARow;
 
     public Ao3RateGate(IOptions<Ao3HttpClientOptions> options, TimeProvider time, ILogger<Ao3RateGate> logger)
     {
@@ -70,17 +71,27 @@ public sealed class Ao3RateGate
     /// instance until it is restarted. Past the cap the request that drew the ask still stops
     /// retrying (see <see cref="Ao3HttpClientOptions.MaxRetryAfter"/>), so the instance is not
     /// coming back early with the same request; it is coming back late with fewer.
+    ///
+    /// A 429 that follows another with no answer between them doubles the hold, to at most
+    /// <see cref="Ao3HttpClientOptions.ThrottleEscalationCeiling"/>. What AO3 asks for is a floor,
+    /// not a promise that asking again then will be welcome. After the November 2026 outage it
+    /// asked for ten seconds, refused the request made once they had passed, and went on like that
+    /// for days. <see cref="RecordAnswered"/> ends the run of 429s.
     /// </remarks>
     public void Hold(TimeSpan asked)
     {
-        var cap = _options.MaxThrottleHold;
-        var wait = asked > cap ? cap : asked;
-        if (wait <= TimeSpan.Zero) return;
+        if (asked <= TimeSpan.Zero) return;
 
-        var until = _time.GetUtcNow() + wait;
+        DateTimeOffset until;
+        TimeSpan wait;
+        int inARow;
 
         lock (_lock)
         {
+            inARow = ++_throttledInARow;
+            wait = Escalate(asked, inARow);
+
+            until = _time.GetUtcNow() + wait;
             if (until <= _heldUntil) return;
             _heldUntil = until;
         }
@@ -92,12 +103,50 @@ public sealed class Ao3RateGate
                 + "this instance will park itself for, and sending nothing to AO3 until {Until:u}.",
                 asked, wait, until);
         }
+        else if (wait > asked)
+        {
+            _logger.LogWarning(
+                "AO3 asked this instance to wait {Asked}, but that is {InARow} refusals in a row. Holding "
+                + "every outbound request for {Held}, until {Until:u}.",
+                asked, inARow, wait, until);
+        }
         else
         {
             _logger.LogWarning(
                 "AO3 asked this instance to wait {Asked}. Holding every outbound request until {Until:u}.",
                 asked, until);
         }
+    }
+
+    /// <summary>
+    /// Records that AO3 answered a request with something other than a 429 or a 5xx, which ends
+    /// any run of 429s: the next 429 is held for what it asks and no more.
+    /// </summary>
+    /// <remarks>
+    /// A 5xx leaves the count alone. It says the archive is struggling, not that it has stopped
+    /// refusing this instance, so it is no reason to come back sooner.
+    /// </remarks>
+    public void RecordAnswered()
+    {
+        lock (_lock) _throttledInARow = 0;
+    }
+
+    /// <summary>
+    /// What to hold for, given what AO3 asked and how many 429s in a row this one makes: the ask
+    /// doubled once per earlier 429 in the run, up to the escalation ceiling. An ask past that
+    /// ceiling is taken as asked. Everything is capped at
+    /// <see cref="Ao3HttpClientOptions.MaxThrottleHold"/>.
+    /// </summary>
+    private TimeSpan Escalate(TimeSpan asked, int inARow)
+    {
+        var ceiling = _options.ThrottleEscalationCeiling;
+        var wait = asked;
+
+        for (var i = 1; i < inARow && wait < ceiling; i++) wait *= 2;
+        if (wait > ceiling) wait = asked > ceiling ? asked : ceiling;
+
+        var cap = _options.MaxThrottleHold;
+        return wait > cap ? cap : wait;
     }
 
     /// <summary>

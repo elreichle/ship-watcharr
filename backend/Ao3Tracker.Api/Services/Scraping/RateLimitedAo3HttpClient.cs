@@ -395,7 +395,11 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
             var isRetryable = response.StatusCode == HttpStatusCode.TooManyRequests ||
                                (int)response.StatusCode >= 500;
 
-            if (!isRetryable) return (true, await read(response, ct), null, response.StatusCode, url);
+            if (!isRetryable)
+            {
+                _gate.RecordAnswered();
+                return (true, await read(response, ct), null, response.StatusCode, url);
+            }
 
             var asked = AskedToWaitFor(response.Headers.RetryAfter);
 
@@ -419,12 +423,17 @@ public class RateLimitedAo3HttpClient : IRateLimitedHttpClient
             // response is read as the failure it is, the caller records it, and the scheduler
             // defers the run to the hold recorded above. Coming back after the ceiling instead
             // would be asking again sooner than AO3 said.
-            if (asked > _options.MaxRetryAfter)
+            //
+            // The hold counts as well as the ask: after a run of 429s the gate holds for longer
+            // than AO3 asked (see Ao3RateGate.Hold), and a retry would sit in the gate for all of
+            // it, so it is measured the same way.
+            var held = _gate.HeldUntil is { } heldUntil ? heldUntil - _time.GetUtcNow() : TimeSpan.Zero;
+            if (asked > _options.MaxRetryAfter || held > _options.MaxRetryAfter)
             {
                 _logger.LogWarning(
-                    "AO3 answered {Url} with {StatusCode} and asked for {Asked}, past the "
-                    + "{Ceiling} this instance will hold a request for. Not retrying.",
-                    url, response.StatusCode, asked, _options.MaxRetryAfter);
+                    "AO3 answered {Url} with {StatusCode} and asked for {Asked}; with the instance held for "
+                    + "{Held}, that is past the {Ceiling} this instance will hold a request for. Not retrying.",
+                    url, response.StatusCode, asked, held, _options.MaxRetryAfter);
 
                 return (true, await read(response, ct), null, response.StatusCode, url);
             }
